@@ -1,0 +1,250 @@
+--LayerSet.lua
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+local CCCheckbox = require("FFSelftools/CCCheckbox")
+local SetLogic = require("Lobby/Set/SetLogic")
+
+local LayerSet=class("LayerSet",function(super, zindex)
+    return require("Lobby/LayerPopup").put(super, zindex)
+end)
+
+-- 大厅界面
+function LayerSet:initLobby()
+    self.bgsz = CCSizeMake(780, 480)
+    self:initSet(self.bgsz)
+    
+    -- 帐号
+    self:addAccountInfo(self.panel_bg, ccp(120, 400))
+
+    -- 音乐设置
+    self:addMusicCheck(self.panel_bg, {ccp(120, 300), ccp(120, 200)})
+    
+    -- 震动设置
+    self:addShakeCheck(self.panel_bg, ccp(120, 100)) 
+    
+    -- 摆牌设置
+    -- self:addOrderTypeCheck(self.panel_bg, {ccp(120, 100),ccp(300, 100),ccp(670, 100)}) 
+end
+
+
+-- 游戏界面
+function LayerSet:initGame()
+    self.bgsz = CCSizeMake(810, 440)
+
+    self:addPanelBg("common/popBg.png", self.bgsz)
+    self.panel_bg:setPositionY(self.panel_bg:getPositionY() - 20)
+    --设置标题
+    local title = loadSprite("common/title_setup.png")
+    title:setPosition(ccp(self.bg_sz.width / 2, self.bg_sz.height + 20))
+    self.panel_bg:addChild(title)
+    
+    -- 分割线
+    local line = loadSprite("common/horizLine.png")
+    line:setRotation(90)
+    line:setPosition(ccp(self.bgsz.width/2, self.bgsz.height / 2))
+    line:setScaleX((self.bgsz.height - 80)/line:getContentSize().width)
+    self.panel_bg:addChild(line)
+    
+    -- 提示文字
+    local tip = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 24)
+    tip:setColor(ccc3(255,0,0))
+    tip:setPosition(ccp(self.bgsz.width * 3 / 4, 42))
+    self.panel_bg:addChild(tip)
+    self.tip = tip
+
+    -- 音乐设置
+    self:addMusicCheck(self.panel_bg, {ccp(100, 325), ccp(100, 225)}, 170)
+    
+    -- 震动设置
+    self:addShakeCheck(self.panel_bg, ccp(100, 125), 170) 
+    
+    --设置语言
+    self:addLanguageCheck(self.panel_bg, ccp(500, 325), 170)
+
+    -- 摆牌设置
+    self:addOrderTypeCheck(self.panel_bg, {ccp(500, 225),ccp(700, 225),ccp(700, 125)})
+end
+
+-- 添加通用元素
+function LayerSet:initSet(bgsz)
+    self:addPanelBg("common/popBg.png", bgsz)
+    self.panel_bg:setPositionY(self.panel_bg:getPositionY() - 20)
+
+    --设置标题
+    local title = loadSprite("common/title_setup.png")
+    title:setPosition(ccp(self.bg_sz.width / 2, self.bg_sz.height + 20))
+    self.panel_bg:addChild(title)
+    
+    -- 分割线
+    for i = 1, 3 do
+        local line = loadSprite("common/horizLine.png")
+        line:setPosition(ccp(bgsz.width/2, (bgsz.height/4.8)*i+60))
+        line:setScaleX((bgsz.width-80)/line:getContentSize().width)
+        self.panel_bg:addChild(line)
+    end
+    
+    -- 提示文字
+    local tip = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 24)
+    tip:setColor(ccc3(255,0,0))
+    tip:setPosition(ccp(bgsz.width/2, 42))
+    self.panel_bg:addChild(tip)
+    self.tip = tip
+end
+
+-- 添加标题图片
+function LayerSet:createItemTitle(super, titleImg, poses) 
+    for i,v in ipairs(titleImg) do
+        local item =  loadSprite(v)
+        item:setPosition(poses[i])
+        super:addChild(item)
+    end
+end
+
+-- 添加radioBox
+function LayerSet:addRadioTypeBtn(super, poses, index, func) 
+    local clickTable = {}
+    for i,v in ipairs(poses) do
+        local btn = CCButton.put(super, CCButton.createCCButtonByFrameName("common/checkPoint1.png", 
+        "common/checkPoint1.png", "common/checkPoint1.png", function(tag, target)
+            for j,w in ipairs(clickTable) do
+                w:setEnabled(true)
+                w:getChildByTag(10):setVisible(false)
+            end
+
+            target:setEnabled(false)
+            target:getChildByTag(10):setVisible(true)
+            func(i)
+        end), v, self.btn_zIndex)
+
+        local btnSp =  loadSprite("common/checkPoint2.png")
+        btn:addChild(btnSp, 0, 10)
+        btnSp:setVisible(false)
+        table.insert(clickTable, btn)
+    end 
+
+    clickTable[index]:setEnabled(false)
+    clickTable[index]:getChildByTag(10):setVisible(true)
+	
+	return clickTable
+end
+
+-- 添加checkBox
+function LayerSet:addCheckBtn(pos, super, func, bcheck) 
+    --选择按钮
+    local spriteOff = loadSprite("common/switch1.png")
+    local spriteOn = loadSprite("common/switch2.png")
+    local hotsprite1 = loadSprite("common/checkBall.png")
+    local hotsprite2 = loadSprite("common/checkBall.png")
+
+    hotsprite1:setPosition(ccp(spriteOff:getContentSize().width*0.5 - 54, spriteOff:getContentSize().height * 0.5))
+    spriteOff:addChild(hotsprite1)
+    hotsprite2:setPosition(ccp(spriteOn:getContentSize().width*0.5 + 54, spriteOn:getContentSize().height * 0.5))
+    spriteOn:addChild(hotsprite2)
+
+    local check = CCCheckbox.create(spriteOff, spriteOn, true, true)
+    check:addHandleOfControlEvent(function(first, target, event)
+                local checked = 0
+                if target:isChecked() then
+                    checked = 1
+                end
+                func(checked)
+            end, CCControlEventTouchUpInside)
+    check:setTouchPriority(kCCMenuHandlerPriority - self.btn_zIndex)
+    check:setPosition(pos)
+    super:addChild(check, self.btn_zIndex)
+    check:setChecked(bcheck ~= 0)
+end
+
+
+-- 提示文字更新
+function LayerSet:checkTip()
+    local s = (SetLogic.getCardOrderType() ~= 1) and "双击桌面可以自动摆牌" or ""
+    if self.tip then self.tip:setString(s) end
+end
+
+
+-------------------------------------------------------------------------------
+
+
+-- 添加帐号信息
+function LayerSet:addAccountInfo(super, pos, space)
+    --账号
+    local titleImg = loadSprite("common/ttf_account.png")
+    titleImg:setPosition(pos)
+    super:addChild(titleImg)
+    
+    local ttfLab = CCLabelTTF:create(require("Lobby/Login/LoginLogic").UserInfo.NewNickName, AppConfig.COLOR.FONT_ARIAL, 32)
+    ttfLab:setColor(AppConfig.COLOR.MyInfo_Record_Label)    
+    ttfLab:setHorizontalAlignment(kCCTextAlignmentLeft)  
+    ttfLab:setAnchorPoint(ccp(0, 0.5))  
+    ttfLab:setPosition(ccp(pos.x+80, pos.y))
+    super:addChild(ttfLab)
+
+    space = space or 515
+    CCButton.put(super, CCButton.createCCButtonByFrameName("common/set_account_btn1.png", 
+            "common/set_account_btn2.png", "common/set_account_btn1.png", function()
+                self:hide()
+                require("LobbyControl").onFlashEnd(1)
+            end), ccp(pos.x+space, pos.y), self.btn_zIndex)       
+end
+
+-- 添加音乐/音效设置
+function LayerSet:addMusicCheck(super, poses, space) 
+    self:createItemTitle(super, {"common/ttf_music.png", "common/ttf_audio.png"}, poses)
+
+    space = space or 515
+    --音乐
+    self:addCheckBtn(ccp(poses[1].x + space, poses[1].y), super, function(cbCheck)
+        SetLogic.setGameCheckByIndex(1, cbCheck)
+        SetLogic.playGameGroundMusic()
+    end, SetLogic.getGameCheckByIndex(1))
+    --音效
+    self:addCheckBtn(ccp(poses[2].x + space, poses[2].y), super, function(cbCheck)
+        SetLogic.setGameCheckByIndex(2, cbCheck)
+    end, SetLogic.getGameCheckByIndex(2))
+end
+
+-- 添加震动设置
+function LayerSet:addShakeCheck(super, pos, space) 
+    local item =  loadSprite("common/ttf_shake.png")
+    item:setPosition(pos)
+    super:addChild(item)
+
+    space = space or 515
+    --震动
+    self:addCheckBtn(ccp(pos.x + space, pos.y), super, function(cbCheck)
+        SetLogic.setShakeCheck(cbCheck)
+        SetLogic.playGameGroundMusic()
+    end, SetLogic.getShakeCheck())
+end
+
+-- 添加摆牌设置
+function LayerSet:addOrderTypeCheck(super, poses)
+    local titleImg = {"common/ttf_card.png", "common/ttf_auto.png", "common/ttf_manual.png"}
+    self:createItemTitle(super, titleImg, poses)
+
+    poses = {ccp(poses[2].x - 80, poses[2].y), ccp(poses[3].x - 80, poses[3].y)}
+    local index = SetLogic.getCardOrderType()
+    self:checkTip()
+    self:addRadioTypeBtn(super, poses, index, function(cbtype)
+        SetLogic.setCardOrderType(cbtype)
+        self:checkTip()
+    end)
+end
+
+
+-------------------------------------------------------------------------------
+
+function LayerSet:returnLobby()
+    SetLogic.saveSet()
+    self:getParent().current_panel = nil
+    self:removeFromParentAndCleanup(true)
+end
+
+function LayerSet.put(super, zindex)
+    local layer = LayerSet.new(super, zindex)
+    layer:initLobby()
+    return layer
+end
+
+return LayerSet

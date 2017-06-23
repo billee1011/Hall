@@ -1,0 +1,288 @@
+--AppConfig.lua
+local AppConfig = {
+	
+}
+
+AppConfig.__index = AppConfig
+
+--[[ 测试房间定义，仅内部测试使用，
+外网IP：-1303149448， 内网IP：-570251072
+示例：
+AppConfig.testRoomServer = {
+    dwServerIP = -1303149448,
+    uServerPort = 8005,
+}
+]]
+
+AppConfig.testRoomServer = nil
+
+--服务信息
+AppConfig.Phone = "4006 619 828"
+AppConfig.QQ = "2351133900"
+
+AppConfig.WXMsg = {
+	App_Url = "http://download.5playing.com.cn/shaog/czmjdl.html?RoomData=",
+	App_Title = "【%s】邀请您下载韶关麻将",
+	App_Context = "正宗韶关麻将玩法，随时随地约上三五好友嗨起来！大家都在玩儿，就等你了"
+}
+
+AppConfig.DownRoot = "http://download.5playing.com.cn/shaog/czmjdl.html"
+AppConfig.apkDownLoadUrl = "http://download.5playing.com.cn/shaog/apps/sgmj.apk"
+
+if lanMode then
+	AppConfig.WXMsg.App_Url = "http://download.5playing.xin/download/czmjdl.html?RoomData="
+    AppConfig.DownRoot = "http://download.5playing.xin/download/czmjdl.html"
+    AppConfig.apkDownLoadUrl = "http://download.5playing.xin/download/apps/czmj.apk"
+end
+
+AppConfig.CONFINFO = {
+	--[[游戏id
+	郴州麻将 102
+	福城棋牌 101
+	跑得快   103
+	--]]
+	AppID = 102,
+    
+	--[[游戏name
+	郴州麻将 CZMJ
+	福城棋牌 FCQP
+	跑得快   PDK
+	--]]
+    AppName = "CZMJ",
+
+	PartnerID = 2,		
+
+	MobileIMEI = nil,	--手机imei
+	MobileName = nil,	--手机名称
+}
+
+--设备环境
+AppConfig.TARGETPLATFORM = CCApplication:sharedApplication():getTargetPlatform()
+AppConfig.ISWIN32 = AppConfig.TARGETPLATFORM == kTargetWindows
+AppConfig.ISIOS = AppConfig.TARGETPLATFORM == kTargetIphone or AppConfig.TARGETPLATFORM == kTargetIpad
+AppConfig.ISANDROID = AppConfig.TARGETPLATFORM == kTargetAndroid
+
+AppConfig.ISAPPLE = false --是否苹果上线
+AppConfig.APPLESTATU = 0  --控制开关 0未过审 1过审老协议 2过审新协议
+
+--设备参数
+AppConfig.REAL_SIZE = CCDirector:sharedDirector():getOpenGLView():getVisibleSize()
+AppConfig.WIN_SIZE = CCEGLView:sharedOpenGLView():getFrameSize()
+AppConfig.DESIGN_SIZE = {width = 1280, height = 720}
+AppConfig.SCREEN = {
+	REAL_WIDTH  = AppConfig.REAL_SIZE.width,
+	REAL_HEIGHT = AppConfig.REAL_SIZE.height,
+    
+	CONFIG_WIDTH  = AppConfig.DESIGN_SIZE.width,
+	CONFIG_HEIGHT = AppConfig.DESIGN_SIZE.height,
+	
+	MID_POS = ccp(AppConfig.DESIGN_SIZE.width / 2, AppConfig.DESIGN_SIZE.height / 2),
+	LEFTUP_POS = ccp(0, AppConfig.DESIGN_SIZE.height),
+	LEFTDOWN_POS = ccp(0, 0),
+	RIGHTUP_POS = ccp(AppConfig.DESIGN_SIZE.width, AppConfig.DESIGN_SIZE.height),
+	RIGHTDOWN_POS = ccp(AppConfig.DESIGN_SIZE.width, 0)
+}
+
+--声音
+AppConfig.SoundFileExtName = ".mp3"-- ".ogg"
+AppConfig.SoundFilePathName = "resources/music/"
+AppConfig.SOUND = {
+	bgHallMusic = AppConfig.SoundFilePathName .. "backgroundMusic" .. AppConfig.SoundFileExtName,
+	bgHallMusic = AppConfig.SoundFilePathName .. "rewardEffect" .. AppConfig.SoundFileExtName,
+	coinDorpEffect = AppConfig.SoundFilePathName .. "coindorp" .. AppConfig.SoundFileExtName,
+}
+
+--颜色
+AppConfig.COLOR = {
+	FONT_ARIAL = "Arial",
+	FONT_BLACK = "黑体",
+	FONT_ARIAL_BOLD = "Arial-BoldMT",
+
+	ColorLayer_Bg = ccc4(0, 0, 0, 190),
+
+	Text_Gold = ccc3(254,242,58),
+	Text_White = ccc3(255,255,255),
+	Text_Yellow = ccc3(255,90,0),
+
+	--对话框
+	Dialog_Msg_Text = ccc3(255,255,255),		-- 对话框的文字颜色
+
+	-- 主界面
+	Main_Name = ccc3(255,255,255),		-- 左上角名字颜色
+	Main_Version = ccc3(140,141,145),	-- 版本号颜色
+	Main_Gold = ccc3(240,201,38),		-- 金币颜色
+	Main_Diamond = ccc3(69,199,223),	-- 钻石颜色
+
+	--登录界面
+	Login_Error_Lab = ccc3(250,55,55),	--错误提示
+	Login_Tip_Lab = ccc3(255,255,255),	--操作提示
+	Login_Sms_Tip_Lab = ccc3(80,80,80),	--验证码
+
+	--个人信息
+	MyInfo_Record_Label = ccc3(84,42,9),	--游戏记录
+
+	--保险柜界面
+	Safebox_Label = ccc3(197,220,254),
+	Safebox_Alert = ccc3(251,54,62),
+	Safebox_Tips = ccc3(181,181,191),
+	Safebox_Edit = ccc3(55,78,130),
+	SafeBox_Button = ccc3(163,92,0),
+
+	--福利界面
+	Daily_Tip = ccc3(255,127,80),-- 内容
+
+	-- 奖励界面
+	Reward_Title = ccc3(255,255,255),	-- 标题
+	Reward_Count = ccc3(255,11,11),	-- 领取数量
+	Reward_Message = ccc3(255,255,255),-- 内容
+}
+
+--提示文字
+AppConfig.TIPTEXT = {
+	Version_Msg  = "版本号:%s\n粤B2-20160555\n粤网文[2016]2467-476",
+    
+	Tip_NewFunction_Msg  = "即将开放，敬请期待",
+
+	Tip_FriendDiamond_Msg  = "注：30分钟内游戏未正式开始，系统将自动解散并退还钻石",
+    
+	Tip_FriendDiamond_Msg_New  = "注：钻石在开始游戏后扣除，\n第一局结算前解散退还钻石！",
+
+	Tip_GameRecord_Msg  = "您尚未参与此游戏，信息为空",
+	Tip_Service_Msg = "您好，我是客服小喵，请问有什么需要咨询呢？",
+	Tip_HelpMoney_Msg = "恭喜您已领取救济金",
+    
+	Tip_TGCode_Msg = "请填写推荐人邀请码，获得赠送钻石8颗\n商城充值最多赠送82%",
+	Tip_TGCode_Msg2 = "　　请认真填写您本人的真实信息，以提高您的申请通过率。",
+    Tip_TGCode_Msg3 = "　　当您满足以下条件后，可以填写 “申请代理人”，或者直接微信联系我们咨询代理事宜。",
+    Tip_TGCode_Msg4 = "一、热爱棋牌，会玩微信，有自己的棋牌游戏相关朋友圈\n二、能严格保证在推广期间不违反国家相关法律法规，并保证您的用户不涉及违法违规行为",
+    Tip_TGCode_Msg5 = "联系方式\n微信：fcqp001",
+    Tip_TGCode_Msg6 = "您的代理申请未通过审核，\n达到条件后可再次申请！\n未通过原因：%s",
+    Tip_TGCode_Msg7 = "　　当您满足以下条件后，可以联系您的群主或推荐人咨询申请成为代理。",
+    
+	Tip_Web_Error = "服务器请求失败，请确认网络再试",
+	Tip_Pwd_Error = "密码错误：请输入6-12位英文、数字",
+	Tip_Account_Error = "账户错误：请输入6-16位英文，或英文数字组合",
+	Tip_Mobile_Error = "手机号码错误：请输入11位有效手机号",
+	Tip_Name_Error = "昵称错误：请输入1-10有效文字",
+
+	Tip_Login_Pwd_Title = "输入密码：",
+	Tip_Login_Account_Title = "输入账户：",
+	Tip_Login_Pwd_Hind = "账户密码",
+	Tip_Login_Account_Hind = "账户/手机号",
+
+	Tip_Register_Mobile_Title = "手机号：",
+	Tip_Register_Mobile_Hind = "账户所绑定手机号",
+	Tip_Register_Account_Title = "输入账户：",
+	Tip_Register_Account_Hind = "6-16位英文，或英文数字组合",
+	Tip_Register_Pwd_Title = "新密码：",
+	Tip_Register_Pwd_Hind = "6-12位英文、数字",
+	Tip_Register_RsetPwd_Title = "确认密码：",
+	Tip_Register_RsetPwd_Hind = "再输入一次",
+	Tip_Register_Sms_Title = "验证码：",
+	Tip_Register_Sms_Hind = "短信验证码",
+
+	Tip_ACOUNT_FOBID = "对不起，您的账号因违规处于封禁状态\n，请使用其他帐号或寻求客服帮助",
+
+	Tip_Bind_Mobil = "恭喜你已经完成手机绑定",
+	Tip_Cell_Sms = "短信验证码已发送",
+	Tip_Reset_Pwd = "恭喜你已经完成密码重设",
+
+	--好友
+	Tip_Add_FriendOK = "您的好友请求已发送",
+
+	--个人中心
+	Tip_Info_Reset_Name = "首次修改免费",
+	Tip_Info_Error_Photo = "对不起，您传入的图片尺寸过大导致失败，请先进行裁剪或者更换其他图片",
+
+	--保险柜
+	Tip_Set_BankPwd_Hind = "6位数字密码",
+
+	--好友卓提示
+	Tip_Diamond_Insufficient = "您钻石数量不足",
+
+	--好友卓提示
+	Tip_Diamond_Tip = "您的钻石剩余数量不足, 是否立即前往商城补充?",
+	Tip_Diamond_Tip2 = "您的当前余额不足 %d 钻石, 是否立即前往商城补充?",
+
+	--购买提示
+    Tip_GetPayList_failed  = "获取充值列表失败，请稍候重试",
+	Tip_GetPayOrder_failed = "获取订单号失败，请稍候重试",
+}
+
+AppConfig.iapppay_result = {
+    [0] = "支付成功",
+    [2] = "用户取消",
+    [3] = "支付失败",
+    [4] = "支付中",
+    [4242] = "Init传入的appid和 下单参数中的appid不一致",
+    [1010] = "用户操作过于频繁",
+    [2020] = "用户登录令牌验证失败",
+    [4210] = "商家状态异常",
+    [4230] = "应用信息不存在、应用状态异常",
+    [4240] = "商品信息不存在、商品状态异常、计费代码不存在、计费代码状态异常",
+    [4100] = "商户订单签名验证失败",
+    [4112] = "用户已订购该业务，不需要支付.",
+    [509]  = "商户订单号重复",
+    [4101] = "商户订单数据异常",
+    [4111] = "支付金额为0，不需要支付",
+    [4102] = "没有可用支付方式",
+    [1001] = "应用发起的请求签名验证失败",
+    [1002] = "请求参数错误",
+    [2001] = "登录令牌已过期",
+    [2002] = "登录令牌认证失败",
+    [3001] = "商户订单号已存在",
+    [3002] = "商品数据异常",
+    [3003] = "支付金额为0，不需要支付",
+    [3004] = "用户存在有效契约，不需要支付",
+    [4001] = "订单正在处理",
+    [5001] = "用户不存在有效契约",
+    [5002] = "用户契约已过期",
+    [5003] = "用户契约已过完",
+    [9999] = "系统繁忙，请稍后再试",
+}
+
+-- 语言设置-与快捷聊天键值对应
+AppConfig.language = {"mandarin", "lan_chenzhou"}
+
+-- 快捷聊天
+AppConfig.quickChat = {
+    mandarin = {
+        "快点出牌，不要发梦",
+        "不要走，今天打通宵",
+        "你的牌打得太好了",
+        "上碰下自摸，麻将一首歌",
+        "不好意思接个电话",
+        "今天困了，明天再约",
+        "一把回到解放前",
+        "老是断线急死宝宝了",
+        "打牌讲文明，千万莫骂人",
+    },
+    lan_chenzhou = {
+        "快点出牌，不要发梦",
+        "不要走，今天打通宵",
+        "屌古嘀，打不赢你们",
+        "上碰下自摸，麻将一首歌",
+        "不好意思接个电话",
+        "今天困了，明天再约",
+        "一把回到解放前",
+        "老是断线急死宝宝了",
+        "打牌讲文明，千万莫骂人",
+    },
+}
+
+AppConfig.ImgFilePathName = "resources/pic/"
+
+AppConfig.ImgFilePath = "resources/images/"
+
+function AppConfig.init()  
+    local jni= CJni:shareJni()
+    --AppConfig.CONFINFO.PartnerID = jni:getPartnerID()
+    AppConfig.CONFINFO.MobileIMEI = jni:getIMEI()
+    AppConfig.CONFINFO.MobileName = jni:getDeviceName()
+
+    if AppConfig.ISIOS then
+    	AppConfig.SoundFileExtName = ".mp3"
+    end
+end
+
+return AppConfig

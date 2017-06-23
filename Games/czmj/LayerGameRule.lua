@@ -1,0 +1,115 @@
+--LayerGameRule.lua
+local AppConfig = require("AppConfig")
+local CommonInfo = require("czmj/GameDefs").CommonInfo
+local CCButton = require("FFSelftools/CCButton")
+
+local LayerGameRule=class("LayerGameRule",function()
+    return CCLayerColor:create(AppConfig.COLOR.ColorLayer_Bg)
+end)
+
+function LayerGameRule:hide() 
+    require("Lobby/Common/AnimationUtil").spriteScaleHideAction(self.panel_bg, function()
+        self:setVisible(false)
+        self:setTouchEnabled(false)
+        if self.close_func then
+            self.close_func()
+        end
+    end)
+end
+
+function LayerGameRule:show() 
+    self:setVisible(true)
+    require("Lobby/Common/AnimationUtil").spriteScaleShowAction(self.panel_bg, function()
+        self:setTouchEnabled(true)
+
+        self:addRuleMsg()
+
+        if show_func then
+            self.show_func()
+        end
+    end)    
+end
+
+function LayerGameRule:init(func) 
+    self.close_func = func
+    self.btn_zIndex = self.layer_zIndex + 1
+
+    self.panel_bg =  loadSprite("common/popBg.png", true)
+    self.bg_sz = CCSizeMake(1015, 612)
+    self.panel_bg:setPreferredSize(self.bg_sz)
+    self.panel_bg:setPosition(ccp(CommonInfo.View_Width / 2, CommonInfo.View_Height / 2 - 40))
+    self:addChild(self.panel_bg)
+
+    local innerBoarder = loadSprite("common/popBorder.png", true)
+    innerBoarder:setPreferredSize(CCSizeMake(920,512))
+    innerBoarder:setPosition(ccp(self.bg_sz.width / 2, self.bg_sz.height / 2))
+    self.panel_bg:addChild(innerBoarder)
+
+    --标题
+    local titleSp = loadSprite("czmj/title_rule.png")
+    titleSp:setPosition(ccp(self.bg_sz.width / 2, self.bg_sz.height+20))
+    self.panel_bg:addChild(titleSp)
+
+    --关闭按钮 
+    CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("common/btnClose.png", 
+            "common/btnClose2.png", "common/btnClose.png", function()
+                self:hide()
+            end), ccp(self.bg_sz.width - 20, self.bg_sz.height - 20), self.btn_zIndex)
+
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self:registerScriptTouchHandler(onTouch,false,kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self:setTouchEnabled(true)
+
+    --提示信息
+    self.panel_bg.tipLab = CCLabelTTF:create("正在加载游戏规则，请稍候...", AppConfig.COLOR.FONT_ARIAL, 26)
+    self.panel_bg.tipLab:setColor(ccc3(74, 25, 8))
+    self.panel_bg.tipLab:setPosition(self.bg_sz.width / 2, self.bg_sz.height / 2)
+    self.panel_bg:addChild(self.panel_bg.tipLab) 
+end
+
+function LayerGameRule:addRuleMsg() 
+    if self.panel_bg.scroll then
+        return
+    end
+
+    self:runAction(CCCallFunc:create(function()
+        self.panel_bg.scroll =  require("Lobby/Common/LobbyScrollView").createCommonScroll(
+            CCSizeMake(852, 480), ccp(80, 60), kCCMenuHandlerPriority - self.btn_zIndex)
+        self.panel_bg:addChild(self.panel_bg.scroll)
+
+        local RuleTxt = require(CommonInfo.Code_Path.."GameRuleText")
+        for k, v in ipairs(RuleTxt) do
+            self:addLab(self.panel_bg.scroll, v[1], v[2])
+        end
+
+        self.panel_bg.scroll:resetCommonScroll()
+
+        self.panel_bg.tipLab:removeFromParentAndCleanup(true)
+    end))   
+end
+
+function LayerGameRule:addLab(scroll, msg, ftsz)
+    local ttfLab = CCLabelTTF:create(msg, AppConfig.COLOR.FONT_ARIAL, ftsz)
+    ttfLab:setHorizontalAlignment(kCCTextAlignmentLeft)
+    ttfLab:setDimensions(CCSizeMake(852, 0))
+    ttfLab:setAnchorPoint(ccp(0, 0))
+    ttfLab:setColor(ccc3(74, 25, 8))
+    scroll:addCommonScrollItemBottom(ttfLab) 
+
+    local ttfsapce = CCLabelTTF:create(" ", AppConfig.COLOR.FONT_ARIAL, ftsz / 2)
+    scroll:addCommonScrollItemBottom(ttfsapce)       
+end
+
+function LayerGameRule.put(super, zindex, func)
+    local layer = LayerGameRule.new()
+    super:addChild(layer, zindex)
+    layer.layer_zIndex = zindex
+    layer:init(func)
+    return layer
+end
+
+return LayerGameRule

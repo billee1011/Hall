@@ -1,0 +1,444 @@
+--SpriteGameCard.lua
+local CCButton = require("FFSelftools/CCButton")
+local CommonInfo = require("sgmj/GameDefs").CommonInfo
+local AppConfig = require("AppConfig")
+local GameLogic = require("sgmj/Game/GameLogic")
+local SpriteGameCard=class("SpriteGameCard",function()
+        return CCSprite:create()
+    end)
+
+function SpriteGameCard:initMyHand(index)
+    --背景
+    self.card_bg = loadSprite("mjBack/mjbg_100.png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(0,0))
+    self:addChild(self.card_bg,0,10)
+
+    self.sprite_card = loadSprite(string.format("mjValue/lc%x.png", index))
+    self.sprite_card:setPosition(ccp(self.base_size.width/2,self.base_size.height/2 - 5))
+    self:addChild(self.sprite_card,1,20)
+
+    self.card_state = 0
+    self.card_index = index
+    self:setContentSize(self.base_size)
+    self:setAnchorPoint(ccp(0,0))
+
+   -- if index == 0x35 then
+    if GameLogic:getInstance():isSpecialCard(index) then
+        --增加赖子标示
+        self.laizi_mark = loadSprite("mjValue/markLaizi.png")
+        self.card_bg:addChild(self.laizi_mark,2,30)
+        self.laizi_mark:setPosition(ccp(self.base_size.width - 18, self.base_size.height - 35))
+    end
+end
+
+--获取中心点
+function SpriteGameCard:getCenterPos()
+    local pos = ccp(self.sprite_card:getPosition())
+    pos = self:convertToWorldSpace(pos)
+
+    return pos
+end
+
+function SpriteGameCard:updataValue(index)
+	if self.sprite_card then
+		self.sprite_card:removeFromParentAndCleanup(true)
+	end
+    --if self.card_index == 0x35 then
+	if GameLogic:getInstance():isSpecialCard(self.card_index) then
+		if self.laizi_mark then
+			self.laizi_mark:removeFromParentAndCleanup(true)
+	    end
+    --elseif index == 0x35 then
+	elseif GameLogic:getInstance():isSpecialCard(index) then
+        self.laizi_mark = loadSprite("mjValue/markLaizi.png")
+        self.card_bg:addChild(self.laizi_mark,2,30)
+        self.laizi_mark:setPosition(ccp(self.base_size.width - 18, self.base_size.height - 35))
+    end
+
+    self.card_index = index
+    self.sprite_card = loadSprite(string.format("mjValue/lc%x.png", index))
+    self.sprite_card:setPosition(ccp(self.base_size.width/2,self.base_size.height/2 - 5))
+    self:addChild(self.sprite_card,1,20)
+end
+
+function SpriteGameCard:addCardMask(color)
+    local mask = CCLayerColor:create(color)
+    mask:setContentSize(CCSizeMake(self.base_size.width - 2, self.base_size.height))
+    mask:setPosition(ccp(2, 0))
+    self:addChild(mask)
+end
+
+
+--点击卡牌
+function SpriteGameCard:onBtnCard(state)
+    local space = 30
+
+	local stateChange = state ~= self.card_state
+    self.card_state = state or self.card_state + 1
+    --牌的状态
+    if self.card_state == 1 then
+        --弹起
+        self:setScale(5 / 4)
+        self:setPositionY(self:getPositionY() + space)
+    elseif self.card_state == 0 then
+        --返回
+        self:setScale(1)
+        self:setPositionY(self:getPositionY() - space)
+    end
+	
+	if stateChange then -- 牌的状态发生变化
+		require(CommonInfo.Logic_Path):getInstance():onCardStateChange(self.card_state,self.card_index)
+	end
+end
+
+function SpriteGameCard:getCardState()
+    return self.card_state
+end
+
+--手牌打牌动画
+function SpriteGameCard:sendCardAnima(func, pos)
+    local speed = 1
+
+    local array = CCArray:create()
+    array:addObject(CCScaleTo:create(0, 1))
+    array:addObject(CCMoveTo:create(0.1 * speed, pos))
+    --array:addObject(CCCallFunc:create(function() cclog("xxxxxxxxxxx") end))
+    array:addObject(CCDelayTime:create(0.8 * speed))
+
+    array:addObject(CCScaleTo:create(0.05 * speed, 0.6))
+
+    array:addObject(CCCallFunc:create(function() func() end))
+    --array:addObject(CCOrbitCamera:create(2,1, 0, 270, 90, 0, 0))func()self:removeFromParentAndCleanup(true)
+
+    self:runAction(CCSequence:create(array))    
+end
+
+function SpriteGameCard.createHand(index)
+    local sprite = SpriteGameCard.new()
+    sprite:initMyHand(index)
+    return sprite
+end
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+
+function SpriteGameCard:initMyCardBack()
+    --背景
+    local cardBg = loadSprite("mjBack/mjbg_121.png")
+    self.base_size = cardBg:getContentSize() 
+    cardBg:setAnchorPoint(ccp(0,0))
+    self:addChild(cardBg,0,10)
+end
+
+--自己显示牌被的牌
+function SpriteGameCard.createMyCardBack()
+    local sprite = SpriteGameCard.new()
+    sprite:initMyCardBack()
+
+    return sprite
+end
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+function SpriteGameCard:initHorizontalPassed(index, ctype,dirct)-- 这里是碰牌横放的牌
+    local xpos = {2, 2, 1, 0, 0, 0, 0, -1, -2, -2, -2, -2}
+    local yskew = {17, 14, 11, 9, 7, 4, 3, 2, -1, -2, -3, -5}
+    self.card_bg = loadSprite("mjBack/bmjpasshorbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(1,0))
+    self:addChild(self.card_bg,0,10)
+
+    self.sprite_card = loadSprite(string.format("mjValue/lc%x.png", index))
+    self.sprite_card:setPosition(ccp(-self.base_size.width/2 + xpos[ctype], self.base_size.height/2 + 9))
+    self.sprite_card:setSkewY(yskew[ctype])
+    self.sprite_card:setRotation(-90)
+    self.sprite_card:setScale(0.6)
+    self:addChild(self.sprite_card,1,20)
+	
+	--[[if dirct and dirct >= 1 and dirct <= 3 then 
+		--方向指示箭头 指示是碰谁的牌
+		local rotation = {89,-4,-90}
+		self.directArrowSp = loadSprite("sgmj/DirectArrow.png")
+		self.card_bg:addChild(self.directArrowSp)
+		self.directArrowSp:setRotation(rotation[dirct])
+		--self.directArrowSp:setScale(0.8)	
+		self.directArrowSp:setPosition(ccp(self.base_size.width/2 , self.base_size.height + 14))
+	end]]
+	
+    self.card_index = index
+    self.card_type = ctype
+    local zindexs = {1, 2, 3, 5, 6, 7, 9, 10, 11, 10, 9, 8}
+    local spaces = {-30, -27, -24, -20, -16, -14, -8, -6, -7, -8, -8, -5}
+
+    return ccp(-self.base_size.width - spaces[ctype] / 1.5, 0), zindexs[ctype]
+end
+
+function SpriteGameCard:initVerticalPassed(index, ctype) --自己竖的牌
+    local xpos = {4, 4, 3, 3, 2, 2, 2, 1, 1, 0, 0, 0, -1, -1, -1, -1, 4}
+    local xskew = {-16, -14, -13, -11, -10, -8, -7, -5, -4, -3, -2, 0, 0, 1, 2, 4, -16}
+    self.card_bg = loadSprite("mjBack/bmjpassbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(1,0))
+    self:addChild(self.card_bg,0,10)
+
+    self.sprite_card = loadSprite(string.format("mjValue/sc%x.png", index))
+    self.sprite_card:setPosition(ccp(-self.base_size.width/2 + xpos[ctype], self.base_size.height/2 + 8))
+    self.sprite_card:setSkewX(xskew[ctype])
+    self:addChild(self.sprite_card,0,20)
+
+    self.card_index = index
+    self.card_type = ctype
+    
+    local zindexs = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 12, 0}
+                                                                        ----
+    local spaces = {-38, -35, -31, -28, -26, -20, -18, -15, -11, -9, -6, -6, -5, -11, -12, -15, -38}
+    return  ccp(-self.base_size.width - spaces[ctype] / 1.5, 0), zindexs[ctype]
+end
+
+function SpriteGameCard:initVerticalBack(ctype)
+    self.card_bg = loadSprite("mjBack/bmjpassback_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(1,0))
+    self:addChild(self.card_bg,0,10)
+
+    self.sprite_card = CCSprite:create()
+    self:addChild(self.sprite_card)
+
+    self.card_index = 0
+    self.card_type = ctype
+    
+    local zindexs = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 12, 0}
+                                                                        ----
+    local spaces = {-36, -36, -32, -30, -26, -20, -18, -15, -11, -7, -7, -5, -10, -9, -14, -15}
+    return ccp(-self.base_size.width - spaces[ctype] / 1.5, 0), zindexs[ctype]
+end
+
+function SpriteGameCard:initWallCard(ctype)
+    --[[local space, zindex = self:initVerticalBack(12 - ctype)
+    self:setScale(0.85)
+    space.x = -space.x * 0.85]]
+    self.card_type = ctype
+    self.card_bg = loadSprite("mjBack/bmjcardback_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(0.5,0.5))
+    self:addChild(self.card_bg,0,10)
+
+    local spaces = {ccp(59, 0), ccp(59, 0), ccp(59, 0), ccp(59, 0),ccp(59, 0), 
+        ccp(59, 0), ccp(59, 0)}
+
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), ctype
+end
+
+function SpriteGameCard.createHorizontalPassed(index, ctype, dirct)
+    local sprite = SpriteGameCard.new()
+    local space, zIndex = sprite:initHorizontalPassed(index, ctype,dirct)
+    sprite.card_dirct = dirct
+    return sprite, space, zIndex
+end
+
+function SpriteGameCard.addHorizontalPassed(item)
+    local index, ctype = item.card_index, item.card_type
+    local sprite = SpriteGameCard.new()
+    local space = sprite:initHorizontalPassed(index, ctype)
+    sprite.card_dirct = item.card_dirct
+    local spaces = {-13, -12, -9, -8, -6, -4, -3, -1, -1, 0, 1, 2}
+
+    return sprite, ccp(spaces[ctype], 40), item:getZOrder() - 1
+end
+
+function SpriteGameCard.createVerticalPassed(index, ctype)
+    local sprite = SpriteGameCard.new()
+    local space, zIndex = sprite:initVerticalPassed(index, ctype)
+    return sprite, space, zIndex
+end
+
+function SpriteGameCard.createVerticalBack(ctype)
+    local sprite = SpriteGameCard.new()
+    local space, zIndex = sprite:initVerticalBack(ctype)
+    return sprite, space, zIndex
+end
+
+function SpriteGameCard.createWallCard(ctype, index)
+    local sprite, tempType = SpriteGameCard.new(), ctype
+    ctype = math.abs(ctype)
+    local space, zIndex = sprite:initWallCard(ctype)
+    zIndex = 15 - index
+    if tempType < 0 then
+        sprite.card_bg:setFlipX(true)
+        zIndex = 8 + tempType
+    end
+
+    return sprite, space, zIndex, index % 2 + 1
+end
+
+-----------------------------------------------------------------------------------------------------------------------------
+
+function SpriteGameCard:putDownCardAnima(pos, func)
+    local array = CCArray:create()
+    array:addObject(CCMoveTo:create(0.1, pos))
+    array:addObject(CCCallFunc:create(function() func() end))
+    self:runAction(CCSequence:create(array))    
+end
+
+function SpriteGameCard:downCardAnima(pos, scale, func)
+    local array = CCArray:create()
+
+    local movearray = CCArray:create()
+    movearray:addObject(CCMoveTo:create(0.1, pos))
+    movearray:addObject(CCScaleTo:create(0.1, scale[1], scale[2]))
+    array:addObject(CCSpawn:create(movearray))
+
+    array:addObject(CCCallFunc:create(function() func() end))
+    self:runAction(CCSequence:create(array))    
+end
+
+function SpriteGameCard:removeDownCardAnima()
+    self:removeFromParentAndCleanup(true)   
+end
+
+
+-----------------------------------------------------------------------------------------------------------------------------
+function SpriteGameCard:initNorthHand()
+    --背景 "base_100.png"
+    self.card_bg = loadSprite("mjBack/mjbg_200.png")
+    self.base_size = self.card_bg:getContentSize()
+    self.card_bg:setAnchorPoint(ccp(1,0))
+
+    self.card_front = loadSprite("mjBack/mjbg_100.png")
+    self.card_front:setVisible(false)
+    self.card_front:setScale(0.45)
+    self.card_front:setAnchorPoint(ccp(1,0))
+
+    self:addChild(self.card_bg,0,10)
+    self:addChild(self.card_front)
+end
+
+--自己显示牌被的牌
+function SpriteGameCard.createNorthHand()
+    local sprite = SpriteGameCard.new()
+    sprite:initNorthHand()
+
+    return sprite
+end
+
+--牌被转换为正面
+function SpriteGameCard:changeCardToFront(index, pos)
+    local sprite_card = loadSprite(string.format("mjValue/lc%x.png", index))
+    local sz = self.card_front:getContentSize()
+    sprite_card:setPosition(ccp(sz.width/2, sz.height/2 - 6))
+    self.card_front:addChild(sprite_card,1,20)
+
+    self.card_bg:setVisible(false)
+    self.card_front:setVisible(true)
+    self:setPosition(pos)  
+    self.card_front:setScale(1) 
+end
+
+function SpriteGameCard:sendNorthCardAnima(func, index, pos)
+    local speed = 1
+
+    local sprite_card = loadSprite(string.format("mjValue/lc%x.png", index))
+    local sz = self.card_front:getContentSize()
+    sprite_card:setPosition(ccp(sz.width/2, sz.height/2 - 6))
+    self.card_front:addChild(sprite_card,1,20)
+
+    local array = CCArray:create()
+
+    --移动翻转
+    local movearray = CCArray:create()
+    local flipaction = CCSequence:create(require("Lobby/Common/AnimationUtil")
+                                .FlipCardAction(self.card_bg, self.card_front, 0.05 * speed))
+    movearray:addObject(CCMoveTo:create(0.1 * speed, pos))
+    movearray:addObject(flipaction)
+    array:addObject(CCSpawn:create(movearray))
+
+    --显示牌
+    array:addObject(CCDelayTime:create(0.7 * speed))
+
+    --压缩牌牌
+    array:addObject(CCCallFunc:create(function() func() end))
+
+    self:runAction(CCSequence:create(array))    
+end
+
+function SpriteGameCard:moveSpace()
+    local fscale = math.pow(0.96, self.card_type)
+    local zeroPos = ccp(self:getPosition())
+
+    self:setPosition(ccp(zeroPos.x - 8 * fscale, zeroPos.y - 30 * fscale))
+end
+
+function SpriteGameCard:weaveSpace()
+    return ccp(-13, 0)
+end
+
+--开场整理牌动画
+function SpriteGameCard.getHandPaisAnima(super, space, backfunc, sordfunc)
+    local scese = 2
+
+    for i,v in ipairs(super.card_uis) do
+        if i > 4 then
+            v:setVisible(false)
+        end
+    end
+    local count = #super.card_uis
+
+    --抓牌
+    local function getFourCard(start)
+        local maxindex = start + 4
+        if start >= 12 then
+            maxindex = count
+        end
+
+        for i=start + 1, maxindex do
+            posy = super.card_uis[i]:getPositionY()
+            super.card_uis[i]:setPositionY(posy + space)
+            super.card_uis[i]:setVisible(true)
+            super.card_uis[i]:runAction(CCMoveBy:create(0.1 * scese, ccp(0, -space)))
+        end 
+    end
+
+    --整理牌
+    local function sortCards()
+        if sordfunc then
+            sordfunc()
+        end
+        require("Lobby/Set/SetLogic").playGameEffect(AppConfig.SoundFilePathName.."daocard_effect"..AppConfig.SoundFileExtName)        
+        super:addSordDownPais(count)
+
+        --显示牌
+        local array = CCArray:create()
+        array:addObject(CCDelayTime:create(0.3 * scese))
+        array:addObject(CCCallFunc:create(function() 
+            require("Lobby/Set/SetLogic").playGameEffect(AppConfig.SoundFilePathName.."licard_effect"..AppConfig.SoundFileExtName)
+            backfunc()
+        end))
+        
+        super:runAction(CCSequence:create(array))    
+    end
+
+    --显示牌
+    local array = CCArray:create()
+    array:addObject(CCDelayTime:create(0.3 * scese))
+    array:addObject(CCCallFunc:create(function() getFourCard(4) end))
+    array:addObject(CCDelayTime:create(0.3 * scese))
+    array:addObject(CCCallFunc:create(function() getFourCard(8) end))
+    array:addObject(CCDelayTime:create(0.3 * scese))
+    array:addObject(CCCallFunc:create(function() getFourCard(12) end))
+    array:addObject(CCDelayTime:create(0.5 * scese))
+    array:addObject(CCCallFunc:create(function() sortCards() end))
+
+    super:runAction(CCSequence:create(array))  
+end
+
+--获取中心点
+function SpriteGameCard.getCardCenterPos(sp)
+    local pos = ccp(sp.sprite_card:getPosition())
+    pos = sp:convertToWorldSpace(pos)
+
+    return pos
+end
+
+ return SpriteGameCard

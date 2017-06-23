@@ -1,0 +1,490 @@
+
+--扑克逻辑类定义
+local Action = class("Action")
+--扑克逻辑类对象实例化
+function Action.create()
+    local action = Action.new()
+    return action
+end
+
+--头像位置
+local PLAYER_HEARD_POS = {ccp(100.5,670.5), ccp(100.5,46.5), ccp(1180.5,670.5), ccp(1180.5,46.5)}
+--出牌位置
+local CATCHCARD_SHOW_POS = {ccp(260, 450),ccp(260, 290), ccp(1020, 450),ccp(1020, 290)}
+--抓牌坐标
+local CATCHCARD_SEND_BEGIN_POS = ccp(640, 650)
+
+
+local CATCHCARD_SHOW_POS_TABLE      = {ccp(320,490),ccp(642,400),ccp(970,490),ccp(970,230)}
+
+--插入牌坐标
+local SEND_CARD_END_POS = {ccp(-660,-58),ccp(57,-660),ccp(738,-58),ccp(738,-660)}
+
+--操作牌动画位置，基于抓牌位置
+local OPERATECARD_END_POS_TABLE     = {ccp(48,580),ccp(430,470),ccp(1232,580),ccp(1232,290)}
+
+--抓牌类型
+local CATCHCARD_TYPE_SENDCARD       = 1  --发牌
+local CATCHCARD_TYPE_OUTCARD        = 2  --出牌
+local CATCHCARD_TYPE_BADCARD        = 3  --臭牌
+local CATCHCARD_TYPE_INSERTCARD     = 4  --插入牌
+
+local Action_Speed                  = 1  --动画速度
+
+function Action.setActionSpeed(speed)
+    Action_Speed = speed
+end
+
+----发牌、抓牌动画
+--@param sendCardCount 发牌数量,catchUserChairId 发牌起始用户、抓牌用户, isBeginSendCard 是否开始发牌
+--@return
+function Action:SetSendCardAction(RemainCardBg, LabelRemain, sendCardCount, catchUserChairId, chairs, isBeginSendCard)
+    if isBeginSendCard then
+        local backCardCount = RemainCardBg:getChildrenCount()
+        local function RemoveCardBack()
+            for i = 1, sendCardCount do
+                local tempSprite = RemainCardBg:getChildByTag(backCardCount - i + 1)
+                if tempSprite~=nil then tempSprite:removeFromParentAndCleanup(true) end
+            end
+        end
+        if backCardCount<sendCardCount then return end
+
+        local playerCount = #chairs
+        for i = 1, sendCardCount do
+            local tempSprite = RemainCardBg:getChildByTag(backCardCount - i + 1)
+            if tempSprite~=nil then
+                local tempViewId = (catchUserChairId+i-1) % playerCount
+                tempViewId = chairs[tempViewId + 1]
+
+                local delayTime = CCDelayTime:create((i-1)*0.02 * Action_Speed)
+                local moveAction = CCMoveTo:create(0.2 * Action_Speed,SEND_CARD_END_POS[tempViewId])
+                local scaleTo = CCScaleTo:create(0.2 * Action_Speed,1.5)
+
+                local spawnarray  = CCArray:create()
+                spawnarray:addObject(moveAction)
+                spawnarray:addObject(scaleTo)    
+
+                local array  = CCArray:create()
+                array:addObject(delayTime)
+                array:addObject(CCSpawn:create(spawnarray))
+
+                local sequene = CCSequence:create(array)
+                if i == sendCardCount then
+                    local array  = CCArray:create()
+                    array:addObject(delayTime)
+                    array:addObject(moveAction)    
+                    array:addObject(CCCallFunc:create(RemoveCardBack))                 
+                    sequene = CCSequence:create(array)
+                end
+                tempSprite:runAction(sequene)
+            end
+        end 
+        --剩余数跳动
+        local times = 1
+        local sendEntry = nil
+        local function SetRemainCount()
+            LabelRemain:setString(backCardCount-times)
+            if not sendEntry then
+                sendEntry = CCDirector:sharedDirector():getScheduler():scheduleScriptFunc(SetRemainCount, 0.015 * Action_Speed, false)
+            end;
+            times = times +1 ;
+            if times>sendCardCount then
+                CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(sendEntry);
+                times = 1;
+                sendEntry = nil;
+            end
+        end
+        SetRemainCount();
+    else
+        local backCardCount = RemainCardBg:getChildrenCount()
+        LabelRemain:setString(backCardCount-1)
+        local tempSprite = RemainCardBg:getChildByTag(backCardCount)
+        if tempSprite~=nil then
+            local function RemoveBack()
+                tempSprite:removeFromParentAndCleanup(true)
+            end
+            local moveAction = CCMoveTo:create(0.1 * Action_Speed,SEND_CARD_END_POS[catchUserChairId])
+  
+            local array  = CCArray:create()
+            array:addObject(moveAction)
+            array:addObject(CCCallFunc:create(RemoveBack))
+            local sequene = CCSequence:create(array)
+            tempSprite:runAction(sequene)
+        end
+    end
+end
+
+function Action.getCatchPosition(viewChairId)
+    return CATCHCARD_SHOW_POS[viewChairId]
+end
+
+function Action.getHandPosition(viewChairId)
+    local handPos = CATCHCARD_SHOW_POS[viewChairId]
+    if viewChairId == 2 then 
+        handPos = ccp(640, 370)
+    end    
+    return handPos
+end
+
+--操作牌动作
+function Action:SetOperateCardAction(weaves, outCardChair, 
+    operateChair, animfunc, backfunc, bUpdata)
+    --几组牌
+    local weaveCount = #weaves
+    local outCard = weaves[1][1]
+    local fscale = outCard:getScale()
+    local bgsz = CCSizeMake(89, 85)
+    if operateChair == 3 or operateChair == 4 then
+        --右边的牌的与左边的牌位置相反
+        fscale = -fscale
+    end
+
+    --组合牌位置参数
+    local startPos = ccp(outCard:getPosition())
+    local endPos = ccp(640 - bgsz.width / 2 * (weaveCount - 1) * fscale, 
+                490 + (#weaves[1] - 3) * bgsz.height / 2 * math.abs(fscale))
+    local spaceX = endPos.x - startPos.x
+    local spaceY = endPos.y - startPos.y
+    cclog("组合牌位置参数 "..endPos.x)
+    --设置其他牌位置
+    local handPos = PLAYER_HEARD_POS[operateChair]
+    if operateChair == 2 then 
+        handPos = ccp(640, 370)
+    end
+
+    --设置打出牌位置
+    if outCardChair then
+        outCard:setPosition(CATCHCARD_SHOW_POS[outCardChair])
+    else
+        outCard:setPosition(handPos)
+    end
+    
+    for i,v in ipairs(weaves) do
+        for k,w in ipairs(v) do
+            if w ~= outCard then 
+                local sPos = ccp(w:getPosition())
+                --手牌位置
+                local hPos = ccp(sPos.x + handPos.x - startPos.x, 
+                            sPos.y + handPos.y - startPos.y)
+                --集合位置
+                local moveAct = CCMoveBy:create(0.2 * Action_Speed, 
+                    ccp(endPos.x - handPos.x, endPos.y - handPos.y))
+
+                if bUpdata then 
+                    --已经存在的牌更新
+                    hPos.x = sPos.x 
+                    hPos.y = sPos.y
+
+                    moveAct = CCMoveBy:create(0.2 * Action_Speed, 
+                        ccp(spaceX, spaceY))                    
+                end
+                w:setPosition(hPos) 
+
+                w:runAction(moveAct)                
+            end
+        end
+    end
+
+    --播放打出去牌动画
+    local array = CCArray:create()
+    array:addObject(CCMoveTo:create(0.2 * Action_Speed, endPos)) 
+    
+    array:addObject(CCCallFunc:create(animfunc))
+    --等待动画播放
+    array:addObject(CCDelayTime:create(0.8 * Action_Speed))
+
+    --回调
+    if backfunc then array:addObject(CCCallFunc:create(backfunc)) end
+
+    --移动到对应打牌位置
+    array:addObject(CCCallFunc:create(function()
+        for i,v in ipairs(weaves) do
+            for k,w in ipairs(v) do
+                local moveAct = CCMoveBy:create(0.3 * Action_Speed, ccp(-spaceX, -spaceY))
+                w:runAction(moveAct)
+            end
+        end
+    end))
+
+
+    outCard:runAction(CCSequence:create(array))
+end
+
+--臭牌
+function Action:SetBadCardAction(parentNode, viewChairId, backfunc)
+    local badCardCount = parentNode:getChildrenCount()
+    local newBadCardSpr = parentNode:getChildByTag(badCardCount)
+
+    --相对位置
+    local startPos = CATCHCARD_SHOW_POS[viewChairId]
+    local endPos = ccp(newBadCardSpr:getPosition())
+
+    newBadCardSpr:setPosition(startPos)
+    local array  = CCArray:create()
+    array:addObject(CCDelayTime:create(0.1 * Action_Speed))
+    array:addObject(CCMoveTo:create(0.3 * Action_Speed, endPos)) 
+    array:addObject(CCDelayTime:create(0.1 * Action_Speed))
+    
+    --动画播放回调
+    if backfunc then array:addObject(CCCallFunc:create(backfunc)) end
+    newBadCardSpr:runAction(CCSequence:create(array))
+end
+
+--抓牌
+function Action:SetGetCardAction(parentNode, viewChairId, backfunc)
+    local cardSp = parentNode:getChildByTag(1)
+    if cardSp == nil then return end
+    
+    local endPos = CATCHCARD_SHOW_POS[viewChairId]
+    cardSp:setScale(0.4)
+    cardSp:setPosition(CATCHCARD_SEND_BEGIN_POS)
+
+    --移动，缩小动画
+    local array = CCArray:create()
+    local spawnarray  = CCArray:create()
+    spawnarray:addObject(CCMoveTo:create(0.4 * Action_Speed, endPos))
+    spawnarray:addObject(CCScaleTo:create(0.4 * Action_Speed, 0.85))
+    array:addObject(CCSpawn:create(spawnarray)) 
+        
+    --动画播放回调
+    if backfunc then array:addObject(CCCallFunc:create(backfunc)) end
+    cardSp:runAction(CCSequence:create(array))
+end
+
+--出牌动作
+function Action:SetOutCardAction(parentNode, startPos, viewChairId, backfunc)
+    local cardSp = parentNode:getChildByTag(1)
+    if cardSp == nil then return end
+    
+    local endPos = CATCHCARD_SHOW_POS[viewChairId]
+    local array = CCArray:create()
+    if not startPos then
+        --自动打牌
+        cardSp:setScale(0.2)
+        startPos = PLAYER_HEARD_POS[viewChairId]
+    end
+    cardSp:setPosition(startPos)
+
+    --移动，缩小动画
+    local spawnarray  = CCArray:create()
+    spawnarray:addObject(CCMoveTo:create(0.4 * Action_Speed, endPos))
+    spawnarray:addObject(CCScaleTo:create(0.4 * Action_Speed, 0.85))
+    array:addObject(CCSpawn:create(spawnarray)) 
+        
+    --动画播放回调
+    array:addObject(CCCallFunc:create(backfunc))
+    cardSp:runAction(CCSequence:create(array))
+end
+
+--插牌动作
+function Action:SetInsertCardAction(parentNode, viewChairId, backfunc)
+    local cardSp = parentNode:getChildByTag(1)
+    if cardSp == nil then return end
+    
+    local startPos = CATCHCARD_SHOW_POS[viewChairId]
+    local endPos = PLAYER_HEARD_POS[viewChairId]
+    local fscale = 0.2
+    if viewChairId == 2 then
+        --自动打牌
+        fscale = cardSp:getScale()
+        endPos = ccp(640, 0)
+    end
+    
+    local array = CCArray:create()
+    --移动，缩小动画
+    local spawnarray  = CCArray:create()
+    spawnarray:addObject(CCMoveTo:create(0.4 * Action_Speed, endPos))
+    spawnarray:addObject(CCScaleTo:create(0.4 * Action_Speed, fscale))
+    array:addObject(CCSpawn:create(spawnarray)) 
+        
+    --动画播放回调
+    array:addObject(CCCallFunc:create(backfunc))
+    cardSp:runAction(CCSequence:create(array))
+end
+
+----抓牌、出牌、臭牌动作
+--@param
+--@return
+function Action:SetCatchCardAction(parentNode,badParentNode,viewChairId,catchCardType)
+    local cardSprite = parentNode:getChildByTag(1)
+    if cardSprite==nil then return end
+    local spawn = nil
+    if catchCardType==CATCHCARD_TYPE_SENDCARD or catchCardType==CATCHCARD_TYPE_OUTCARD then
+        local moveAction = CCMoveTo:create(0.2 * Action_Speed,CATCHCARD_SHOW_POS_TABLE[viewChairId])
+        local fadeInAction = CCFadeIn:create(0.1 * Action_Speed)
+        local scaleAction = CCScaleTo:create(0.2 * Action_Speed,1)
+        local easeAction = CCEaseExponentialOut:create(moveAction)
+
+        local array  = CCArray:create()
+        array:addObject(easeAction)
+        array:addObject(fadeInAction)
+        array:addObject(scaleAction)
+        spawn = CCSpawn:create(array)
+    elseif catchCardType==CATCHCARD_TYPE_BADCARD then
+        --获取坐标
+        local badCardCount = parentNode:getChildrenCount()
+        local newBadCardSpr = parentNode:getChildByTag(badCardCount)
+        local tempPos = ccp(newBadCardSpr:getPosition())
+        tempPos = badParentNode:convertToWorldSpace(tempPos)
+
+        local moveAction = CCMoveTo:create(0.15 * Action_Speed,tempPos)
+        local fadeOutAction = CCFadeOut:create(0.15 * Action_Speed)
+        local scaleAction = CCScaleTo:create(0.15 * Action_Speed,0.01)
+        local easeAction = CCEaseExponentialOut:create(moveAction)
+
+        local array  = CCArray:create()
+        array:addObject(easeAction)
+        array:addObject(fadeOutAction)
+        array:addObject(scaleAction)        
+        spawn = CCSpawn:create(array)
+    elseif catchCardType==CATCHCARD_TYPE_INSERTCARD then
+        local moveAction = CCMoveTo:create(0.15 * Action_Speed,SEND_CARD_END_POS[viewChairId])
+        local fadeOutAction = CCFadeOut:create(0.15 * Action_Speed)
+        local scaleAction = CCScaleTo:create(0.15 * Action_Speed,0.01)
+        local easeAction = CCEaseExponentialOut:create(moveAction)
+
+        local array  = CCArray:create()
+        array:addObject(fadeOutAction)
+        array:addObject(scaleAction)          
+        spawn = CCSpawn:create(array)
+	end
+    cardSprite:runAction(spawn)
+end
+
+----用户操作动画  吃、碰、杠、听、胡
+--@param
+--@return
+function Action:UserOperateAction(parentNode,viewChairId,operateType)
+    local animPos = ccp(640,450)
+    local fscale = 0.5
+
+    if operateType==PAOHUZI_OPERATE_TYPE_FANGPAO then  --炮
+        animPos = CATCHCARD_SHOW_POS[viewChairId]
+    elseif operateType==PAOHUZI_OPERATE_TYPE_HU 
+        or operateType==PAOHUZI_OPERATE_TYPE_ZIMO then  --胡、自摸
+        animPos = self.getHandPosition(viewChairId)
+        if viewChairId == 2 then fscale = 1 end --自己放大
+    end
+
+    local zIndex = 3
+
+    local sprPath = self:GetOperateSprPath(operateType)
+    local tipSpr1 = loadSprite(sprPath)
+    tipSpr1:setPosition(animPos)
+    tipSpr1:setScale(fscale)
+    tipSpr1:setOpacity(0)
+    parentNode:addChild(tipSpr1, zIndex)
+    
+    local fadeIn1 = CCFadeIn:create(0.1 * Action_Speed)
+    local scaleAction1 = CCScaleTo:create(0.1 * Action_Speed,1.2)
+    local scaleAction11 = CCScaleTo:create(0.1 * Action_Speed,1.0)
+    local delayTimeAction1 = CCDelayTime:create(0.6 * Action_Speed)
+    local fadeOut1 = CCFadeOut:create(0.1 * Action_Speed)
+    
+    
+    local tipSpr2 = loadSprite(sprPath)
+    tipSpr2:setPosition(animPos)
+    tipSpr2:setScale(fscale)
+    tipSpr2:setOpacity(0)
+    parentNode:addChild(tipSpr2, zIndex)
+    
+    local fadeIn2 = CCFadeIn:create(0.1 * Action_Speed)
+    local scaleAction2 = CCScaleTo:create(0.1 * Action_Speed,1.1)
+    local scaleAction22 = CCScaleTo:create(0.3 * Action_Speed,2)
+    local fadeOut2 = CCFadeOut:create(0.6 * Action_Speed)
+
+    local array2  = CCArray:create()
+    array2:addObject(fadeIn2)
+    array2:addObject(scaleAction2)
+    array2:addObject(scaleAction22)   
+
+    local array1  = CCArray:create()
+    array1:addObject(CCDelayTime:create(0.1 * Action_Speed))
+    array1:addObject(fadeOut2)
+
+    local array  = CCArray:create()
+    array:addObject(CCSequence:create(array2))
+    array:addObject(CCSequence:create(array1))
+
+    local spawn2 = CCSpawn:create(array)
+    
+    local function callBackFuc()
+        tipSpr1:removeFromParentAndCleanup(true)
+        tipSpr2:removeFromParentAndCleanup(true)
+    end
+
+    local array3  = CCArray:create()
+    array3:addObject(fadeIn1)
+    array3:addObject(scaleAction1)
+    array3:addObject(scaleAction11)   
+    array3:addObject(delayTimeAction1)
+    array3:addObject(fadeOut1)
+    array3:addObject(CCCallFunc:create(callBackFuc))
+    local squene1 = CCSequence:create(array3)
+    
+    tipSpr1:runAction(squene1)
+    tipSpr2:runAction(spawn2)
+    
+    local effectSpr = nil
+    --玩家3 杠、胡 加粒子效果
+--    if viewChairId==PAOHUZI_OPERATE_TYPE_ZIMO and (operateType==PAOHUZI_OPERATE_TYPE_HU) then
+        local frames = CCArray:create()
+        for i = 1, 10 do
+           local frame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("sparrowEffect/1_"..i..".png")
+           frames:addObject(frame)
+        end
+        effectSpr = loadSprite("sparrowEffect/1_1.png")
+        effectSpr:setPosition(animPos)
+        effectSpr:setVisible(false)
+        tipSpr2:setOpacity(100)
+        effectSpr:setScale(fscale / 0.5)
+        parentNode:addChild(effectSpr, zIndex)
+        
+        local function callBackEffect()
+            effectSpr:removeFromParentAndCleanup(true)
+        end
+        local animationE2 = CCAnimation:createWithSpriteFrames(frames, 0.1)
+        local animateE2 = CCAnimate:create(animationE2);
+
+        local array4  = CCArray:create()
+        array4:addObject(CCDelayTime:create(0.2 * Action_Speed))
+        array4:addObject(CCShow:create())
+        array4:addObject(CCRepeat:create(animateE2,1))
+        array4:addObject(CCFadeOut:create(0.1 * Action_Speed))
+        array4:addObject(CCCallFunc:create(callBackEffect))
+        local sequenceE2 = CCSequence:create(array4)
+        effectSpr:runAction(sequenceE2)
+--    end
+end
+
+----获取 吃 碰 杠 .. 操作提示图片路径
+--@param
+--@return
+function Action:GetOperateSprPath(operateType)
+    if operateType==PAOHUZI_OPERATE_TYPE_CHOW then  -- 吃
+        return "paoHuZi/tip_chi.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_PONG then  -- 碰
+        return "paoHuZi/tip_peng.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_LONG then  -- 龙
+        return "paoHuZi/tip_long.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_PAO then  -- 跑
+        return "paoHuZi/tip_pao.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_WEI then  -- 畏
+        return "paoHuZi/tip_wei.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_FANGPAO then  -- 炮
+        return "paoHuZi/tip_pao1.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_HU then  -- 胡
+        return "paoHuZi/tip_hu.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_ZIMO then  -- 自摸
+        return "paoHuZi/tip_zimo.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_TWOLONG then  -- 双龙
+        return "paoHuZi/tip_shuanglong.png"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_REPAO then  -- 重跑
+        return "paoHuZi/tip_chongpao.png"
+    elseif operateType==11 then  -- 天胡
+        return "wordCard/tip_tianhu.png"
+	end
+    return "paoHuZi/tip_chi.png"
+end
+
+return Action

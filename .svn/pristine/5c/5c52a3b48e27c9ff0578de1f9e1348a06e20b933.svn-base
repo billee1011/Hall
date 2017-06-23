@@ -1,0 +1,187 @@
+CCFileUtils:sharedFileUtils():addSearchPath("src")
+CCFileUtils:sharedFileUtils():addSearchPath("res")
+
+INVALID_CHAIR = 65535
+INVALID_BYTE = 255
+
+GAME_GENRE_SCORE = 1
+GAME_GENRE_GOLD = 2
+GAME_GENRE_MATCH = 4
+GAME_GENRE_EDUCATE = 8
+
+PAOHUZI_NAME_GAME                           = "跑胡子"
+PAOHUZI_TAG_GAME                            = 15
+
+ME_CHAIRID_PAOHUZI                  = 2                                   --椅子号码
+GAME_PLAYER_PAOHUZI                 = 3                                   --游戏人数
+--------------------------------------------------------------------------
+
+--数值定义
+MAX_WEAVE_PAOHUZI                   = 7                                   --最大组合
+MAX_INDEX_PAOHUZI                   = 20                                  --最大索引
+MAX_COUNT_PAOHUZI                   = 21                                  --最大数目
+MAX_ABANDON_PAOHUZI                 = 21                                  --最大剩余数目
+MAX_REMAINCOUNT_PAOHUZI             = 38                                  --最大剩余数目
+
+TEMP_MAX_COUNT_PAOHUZI              = 84                                  --最大数目
+MASK_COLOR_PAOHUZI                  = 0xF0                                --花色掩码
+MASK_VALUE_PAOHUZI                  = 0x0F                                --数值掩码
+LESS_FAN_PAOHUZI                    = 9                                   --数值掩码
+
+--动作定义
+ACK_NULL_PAOHUZI                    = 0x00                                --空
+ACK_TI_PAOHUZI                      = 0x01                                --提
+ACK_PAO_PAOHUZI                     = 0x02                                --跑
+ACK_WEI_PAOHUZI                     = 0x04                                --偎
+ACK_CHI_PAOHUZI                     = 0x08                                --吃
+ACK_CHI_EX_PAOHUZI                  = 0x10                                --优
+ACK_PENG_PAOHUZI                    = 0x20                                --碰
+ACK_CHIHU_PAOHUZI                   = 0x40                                --胡
+ACK_ZIMO_PAOHUZI                    = 0x80                                -- 自摸
+
+--吃牌类型
+CK_NULL_PAOHUZI                     = 0x00                                --无效类型
+CK_XXD_PAOHUZI                      = 0x01                                --小小大搭
+CK_XDD_PAOHUZI                      = 0x02                                --小大大搭
+CK_EQS_PAOHUZI                      = 0x04                                --二七十吃
+CK_LEFT_PAOHUZI                     = 0x10                                --靠左对齐
+CK_CENTER_PAOHUZI                   = 0x20                                --居中对齐
+CK_RIGHT_PAOHUZI                    = 0x40                                --靠右对齐
+
+PAOHUZI_OPERATE_TYPE_CHOW       = 1   -- 吃
+PAOHUZI_OPERATE_TYPE_PONG       = 2   -- 碰
+PAOHUZI_OPERATE_TYPE_LONG       = 3   -- 龙
+PAOHUZI_OPERATE_TYPE_PAO        = 4   -- 跑
+PAOHUZI_OPERATE_TYPE_WEI        = 5   -- 畏
+PAOHUZI_OPERATE_TYPE_FANGPAO    = 6   -- 炮
+PAOHUZI_OPERATE_TYPE_HU         = 7   -- 胡
+PAOHUZI_OPERATE_TYPE_ZIMO       = 8   -- 自摸
+PAOHUZI_OPERATE_TYPE_TWOLONG    = 9   -- 双龙
+PAOHUZI_OPERATE_TYPE_REPAO      = 10  -- 重跑
+PAOHUZI_OPERATE_TYPE_TIANHU     = 11  -- 天胡
+
+--------------------------------------------------------------------------
+--服务器命令结构
+
+GS_FREE_PAOHUZI                     = 0                                   --空闲状态
+GS_PLAYING_PAOHUZI                  = 100                                 --游戏状态
+
+SUB_S_GAME_START_PAOHUZI            = 100                                 --游戏开始
+SUB_S_USER_TI_CARD_PAOHUZI          = 101                                 --用户提牌
+SUB_S_USER_PAO_CARD_PAOHUZI         = 102                                 --用户跑牌
+SUB_S_USER_WEI_CARD_PAOHUZI         = 103                                 --用户偎牌
+SUB_S_USER_PENG_CARD_PAOHUZI        = 104                                 --用户碰牌
+SUB_S_USER_CHI_CARD_PAOHUZI         = 105                                 --用户吃牌
+SUB_S_OPERATE_NOTIFY_PAOHUZI        = 106                                 --操作提示
+SUB_S_OUT_CARD_NOTIFY_PAOHUZI       = 107                                 --出牌提示
+SUB_S_OUT_CARD_PAOHUZI              = 108                                 --用户出牌
+SUB_S_SEND_CARD_PAOHUZI             = 109                                 --发牌命令
+SUB_S_GAME_END_PAOHUZI              = 110                                 --游戏结束
+SUB_S_PHRASE_PAOHUZI                = 111                                 --玩家发言
+SUB_S_OUT_CARD_NOTIFY_MOBILE_PAOHUZI= 112                                 --手机玩家出牌消息
+SUB_S_SEND_PIAOSTATUS               = 116                                 --广播用户飘状态
+SUB_S_CONTINUE_CONFIRM              = 117                                   --继续发牌确认消息
+
+--客户端命令结构
+SUB_C_OUT_CARD_PAOHUZI              = 1                                   --出牌命令
+SUB_C_OPERATE_CARD_PAOHUZI          = 2                                   --操作扑克
+SUB_C_CONTINUE_CARD_PAOHUZI         = 3                                   --继续命令
+SUB_C_PHRASE_PAOHUZI                = 4                                   --玩家发言
+SUB_C_PIAO_STATUS                   = 7                                   --选择飘玩法
+--音乐
+PAOHUZI_MUSIC_PLAY_BG           = 1              --背景音乐
+PAOHUZI_MUSIC_PLAY_SENDCARD     = 2 
+PAOHUZI_MUSIC_PLAY_GAME_WARN    = 3
+PAOHUZI_MUSIC_PLAY_GAME_START   = 4
+PAOHUZI_MUSIC_PLAY_GAME_WIN     = 5
+PAOHUZI_MUSIC_PLAY_GAME_END     = 6
+PAOHUZI_MUSIC_PLAY_TIME_UP      = 7
+PAOHUZI_MUSIC_PLAY_SORT_CARD    = 8
+PAOHUZI_MUSIC_PLAY_GAME_LAYER   = 9
+PAOHUZI_MUSIC_PLAY_OPERATE1     = 10
+PAOHUZI_MUSIC_PLAY_OPERATE2     = 11
+PAOHUZI_MUSIC_PLAY_OPERATE3     = 12
+PAOHUZI_MUSIC_PLAY_OUT_CARD     = 13
+PAOHUZI_MUSIC_PLAY_OPERATE      = 14
+PAOHUZI_MUSIC_PLAY_BACKCARD     = 15
+PAOHUZI_MUSIC_PLAY_HANDCARD     = 16
+PAOHUZI_MUSIC_PLAY_GAME_LOST    = 17
+PAOHUZI_MUSIC_PLAY_COINSROLL    = 18
+PAOHUZI_MUSIC_PLAY_WAIT         = 19
+
+PAOHUZI_ChAT = {
+    "难产啊，还不快点出",
+    "不要走啊，今天打通宵",
+    "各位老板不好意思，我要暂停一下",
+    "信号不好，各位老板不好意思啊",
+    "屌古滴，打不赢你们",
+
+    "大家好，很高兴见到各位",
+    "哈哈，手气真好",
+    "快点出牌哟",
+    "你的牌打的太好了",
+    "怎么又断线了，网络怎么这么差啊",
+}
+
+--用户等级
+function PaoHuZi_GetUserLev(lScoreLevel)
+    if(IsDebugMode())then
+    --lScoreLevel
+    end
+
+    --计算公式
+    return "ScoreLevel";
+end
+
+function PaoHuZi_CopyMemory(bTempData,cbCardData,cbCount)
+    for i=1,cbCount do
+        bTempData[i]=cbCardData[i];
+    end
+end
+
+function PaoHuZi_CopyMemoryEx(bTempData,cbCardData,cbCount)
+    for i=1,cbCount do
+        bTempData[i]=cbCardData[i-1];
+    end
+end
+
+function PaoHuZi_ZeroMemory(cbCardData,cbCount)
+    for i=1,cbCount do
+        cbCardData[i]=0;
+    end
+end
+function PaoHuZi_ArrayTableToNumber(cbCount,cbCardData)
+    local temp = {}
+    for i=1,cbCount do
+        temp[i] = cbCardData[i]
+    end
+    return temp
+end
+function PaoHuZi_CopyMemoryAtIdx(bTempData,cbCardData,cbCount,index)
+    for i=1,cbCount do
+        bTempData[index+i]=cbCardData[i];
+    end
+end;
+function PaoHuZi_BLShift(nScr , nMoveLen)
+    return FGameDC:getDC():GetLRShift(nScr , nMoveLen, true);
+end
+function PaoHuZi_BRShift(nScr , nMoveLen)
+    return FGameDC:getDC():GetLRShift(nScr , nMoveLen, false);
+end
+function PaoHuZi_BOr(nValue1 , nValue2)
+    return FGameDC:getDC():GetOrAndShift(nValue1 , nValue2, false);
+end
+function PaoHuZi_BAnd(nValue1 , nValue2)
+    return FGameDC:getDC():GetOrAndShift(nValue1 , nValue2, true);
+end
+
+function SetPokerColor(Card, c3bValue)
+    for i = 0, 999 do
+        local ChildTemp = Card:getChildByTag(i)
+        if ChildTemp == nil then
+            break
+        end
+        ChildTemp:setColor(c3bValue)
+    end
+    Card:setColor(c3bValue)
+end

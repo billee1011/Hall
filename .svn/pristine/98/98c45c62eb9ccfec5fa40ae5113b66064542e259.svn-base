@@ -1,0 +1,206 @@
+--LayerDeskRecord.lua
+local LayerDeskRecord=class("LayerDeskRecord",function(sz, pos, zindex)
+        return require("Lobby/Common/LobbyTableView")
+                .createCommonTable(sz, pos, kCCMenuHandlerPriority - zindex)
+    end)
+
+local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+local CCButton = require("FFSelftools/CCButton")
+local AppConfig = require("AppConfig")
+
+function LayerDeskRecord:initRecord(super, backFunc)
+    super:addChild(self)
+
+    FriendGameLogic.getUserFriendTableScore(function(bSucceed)
+        backFunc(bSucceed)
+
+        if bSucceed then
+            self:setCellSizeFunc(function(t, idx) return 185, 1165 end)
+                :setNumberOfCellsFunc(function() return #FriendGameLogic.record_data end)
+                :setCreateCellFunc((function(idx) 
+                    local info = FriendGameLogic.record_data[idx + 1]
+                    return self:createRecordCellItem(info, idx) 
+                end))
+             
+            self:updataTableView()
+        end
+    end, 13)   
+end
+
+--创建item
+function LayerDeskRecord:createRecordCellItem(info, idx)
+    local super = self:getParent():getParent()
+    local bgsz = CCSizeMake(1165,170)
+    local item = self:createMainItem(info, bgsz, idx)
+
+    --详细信息
+    local Util = require("HallUtils")
+    local myIndex, myid, ftcolors = nil, require("Lobby/Login/LoginLogic").UserInfo.UserID, {}
+    ftcolors[1] = ccc3(127,146,2)
+    if info.MasterUserID  ==  myid then
+        myIndex = 1
+    end
+
+    local names = {info.MasterNickName.."(房主)"}
+    local scores = {"："..Util.getScoreStr(info.MasterScore)}
+    for i=1,2 do
+        local name = info["FriendNickName_"..i]
+        local score = "："..Util.getScoreStr(info["FriendScore_"..i])
+        if not myIndex and info["FriendUserID_"..i]  ==  myid then
+            myIndex = 1 + i
+        end
+
+        ftcolors[1 + i] = ccc3(127,146,2)
+        table.insert(names, name)
+        table.insert(scores, score)
+    end
+    ftcolors[myIndex] = ccc3(250,55,55)
+
+    local poses = {ccp(100, 80), ccp(850, 80), ccp(100, 35), ccp(850, 35)}
+    for i=1,3 do
+        self:addLabText(item, names[i]..scores[i], 28, ftcolors[i], poses[i], ccp(0, 0.5))
+    end
+
+    local ServerBatchKey = info.ServerBatchKey  --对局号
+
+    item:setAnchorPoint(ccp(0, 0))
+    item:setTouchPriority(kCCMenuHandlerPriority - self.btn_zIndex)
+
+    return item
+end
+
+function LayerDeskRecord:createMainItem(info, bgsz, idx)
+    local item = CCButton.createWithFrame("lobbyDlg/recorderBorder.png", true, function(tag, target)
+        FriendGameLogic.invite_code = info.InviteCode
+        FriendGameLogic.game_id = 13
+
+        FriendGameLogic.GetUserFriendTableScoreList(info.FriendTableID, function(data)
+            require("Lobby/Record/LayerRecordDetail").put(self:getParent(), self.btn_zIndex + 1, data):show()
+        end)
+    end, bgsz)
+    item:setAnchorPoint(ccp(0, 0))
+    item:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, false)
+    
+
+    --游戏线
+    local lineSp = loadSprite("common/horizLine.png")
+    lineSp:setPosition(ccp(bgsz.width / 2 + 30, bgsz.height - 55))
+    item:addChild(lineSp)
+
+    --游戏序列
+    local labNum = CCLabelAtlas:create(""..(idx + 1), AppConfig.ImgFilePath.."num_recorder.png",43,86,string.byte('0'))
+    labNum:setPosition(ccp(45, bgsz.height / 2))
+    labNum:setAnchorPoint(ccp(0.5, 0.5))
+    item:addChild(labNum)    
+
+    --房间
+    self:addLabText(item, info.InviteCode.." 房间", 22, ccc3(127,127,127), ccp(100, bgsz.height - 32), ccp(0, 0.5))
+    --时间
+    self:addLabText(item, "开始时间："..info.GameBeginTime, 22, ccc3(127,127,127), ccp(1120, bgsz.height - 32), ccp(1, 0.5))
+
+    return item
+end
+
+function LayerDeskRecord:initDetail(super, data)
+    --列表
+    self:setCellSizeFunc(function(t, idx) return 82, 1176 end)
+        :setNumberOfCellsFunc(function() return #data end)
+        :setCreateCellFunc((function(idx) 
+            local info = data[idx + 1]
+            return self:createDetailCellItem(info, idx) 
+        end))
+    super:addChild(self) 
+    self:updataTableView()  
+
+    self:initDetailTitle(super, data)
+    return self  
+end
+
+--创建item
+function LayerDeskRecord:createDetailCellItem(info, idx)
+    local item = CCLayerColor:create(ccc4(247, 241, 229, 255), 1176, 82)
+    item:setPosition(ccp(2, 0))
+    if idx % 2 ~= 0 then
+        item:setColor(ccc3(234, 219, 190))
+    end
+
+    --游戏序列
+    local labNum = CCLabelAtlas:create(tostring(idx + 1), AppConfig.ImgFilePath.."num_roomrecorder.png",32,34,string.byte('+'))
+    labNum:setPosition(ccp(35, 40))
+    labNum:setAnchorPoint(ccp(0.5, 0.5))
+    item:addChild(labNum)    
+
+    --时间
+    self:addLabText(item, info.GameBeginTime, 24, ccc3(48,48,48), ccp(195, 40), ccp(0.5, 0.5))
+
+    --详细信息
+    local Util = require("HallUtils")
+    self:addLabText(item, Util.getScoreStr(info.MasterScore), 24, ccc3(48,48,48), ccp(410, 40), ccp(0.5, 0.5))
+    for i=1,2 do
+        local score = Util.getScoreStr(info["FriendScore_"..i])
+        self:addLabText(item, score, 24, ccc3(48,48,48), ccp(410 + 146 * i, 40), ccp(0.5, 0.5))
+    end
+
+    -- 回放按钮
+    local playBtn = CCButton.put(item, CCButton.createCCButtonByFrameName("lobbyDlg/btn_recorder_play1.png", 
+            "lobbyDlg/btn_recorder_play2.png", "lobbyDlg/btn_recorder_play1.png", function()
+            FriendGameLogic.getGamePlayRecord(0, info["ServerBatchKey"], function(gamedata)
+                    require("pdk/GamePlayLogic"):getInstance():replaceMainScence(gamedata)
+                end)
+            end), ccp(980, 40), self.btn_zIndex)
+    
+    --分享按钮
+    local shareBtn = CCButton.put(item, CCButton.createCCButtonByFrameName("lobbyDlg/btn_recorder_share1.png", 
+            "lobbyDlg/btn_recorder_share2.png", "lobbyDlg/btn_recorder_share1.png", function()
+                FriendGameLogic.createReplayCode(info["ServerBatchKey"], 13, FriendGameLogic.invite_code)
+            end), ccp(1105, 40), self.btn_zIndex)
+
+    if AppConfig.ISAPPLE then
+       playBtn:setVisible(false)   
+       shareBtn:setVisible(false)       
+    end
+
+    item:setAnchorPoint(ccp(0, 0))
+
+    return item
+end
+
+function LayerDeskRecord:initDetailTitle(super, data)
+    self:addLabText(super, "局数", 24, ccc3(48,48,48), ccp(85, 565), ccp(0.5, 0.5)) 
+    self:addLabText(super, "开始时间", 24, ccc3(48,48,48), ccp(245, 565), ccp(0.5, 0.5))
+    self:addLabText(super, data[1].MasterNickName, 24, ccc3(48,48,48), ccp(460, 565), ccp(0.5, 0.5))
+
+    for i=1,2 do
+        local name = data[1]["FriendNickName_"..i] --255,150,0
+        self:addLabText(super, name, 24, ccc3(48,48,48), ccp(460 + 146 * i, 565), ccp(0.5, 0.5))
+    end
+
+    return self  
+end
+
+function LayerDeskRecord:addLabText(item, msg, ftsz, ftcolor, pos, anchorpos)
+    local labItem = CCLabelTTF:create(msg, AppConfig.COLOR.FONT_ARIAL, ftsz)
+    labItem:setColor(ftcolor)  
+    labItem:setHorizontalAlignment(kCCTextAlignmentLeft)
+    labItem:setAnchorPoint(anchorpos)     
+    labItem:setPosition(pos)
+    item:addChild(labItem)    
+end
+
+function LayerDeskRecord.putRecord(super, zindex, backFunc)
+    local layer = LayerDeskRecord.new(CCSizeMake(super.bgsz.width-100, super.bgsz.height-110), ccp(50, 30), zindex)
+    layer.layer_zIndex = zindex
+    layer.btn_zIndex = zindex + 1
+    layer:initRecord(super, backFunc)
+    return layer
+end
+
+function LayerDeskRecord.putDetail(super, zindex, data)
+    local layer = LayerDeskRecord.new(CCSizeMake(super.bgsz.width-104, super.bgsz.height-126), ccp(52, 32), zindex)
+    layer.layer_zIndex = zindex
+    layer.btn_zIndex = zindex + 1
+    layer:initDetail(super, data)
+    return layer
+end
+
+ return LayerDeskRecord

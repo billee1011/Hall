@@ -1,0 +1,136 @@
+--LayerPlayGame.lua
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+
+local LayerPlayGame=class("LayerPlayGame",function()
+    return CCLayerColor:create(ccc4(0, 0, 0, 0))
+end)
+
+function LayerPlayGame:init(zindex) 
+    self.layer_zIndex = zindex
+    cclog("xxxxxxxxxxxxxxxxxxxxxxxxxx "..zindex..";"..self.layer_zIndex)
+
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self:registerScriptTouchHandler(onTouch,false,kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self:setTouchEnabled(true)
+    self.btn_zIndex = self.layer_zIndex + 1
+
+    self:initPlayUI()
+
+    local function onNodeEvent(event)
+        if event =="exit" then
+            self:stopAllActions()
+            cclog("on LayerPlayGame exit")
+        end
+    end
+    self:registerScriptHandler(onNodeEvent)    
+end
+
+--播放相关ui
+function  LayerPlayGame:initPlayUI()
+    --背景
+    self.play_ui = loadSprite("czpdkreplay/lobby_gameplay_btnbg_img.png")
+    local bgsz = self.play_ui:getContentSize()
+    self.play_ui:setPosition(ccp(AppConfig.DESIGN_SIZE.width / 2, 240))
+    self:addChild(self.play_ui, self.btn_zIndex)
+
+    --上一轮
+    self.last_btn = CCButton.put(self.play_ui, CCButton.createCCButtonByFrameName("czpdkreplay/lobby_gameplay_last_btn1.png", 
+            "czpdkreplay/lobby_gameplay_last_btn2.png", "czpdkreplay/lobby_gameplay_last_btn2.png", function(tag, target)
+                self.is_playlast = true
+                self.next_btn:setEnabled(false)
+                self.last_btn:setEnabled(false)
+            end), 
+            ccp(73, bgsz.height / 2), self.btn_zIndex)    
+
+    --播放
+    self.game_play = CCButton.put(self.play_ui, CCButton.createCCButtonByFrameName("czpdkreplay/lobby_gameplay_play_btn1.png", 
+            "czpdkreplay/lobby_gameplay_play_btn2.png", "czpdkreplay/lobby_gameplay_play_btn2.png", function(tag, target)
+                self.game_stop:setVisible(true)
+                self.game_play:setVisible(false)
+                self.is_stop = false
+            end), 
+            ccp(73 + 127, bgsz.height / 2), self.btn_zIndex)
+    self.game_play:setVisible(false)
+    
+    --暂停
+    self.game_stop = CCButton.put(self.play_ui, CCButton.createCCButtonByFrameName("czpdkreplay/lobby_gameplay_stop_btn1.png", 
+            "czpdkreplay/lobby_gameplay_stop_btn2.png", "czpdkreplay/lobby_gameplay_stop_btn2.png", function(tag, target)
+                self.game_stop:setVisible(false)
+                self.game_play:setVisible(true)
+                self.is_stop = true
+            end), 
+            ccp(73 + 127, bgsz.height / 2), self.btn_zIndex)    
+
+    --下一轮
+    self.next_btn = CCButton.put(self.play_ui, CCButton.createCCButtonByFrameName("czpdkreplay/lobby_gameplay_nest_btn1.png", 
+            "czpdkreplay/lobby_gameplay_nest_btn2.png", "czpdkreplay/lobby_gameplay_nest_btn2.png", function(tag, target)
+                self.is_playnext = true
+                self.next_btn:setEnabled(false)
+                self.last_btn:setEnabled(false)
+            end), 
+            ccp(73 + 127 + 140, bgsz.height / 2), self.btn_zIndex) 
+
+    --返回
+    CCButton.put(self.play_ui, CCButton.createCCButtonByFrameName("czpdkreplay/lobby_gameplay_return_btn1.png", 
+            "czpdkreplay/lobby_gameplay_return_btn2.png", "czpdkreplay/lobby_gameplay_return_btn2.png", function(tag, target)
+                require("phz/GamePlayLogic"):getInstance():dispose()
+            end), 
+            ccp(73 + 127 + 140 * 2, bgsz.height / 2), self.btn_zIndex) 
+
+    self.is_stop = false
+end
+
+function LayerPlayGame:setPlayState(bvalue)
+    self.is_playing = bvalue
+end
+
+function LayerPlayGame:setPlaySpeed(delayTime)
+    self:stopAllActions()
+    self:startCheckStatus(delayTime)
+end
+
+function LayerPlayGame:startCheckStatus(delay)
+    local delayTime = delay or 1.8
+    
+    local function onCheck()
+        if self.is_playing then
+            if self.is_playnext then
+                require("phz/GamePlayLogic"):getInstance():playNext()
+                self.is_playnext = false
+                self.next_btn:setEnabled(true)
+                self.last_btn:setEnabled(true)
+            elseif self.is_playlast then
+                require("phz/GamePlayLogic"):getInstance():playLast()
+                self.is_playlast = false
+                self.next_btn:setEnabled(true)
+                self.last_btn:setEnabled(true)
+            elseif not self.is_stop then
+                require("phz/GamePlayLogic"):getInstance():playNextOeprator()
+                self.next_btn:setEnabled(true)
+                self.last_btn:setEnabled(true)                
+            end
+        else
+            self.next_btn:setEnabled(false)
+            self.last_btn:setEnabled(false)            
+        end
+    end 
+
+    local array = CCArray:create()
+    array:addObject(CCCallFunc:create(onCheck))
+    array:addObject(CCDelayTime:create(delayTime))
+    self:runAction(CCRepeatForever:create(CCSequence:create(array)))
+end
+
+function LayerPlayGame.put(super, zindex)
+    local layer = LayerPlayGame.new()
+    layer:init(zindex)
+    super:addChild(layer, zindex)
+    return layer
+end
+
+return LayerPlayGame

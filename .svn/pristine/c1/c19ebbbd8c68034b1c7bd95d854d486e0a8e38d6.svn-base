@@ -1,0 +1,61 @@
+--LayerPiao.lua
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+
+local LayerPiao=class("LayerPiao",function()
+    return CCLayerColor:create(ccc4(0, 0, 0, 0))
+end)
+
+function LayerPiao:show()
+    self:setVisible(true)
+    self:setTouchEnabled(true)
+end
+
+function LayerPiao:init(score, func) 
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self:registerScriptTouchHandler(onTouch,false,kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self:setTouchEnabled(true)
+    self.btn_zIndex = self.layer_zIndex + 1
+
+    --提示
+    local tipbg = loadSprite("lobby_message_tip_bg.png")
+    tipbg:setPosition(ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2, AppConfig.SCREEN.CONFIG_HEIGHT / 2 + 140)) 
+    self:addChild(tipbg)   
+    local bgsz = tipbg:getContentSize()
+
+    local ypos = {bgsz.height / 2 + 30, bgsz.height / 2 - 20}
+    local msgs = {"请选择当前是否要“飘”", "计分时自摸所有玩家增减："..score.."\n计分时吃胡点炮玩家增减："..score}
+    for i,v in ipairs(ypos) do
+        local tiplab = CCLabelTTF:create(msgs[i], AppConfig.COLOR.FONT_ARIAL, 24)
+        tiplab:setPosition(ccp(bgsz.width / 2, v))
+        tiplab:setDimensions(CCSizeMake(bgsz.width, 0))
+        tiplab:setHorizontalAlignment(kCCTextAlignmentCenter)
+        tipbg:addChild(tiplab)
+    end
+
+    --不飘、飘
+    local imgs = {"paoHuZi/anniu_bupiao", "paoHuZi/anniu_piao5fen"}
+    local poses = {ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 140, AppConfig.SCREEN.CONFIG_HEIGHT / 2 - 100),
+                ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2 + 140, AppConfig.SCREEN.CONFIG_HEIGHT / 2 - 100)}
+    for i,v in ipairs(imgs) do
+        CCButton.put(self, CCButton.createCCButtonByFrameName(v..".png", v.."_dk.png", v.."_dk.png",
+                function() func(i) end), poses[i], self.btn_zIndex)
+    end
+
+    self:setVisible(false)
+    self:setTouchEnabled(false)    
+end
+
+function LayerPiao.put(super, zindex, score, func)
+    local layer = LayerPiao.new()
+    layer.layer_zIndex = zindex
+    super:addChild(layer, zindex)
+    layer:init(score, func)
+    return layer
+end
+
+return LayerPiao

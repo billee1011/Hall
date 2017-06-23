@@ -1,0 +1,914 @@
+require("CocosExtern")
+local AppConfig = require("AppConfig")
+local Resources=require("k510/Resources")
+local StringRes = require("k510/StringRes")
+local PlayerCards=require("k510/Game/PlayerCards")
+local OutCards=require("k510/Game/OutCards")
+local GameLogic = require("k510/Game/GameLogic")
+local Common = require("k510/Game/Common")
+local ShareFuns = require("k510/Game/Public/ShareFuns")
+local SetLogic = require("Lobby/Set/SetLogic")
+
+local Player=class("Player",function()
+    return CCLayer:create()
+end)
+
+Player.__index =Player
+Player._UserId = 0
+Player._UserCash = 0
+Player._RoomTicket = 0
+Player._HeadSp = nil
+Player._ChairIndex = 0
+Player._Time = 0
+Player._PlayCards = nil
+
+Player.StatusShow = 
+{
+    Show_Hide = -1,--隐藏
+    Show_Ready = 0,--准备
+    Show_UnOut = 1,--不要
+    Show_OffLine = 2,--断线
+}
+
+function Player.create()
+    local layer = Player.new()
+    layer:init()
+	return layer
+end
+
+function Player:init()
+    
+    self.gameUserInfo = nil
+    self.schedulerId = -1
+    self.gold = 0
+    self.iconUpdated = false
+
+    self.winSize = CCSizeMake(require("k510/GameDefs").CommonInfo.View_Width, require("k510/GameDefs").CommonInfo.View_Height)
+
+    --玩家信息底
+    self.userInfoframe = loadSprite("czpdk/userinfoframebg.png", true)
+    self.userInfoframe:setPreferredSize(CCSizeMake(109,109))
+  	self:addChild(self.userInfoframe, 1)
+  	self.userInfoframe:setPosition(ccp(400, 400)) 
+
+  	--头像
+    local faceSize = CCSizeMake(90,90)
+  	self._HeadSp = require("FFSelftools/CCUserFace").createDefault(_,faceSize)
+  	self.userInfoframe:addChild(self._HeadSp)
+  	self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+    self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
+
+  	--名字
+  	self._NameLabel = CCLabelTTF:create("按快点撒","",22,CCSizeMake(self.userInfoframe:getContentSize().width + 38,38),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self._NameLabel:setAnchorPoint(0.5,1.0)
+    self.userInfoframe:addChild(self._NameLabel)
+    self._NameLabel:setPosition(ccp(self.userInfoframe:getContentSize().width/2, 5))
+
+    --积分框
+    self.scoreFrame = loadSprite("czpdk/jifenframe.png")
+  	self.userInfoframe:addChild(self.scoreFrame)
+  	self.scoreFrame:setPosition(ccp(self.userInfoframe:getContentSize().width/2, -50))
+
+    --豆
+    self._ScoreLabel = CCLabelTTF:create("0","",22,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentLeft)
+    self._ScoreLabel:setAnchorPoint(0.0,0.5)
+    -- self._ScoreLabel:setColor(ccc3(227,0,0))
+    self.scoreFrame:addChild(self._ScoreLabel)
+    self._ScoreLabel:setPosition(ccp(self.scoreFrame:getContentSize().width/2, self.scoreFrame:getContentSize().height/2))
+    
+    --庄
+    self._IconZhuangSp = loadSprite("czpdk/zhuang.png")
+    self.userInfoframe:addChild(self._IconZhuangSp,98)
+    self._IconZhuangSp:setPosition(ccp(-12, self.userInfoframe:getContentSize().height))
+    self._IconZhuangSp:setAnchorPoint(ccp(0.0,1.0))
+
+    --报单
+    self.baodanSp = loadSprite("czpdk/baodan.png")
+  	self.userInfoframe:addChild(self.baodanSp, 99)
+    self.baodanSp:setScale(0.75)
+    self.baodanSp:setAnchorPoint(ccp(0.5,1))
+  	self.baodanSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+self.baodanSp:getContentSize().height))
+    local array = CCArray:create()
+    array:addObject(CCRotateBy:create(0.1,-5))
+    array:addObject(CCRotateBy:create(0.2,10))
+    array:addObject(CCRotateBy:create(0.1,-10))
+    array:addObject(CCRotateBy:create(0.2,10))
+    array:addObject(CCRotateBy:create(0.1,-5))
+    array:addObject(CCDelayTime:create(0.5))
+    self.baodanSp:runAction(CCRepeatForever:create(CCSequence:create(array)))
+
+    --手牌
+    self._PlayCards = PlayerCards:create(chair)
+    self:addChild(self._PlayCards)
+    self._PlayCards:setVisible(false)
+
+    --打出去的牌
+    self._OutCards = OutCards:create()
+    self:addChild(self._OutCards)
+    self._OutCards:setVisible(false)
+
+    --游戏状态 不出 准备
+    self._GameStatus = loadSprite("czpdk/status_ready.png")
+    self:addChild(self._GameStatus)
+    self._GameStatus:setVisible(false)
+
+    --玩家断线状态
+    self._OfflineFrame = loadSprite("czpdk/offlineframe.png")
+    self.userInfoframe:addChild(self._OfflineFrame,1)
+    self._OfflineFrame:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+
+    local offlineText = loadSprite("czpdk/offlinetext.png")
+    self._OfflineFrame:addChild(offlineText)
+    offlineText:setAnchorPoint(1.0,1.0)
+    offlineText:setPosition(self._OfflineFrame:getContentSize().width + 8,self._OfflineFrame:getContentSize().height + 7)
+
+    --倒计时
+    self._clock = loadSprite("czpdk/timer.png")
+    self._clock:setAnchorPoint(ccp(0.0,0.5))
+    self:addChild(self._clock)
+    self._clock:setVisible(false)
+
+    --倒计时数字
+    self._clockTimeLabel = CCLabelTTF:create("30","Arial",52,CCSizeMake(200,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self._clockTimeLabel:setAnchorPoint(0.5,0.5)
+    self._clock:addChild(self._clockTimeLabel)
+    self._clockTimeLabel:setPosition(ccp(self._clock:getContentSize().width/2 + 2, self._clock:getContentSize().height/2))
+    self._clockTimeLabel:setColor(ccc3(255,209,29))
+
+
+    --其他玩家剩余牌的标示
+    self.m_CardBackSp = loadSprite("czpdk/cardbackbg.png")
+    self.m_CardBackSp:setAnchorPoint(ccp(0.5,0.5))
+    self.userInfoframe:addChild(self.m_CardBackSp)
+    self.m_CardBackSp:setVisible(false)
+
+    self._cardNumLabel = CCLabelTTF:create("0","Arial",22)
+    self._cardNumLabel:setColor(ccc3(255,238,60))
+    self._cardNumLabel:setAnchorPoint(ccp(0.5,0.5))
+	self._cardNumLabel:setPosition(ccp(self.m_CardBackSp:getContentSize().width/2-1, self.m_CardBackSp:getContentSize().height/2+1))
+    self._cardNumLabelShadow = CCLabelTTF:create("0","Arial",22)
+    self._cardNumLabelShadow:setColor(ccc3(0,0,0))
+    self._cardNumLabelShadow:setOpacity(200)
+    self._cardNumLabelShadow:setAnchorPoint(ccp(0.5,0.5))
+	self._cardNumLabelShadow:setPosition(ccp(self.m_CardBackSp:getContentSize().width/2+1, self.m_CardBackSp:getContentSize().height/2-1))
+    self.m_CardBackSp:addChild(self._cardNumLabelShadow);
+    self.m_CardBackSp:addChild(self._cardNumLabel);
+
+
+    --表情
+    self.emoSp = loadSprite(string.format("emote/emote%d-%d.png",1,1))
+    self.emoSp:setAnchorPoint(ccp(0.5,0.5))
+    self.userInfoframe:addChild(self.emoSp)
+    self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+    self.emoSp:setVisible(false)
+
+    --常用语字
+    self.wordChatFrame = loadSprite("czpdk/chatshowframe.png", true)
+    self.wordChatFrame:setAnchorPoint(ccp(0.0,0.5))
+    self:addChild(self.wordChatFrame,2)
+    self.wordChatFrame:setVisible(false)
+
+    self.wordChatLabel = CCLabelTTF:create("","",24,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self.wordChatLabel:setAnchorPoint(ccp(0.0,0.5))
+    self.wordChatFrame:addChild(self.wordChatLabel)
+    self.wordChatLabel:setColor(ccc3(51,33,9))
+    self.wordChatLabel:setPosition(ccp(10,self.wordChatFrame:getContentSize().height/2+6))
+
+    self.wordChatFrame1 = loadSprite("czpdk/chatshowframe2.png", true)
+    self.wordChatFrame1:setAnchorPoint(ccp(1.0,0.5))
+    self:addChild(self.wordChatFrame1,2)
+    self.wordChatFrame1:setVisible(false)
+
+    self.wordChatLabel1 = CCLabelTTF:create("","",24,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self.wordChatLabel1:setAnchorPoint(ccp(0.0,0.5))
+    self.wordChatFrame1:addChild(self.wordChatLabel1)
+    self.wordChatLabel1:setColor(ccc3(51,33,9))
+    self.wordChatLabel1:setPosition(ccp(10,self.wordChatFrame:getContentSize().height/2+6))
+
+    
+    --动画
+    self.cardTypeTextAcSp = loadSprite("czpdkanimate/feiji/feijitext.png")
+    self.userInfoframe:addChild(self.cardTypeTextAcSp)
+    self.cardTypeTextAcSp:setVisible(false)
+
+    self.cardTypeAcSp = loadSprite("czpdkanimate/liandui/6.png")
+    self.userInfoframe:addChild(self.cardTypeAcSp)
+    self.cardTypeAcSp:setScale(1.5)
+    self.cardTypeAcSp:setVisible(false)
+
+   local function onNodeEvent(event)
+     if event =="exit" then
+        self:onExit()
+     end        
+  end
+  self:registerScriptHandler(onNodeEvent)
+end
+
+function Player:onExit()
+   CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.schedulerId)
+end
+
+function Player:setChairIndex(chairIndex)
+     self._ChairIndex = chairIndex
+     self._PlayCards:setChairIndex(chairIndex)
+     self._OutCards:setChairIndex(chairIndex)
+     self:UpdatePos(self._ChairIndex)
+end
+
+function Player:UpdateUserInfo(gameUserInfo, updateCardsDataOnly)
+    if self.gameUserInfo ~= nil then
+        if gameUserInfo:getUserDBID() ~= self.gameUserInfo:getUserDBID() or (not self.iconUpdated) then
+            --头像
+            local head = self.userInfoframe:getChildByTag(Resources.Tag.USER_HEAD_TAG)
+            if head ~= nil then
+               self._HeadSp:removeFromParentAndCleanup(true)
+            end
+
+            local faceSize = CCSizeMake(90,90)
+            self._HeadSp = require("FFSelftools/CCUserFace").create(gameUserInfo:getUserDBID(), faceSize, gameUserInfo:getSex())
+                    
+            self.userInfoframe:addChild(self._HeadSp)
+            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+1))
+            self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
+            self.iconUpdated = true
+            
+            self._NameLabel:setString(gameUserInfo:getUserName())
+        end
+    else
+        self._NameLabel:setString(gameUserInfo:getUserName())
+    end
+
+    self.gameUserInfo = gameUserInfo
+    
+    if updateCardsDataOnly then
+        -- 仅更新数据
+        self._cardArray = self.gameUserInfo:getHandCards()
+        self._PlayCards._playerCardsValueLst = self.gameUserInfo:getHandCards()
+        self._outcardArray = self.gameUserInfo:getOutCards()
+    else
+        -- 刷新手牌
+        self:resetHandCards(self.gameUserInfo:getHandCards())
+        -- 结束和未开始阶段保持其它玩家已出手牌的显示，仅在切牌、发牌、打牌阶段更新大于数量大于0的出牌
+        if GameLogic.gamePhase == Common.GAME_PHRASE.enGame_QiePai or 
+            GameLogic.gamePhase == Common.GAME_PHRASE.enGame_InitData or 
+            GameLogic.gamePhase == Common.GAME_PHRASE.enGame_OutCard or 
+            #self.gameUserInfo:getOutCards()>0 then
+                self:resetOutCards(self.gameUserInfo:getOutCards(),self.gameUserInfo:getOutCardType())
+        end
+    end
+    
+    --状态 准备 断线等
+    if self.gameUserInfo.gameNewStatus == Common.GAME_PLAYER_STATE.USER_READY_STATUS then
+        self:setPlayerStatus(self.StatusShow.Show_Ready)
+    else
+        if self.gameUserInfo:getOutCardType() == Common.SUIT_TYPE.suitPass and GameLogic.gamePhase == Common.GAME_PHRASE.enGame_OutCard then
+            self:setPlayerStatus(self.StatusShow.Show_UnOut)
+        else
+            self:setPlayerStatus(self.StatusShow.Show_Hide)
+        end
+    end
+
+    if self.gameUserInfo.gameNewStatus == Common.GAME_PLAYER_STATE.USER_OFF_LINE then
+        self._OfflineFrame:setVisible(true)
+    else
+        self._OfflineFrame:setVisible(false)
+    end
+
+    --刷新分值
+    if self.gold ~= self.gameUserInfo:getScore() then
+        self.gold = self.gameUserInfo:getScore()
+        self._ScoreLabel:setString(string.format("%d", self.gold))
+    end
+
+    if #self.gameUserInfo:getHandCards() == 1 then
+        self.baodanSp:setVisible(true)
+    else
+        self.baodanSp:setVisible(false)
+    end
+
+    if GameLogic.gamePhase == Common.GAME_PHRASE.enGame_InitData and self._ChairIndex == 1 then
+        self._PlayCards:FapaiAction()
+    else
+        self._PlayCards:setCardBackHide()
+    end
+
+    if self.gameUserInfo:getZhuang() then
+       self._IconZhuangSp:setVisible(true)
+    else
+       self._IconZhuangSp:setVisible(false)
+    end
+end
+
+-- 刷新回放时玩家信息
+function Player:UpdateReplayInfo(chair, info, gamePhase)
+    -- 设置椅子
+    if not self._ChairIndex then
+        self:setChairIndex(chair)
+    end
+    
+    -- 初始化玩家信息及手牌
+    if gamePhase == Common.GAME_PHRASE.enGame_InitData then
+        --头像
+        if not self.iconUpdated then
+            local head = self.userInfoframe:getChildByTag(Resources.Tag.USER_HEAD_TAG)
+            if head ~= nil then self._HeadSp:removeFromParentAndCleanup(true) end
+
+            local faceSize = CCSizeMake(90,90)
+            self._HeadSp = require("FFSelftools/CCUserFace").create( info.DB, faceSize, info.SX)
+                            
+            self.userInfoframe:addChild(self._HeadSp)
+            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+1))
+            self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
+            self.iconUpdated = true
+        end
+        -- 性别
+        self._sex = info.SX
+        
+        -- 名字
+        self._NameLabel:setString(info.UN)
+
+        -- 积分
+        self.scoreFrame:setVisible(false)
+        
+        -- 离线标识
+        self._OfflineFrame:setVisible(false)
+        
+        -- 庄
+        if self.isZhuang then
+            self._IconZhuangSp:setVisible(true)
+        else
+            self._IconZhuangSp:setVisible(false)
+        end
+        
+        -- 隐藏报单
+        self.baodanSp:setVisible(false)
+        -- 隐藏提示
+        self:setPlayerStatus(self.StatusShow.Show_Hide)
+        -- 隐藏出牌
+        self._OutCards:setVisible(false)
+        -- 更新手牌
+        self._PlayCards:reFreshPlayerCards(info.HCL, self._PlayCards.FreshCardType.LiPai)
+        self._PlayCards:setVisible(true)
+        
+        -- 发牌动画
+        self._PlayCards:FapaiAction()
+        
+    -- 回退时更新玩家手牌
+    elseif gamePhase == Common.GAME_PHRASE.enGame_Replay then
+        -- 隐藏报单
+        self.baodanSp:setVisible(false)
+        -- 隐藏提示
+        self:setPlayerStatus(self.StatusShow.Show_Hide)
+        -- 隐藏出牌
+        self._OutCards:setVisible(false)
+        -- 更新手牌
+        self._PlayCards:reFreshPlayerCards(info.HCL, self._PlayCards.FreshCardType.LiPai)
+        self._PlayCards:setVisible(true)
+        
+    -- 播放时更新玩家手牌及出牌
+    else
+        -- 出牌或跟牌
+        if info.OCD then
+            self:setPlayerStatus(self.StatusShow.Show_Hide)
+            self._OutCards:reFreshOutCards(info.OCD, self._ChairIndex)
+            self._OutCards:setVisible(true)
+            local s = info.HCL or {}
+            self._PlayCards:reFreshPlayerCards(s, self._PlayCards.FreshCardType.LiPai)
+            self._PlayCards:setVisible(true)
+            -- 报单标识 TODO
+            if #s == 1 then
+                self.baodanSp:setVisible(true)
+                local path = self._sex == 0 and "woman" or "man"
+                SetLogic.playGameEffect(string.format("k510/sound/%s/baodan.mp3", path))
+            else
+                self.baodanSp:setVisible(false)
+            end
+        -- 过牌
+        else
+            self._OutCards:setVisible(false)
+            self:setPlayerStatus(self.StatusShow.Show_UnOut)
+        end
+    end
+end
+
+function Player:UpdatePos(chair, replay)
+    if chair == 0 then
+        self.userInfoframe:setPosition(self.winSize.width-self._HeadSp:getContentSize().width/2-36,self.winSize.height/2 + 200)
+        self._PlayCards:setPos(ccp(-666,0))
+        self._OutCards:setPos(ccp(552,330))
+        self._GameStatus:setPosition(ccp(1018,468))
+        self._clock:setPosition(ccp(self.winSize.width- self._clock:getContentSize().width-180,468))
+        self.emoSp:setPosition(ccp(- self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+        self.wordChatFrame1:setPosition(ccp(self.userInfoframe:getPositionX() - 20,self.userInfoframe:getPositionY()))
+        self.cardTypeTextAcSp:setPosition(ccp(-160,self.userInfoframe:getContentSize().height/2 - 106))
+        if not replay then
+            self._PlayCards:setVisible(false)
+            self.m_CardBackSp:setPosition(ccp(-24,self.userInfoframe:getContentSize().height/2))
+        else
+            self._PlayCards:setScale(0.5)
+            self._PlayCards:setVisible(true)
+            self.m_CardBackSp:setVisible(false)
+        end
+    elseif chair == 1 then
+        self.userInfoframe:setPosition(102,self.winSize.height/2-32)
+        self._PlayCards:setPos(ccp(0,56))
+        self._OutCards:setPos(ccp(267,240))
+        self._GameStatus:setPosition(ccp(self.winSize.width/2,260))
+        self._clock:setPosition(ccp((self.winSize.width - self._clock:getContentSize().width)/2,280))
+        self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width + self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+        self.wordChatFrame:setPosition(ccp(self.userInfoframe:getPositionX() + 20,self.userInfoframe:getPositionY() ))
+        self.wordChatFrame1:setVisible(false)
+        self.cardTypeTextAcSp:setPosition(ccp(self.winSize.width/2 - 50, 0))
+        self.m_CardBackSp:setVisible(false)
+    elseif chair == 2 then
+        self.userInfoframe:setPosition(102,self.winSize.height/2+200)
+        self._PlayCards:setPos(ccp(-666,0))
+        self._OutCards:setPos(ccp(190,330))
+        self._GameStatus:setPosition(ccp(267,468))
+        self._clock:setPosition(ccp(180,468))
+        self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width + self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
+        self.wordChatFrame:setPosition(ccp(self.userInfoframe:getPositionX() + 20,self.userInfoframe:getPositionY()))
+        self.wordChatFrame1:setVisible(false)
+        self.cardTypeTextAcSp:setPosition(ccp(252,self.userInfoframe:getContentSize().height/2 - 106))
+        if not replay then
+            self._PlayCards:setVisible(false)
+            self.m_CardBackSp:setPosition(ccp(self._HeadSp:getContentSize().width + 4,self.userInfoframe:getContentSize().height/2))
+        else
+            self._PlayCards:setScale(0.5)
+            self._PlayCards:setVisible(true)
+            self.m_CardBackSp:setVisible(false)
+        end
+    end
+end
+
+function Player:resetHandCards(cardArray, replay)
+    -- print("resetHandCards: ",#cardArray, self._ChairIndex)
+    self._cardArray = {}
+    
+    if #cardArray == 0 then
+       self._PlayCards:setVisible(false)
+       self.m_CardBackSp:setVisible(false)
+       return
+    end
+
+    self._cardArray = cardArray
+    --我在桌子上
+    --设置牌值
+    if (GameLogic.myChair >= 0 and GameLogic.myChair < Common.PLAYER_COUNT and self._ChairIndex == 1) or replay then
+        self._PlayCards:reFreshPlayerCards(cardArray,self._PlayCards.FreshCardType.SceneChange)
+        self._PlayCards:setVisible(true)
+        self.m_CardBackSp:setVisible(false)
+    else 
+        local HandCardsNum = #cardArray
+        self._cardNumLabel:setString(tostring(HandCardsNum))
+        self._cardNumLabelShadow:setString(tostring(HandCardsNum))
+        -- 根据显示手牌设置决定是否显示
+        local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+        if FriendGameLogic.my_rule and FriendGameLogic.my_rule[4] and FriendGameLogic.my_rule[4][2] == 1 then
+            self.m_CardBackSp:setVisible(true)
+        end
+        self._PlayCards:setVisible(false)
+    end
+end
+
+-- 
+function Player:resetOutCards(cardArray,outCardType)
+    cclog("Player:resetOutCards %d, %d", #cardArray, outCardType)
+    self._outcardArray = {}
+    self._outcardArray = cardArray
+    
+    if #cardArray == 0 then
+        self._OutCards:setVisible(false)
+        return
+    end
+
+    if outCardType == Common.SUIT_TYPE.suitDouble or outCardType == Common.SUIT_TYPE.suitThree 
+        or outCardType == Common.SUIT_TYPE.suitStraight or outCardType == Common.SUIT_TYPE.suitDoubleStraight
+        or outCardType == Common.SUIT_TYPE.suitTriStraight or outCardType == Common.SUIT_TYPE.suitBomb then
+        
+        cardArray = ShareFuns.SortCardsByCardType(cardArray)
+        cardArray = ShareFuns.SortCardsByMin(cardArray)
+
+    elseif outCardType == Common.SUIT_TYPE.suitTriAndSingle or outCardType == Common.SUIT_TYPE.suitTriAndTwo 
+        or outCardType == Common.SUIT_TYPE.suitPlane then
+
+        cardArray = ShareFuns.SortCardsByMin(cardArray)
+        local bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(cardArray,3)
+        cardArray = ShareFuns.Append(ArrayOut,ArrayIn)
+
+    elseif outCardType == Common.SUIT_TYPE.suitFourAndSingle or outCardType == Common.SUIT_TYPE.suitFourAndTwo 
+        or outCardType == Common.SUIT_TYPE.suitFourAndThree  then
+
+        cardArray = ShareFuns.SortCardsByMin(cardArray)
+        local bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(cardArray,4)
+        cardArray = ShareFuns.Append(ArrayOut,ArrayIn)
+    elseif outCardType == Common.SUIT_TYPE.suitInvalid then
+        cardArray = ShareFuns.SortCardsByMin(cardArray)
+    end
+
+    --设置牌值
+    self._OutCards:reFreshOutCards(cardArray,self._ChairIndex)
+    self._OutCards:setVisible(true)
+end
+
+-- -1隐藏 0准备 1不要
+function Player:setPlayerStatus(status)
+    local statusPng
+    if status == self.StatusShow.Show_Hide then
+        self._GameStatus:setVisible(false)
+        return
+    elseif status == self.StatusShow.Show_Ready then
+        statusPng = "czpdk/status_ready.png"
+    elseif status == self.StatusShow.Show_UnOut then
+        statusPng = "czpdk/status_noout.png"
+    elseif status == self.StatusShow.Show_OffLine then
+        --statusPng = Resources.Resources_Head_Path.."deskScene/status_noout.png"
+    end
+
+    self._GameStatus:setDisplayFrame(CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(statusPng))
+    self._GameStatus:setVisible(true)
+end
+
+
+-- 启动定时器
+function Player:setTimer(isShow,time)
+    
+    self._Time = time
+    
+    local function updateTimer(delta)
+
+        self._Time = self._Time - delta
+
+        if self._Time>=0 and self._Time <= 10 then
+            self._clock:setVisible(true)
+        end
+
+        if self._Time>=0 then
+            self._clockTimeLabel:setString(string.format("%02d", self._Time))
+            if self._Time < 3 and GameLogic.curActor == GameLogic.myChair then
+                local SetLogic = require("Lobby/Set/SetLogic")
+                SetLogic.playGameShake(100)
+                SetLogic.playGameEffect(AppConfig.SoundFilePathName.."warn_effect"..AppConfig.SoundFileExtName)
+            end
+        elseif (self._Time < 0) then
+            -- 如果是我就应发送不要协议，但好友桌模式下选择继续等待
+            -- 停止倒计时
+            self._clockTimeLabel:setString("0")
+            CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.schedulerId)
+        end
+    end
+
+    if isShow == true then
+        self._clockTimeLabel:setString(string.format("%02d", self._Time))
+        self.schedulerId =CCDirector:sharedDirector():getScheduler():scheduleScriptFunc(updateTimer, 1.0,false)
+        self._clock:setVisible(true)
+    else
+        CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.schedulerId)
+        self._clock:setVisible(false)
+    end
+
+end
+
+-- 我是操作者隐藏上一轮打出去的牌和状态
+function Player:HideSomeIfCurActo()
+    -- cclog("HideSomeIfCurActo")
+    local outCard = {}
+    self:resetOutCards(outCard,Common.SUIT_TYPE.suitInvalid)
+    self:setPlayerStatus(self.StatusShow.Show_Hide)
+end
+
+
+-- 显示表情
+function Player:setEmoShow(file)
+    local c = CCSpriteFrameCache:sharedSpriteFrameCache()
+    self.emoSp:stopAllActions()
+
+    local function _callFunc()
+        self:setEmoHide()
+    end
+
+    self.emoSp:setDisplayFrame(c:spriteFrameByName(string.format("emote/emote%d-%d.png", file,1)))
+    self.emoSp:setVisible(true)
+    
+    local animFrames = CCArray:create()
+    for i = 1, 3 do
+        local frame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+            string.format("emote/emote%d-%d.png", file, i))
+        animFrames:addObject(frame)
+    end
+    local animation = CCAnimation:createWithSpriteFrames(animFrames, 0.25)
+    local animate = CCAnimate:create(animation);
+    self.emoSp:setScale(1.5)
+    self.emoSp:runAction(CCRepeatForever:create(animate))    
+    self.emoSp:runAction(CCSequence:createWithTwoActions(
+        CCDelayTime:create(5),
+        CCCallFuncN:create(_callFunc)
+    ))
+end
+
+-- 隐藏表情
+function Player:setEmoHide()
+    self.emoSp:setVisible(false)
+end
+
+-- 牌型动画
+function Player:playCardTypeAction(cardtype)
+    -- cclog("播放动画 : %s", tostring(cardtype))
+    local c = CCSpriteFrameCache:sharedSpriteFrameCache()
+
+    self.cardTypeTextAcSp:stopAllActions()
+    self.cardTypeAcSp:stopAllActions()
+
+    local function _callFunc()
+        self.cardTypeTextAcSp:setVisible(false)
+        self.cardTypeAcSp:setVisible(false)
+    end
+
+    local function _callFunc2()
+        SetLogic.playGameShake(100)
+        if GameLogic.StaySceneLayer then
+            GameLogic.StaySceneLayer:stopAllActions()
+            GameLogic.StaySceneLayer:setPosition(ccp(0,0))
+            local arr =CCArray:create()
+            arr:addObject(CCMoveBy:create(0.05,ccp(-5,5)))
+            arr:addObject(CCMoveBy:create(0.05,ccp(10,-10)))
+            arr:addObject(CCMoveBy:create(0.05,ccp(-10,10)))
+            arr:addObject(CCMoveBy:create(0.05,ccp(10,-10)))
+            arr:addObject(CCMoveBy:create(0.05,ccp(-5,5)))
+            GameLogic.StaySceneLayer:runAction(CCSequence:create(arr))
+        end
+    end
+
+    local file = ""
+    if cardtype == Common.SUIT_TYPE.suitDoubleStraight then
+        file = "liandui"
+    elseif cardtype == Common.SUIT_TYPE.suitTriAndTwo then
+        file = "sandaier"
+    elseif cardtype == Common.SUIT_TYPE.suitStraight  then
+        file = "shunzi"
+    elseif cardtype == Common.SUIT_TYPE.suitBomb  then
+        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/zhadan/1.png"))
+        self.cardTypeAcSp:setVisible(true)
+        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/zhadan/zhadantext.png"))
+        self.cardTypeTextAcSp:setVisible(true)
+        
+        local bezier = ccBezierConfig:new()
+        if self._ChairIndex == 0 then
+            self.cardTypeAcSp:setPosition(ccp(-40, 100 ))
+            bezier.controlPoint_1 = ccp(0, self.winSize.height/3)
+            bezier.controlPoint_2 = ccp( 140 - self.winSize.width/2,self.winSize.height/3)
+            bezier.endPosition = ccp(- self.winSize.width/2 + 180 , -100)
+        elseif self._ChairIndex == 1 then
+            self.cardTypeAcSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2,self.userInfoframe:getContentSize().height/2))
+            bezier.controlPoint_1 = ccp(self.cardTypeAcSp:getPositionX(),self.cardTypeAcSp:getPositionY() + 200)
+            bezier.controlPoint_2 = ccp(self.winSize.width/2 - 140,self.cardTypeAcSp:getPositionY() + 200)
+            bezier.endPosition = ccp(self.winSize.width/2 - 90, 0)
+        elseif self._ChairIndex == 2 then
+            self.cardTypeAcSp:setPosition(ccp(80, 100 ))
+            bezier.controlPoint_1 = ccp( 0,self.winSize.height/3)
+            bezier.controlPoint_2 = ccp(self.winSize.width/2 - 70,self.winSize.height/3)
+            bezier.endPosition = ccp(self.winSize.width/2 - 90, -100)
+        end
+
+        local bezierAction = CCBezierTo:create(0.5,bezier)
+
+        local pAnimation1 = CCAnimation:create()
+        for i=1,4 do
+            pAnimation1:addSpriteFrame(
+                CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+                string.format("czpdkanimate/zhadan/%d.png",i)
+            ))
+        end
+        pAnimation1:setDelayPerUnit(0.125)
+        pAnimation1:setRestoreOriginalFrame(true)
+        local Animate1 = CCAnimate:create(pAnimation1)
+        local spwanAction = CCSpawn:createWithTwoActions(bezierAction,Animate1)
+
+        local pAnimation2 = CCAnimation:create()
+        for i=5,13 do
+            pAnimation2:addSpriteFrame(
+                CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+                string.format("czpdkanimate/zhadan/%d.png",i)
+            ))
+        end
+        pAnimation2:setDelayPerUnit(0.06)
+        pAnimation2:setRestoreOriginalFrame(true)
+        local Animate2 = CCAnimate:create(pAnimation2)
+
+        local arr =CCArray:create()
+        arr:addObject(spwanAction)
+        arr:addObject(CCCallFunc:create(_callFunc2))
+        arr:addObject(Animate2)
+        local sequence = CCSequence:create(arr)
+        local callFun = CCCallFunc:create(_callFunc)
+        local array =CCArray:create()
+        array:addObject(sequence)
+        array:addObject(callFun)
+        self.cardTypeAcSp:runAction(CCSequence:create(array))
+        
+    elseif cardtype == Common.SUIT_TYPE.suitPlane  then
+        self.cardTypeAcSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2,self.userInfoframe:getContentSize().height/2))
+        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/feiji/1.png"))
+        self.cardTypeAcSp:setVisible(true)
+        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/feiji/feijitext.png"))
+        self.cardTypeTextAcSp:setVisible(true)
+        
+        local endPosX, addon = 0, 0
+        if self._ChairIndex == 0 then
+            self.cardTypeAcSp:setFlipX(false)
+            endPosX = -self.winSize.width
+        else
+            self.cardTypeAcSp:setFlipX(true)
+            endPosX = self.winSize.width
+        end
+
+        local pAnimation = CCAnimation:create()
+        for i=1,9 do
+            pAnimation:addSpriteFrame(
+                CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+                string.format("czpdkanimate/feiji/%d.png",i%3 + 1)
+            ))
+        end
+
+       pAnimation:setDelayPerUnit(0.15)
+       pAnimation:setRestoreOriginalFrame(true)
+
+       local Animate = CCAnimate:create(pAnimation)
+       local movetoAction = CCMoveTo:create(1.5,ccp(endPosX,self.cardTypeAcSp:getPositionY()))
+       local spwanAction = CCSpawn:createWithTwoActions(movetoAction,Animate)
+
+       local callFun = CCCallFunc:create(_callFunc)
+       local array =CCArray:create()
+       array:addObject(spwanAction)       
+       array:addObject(callFun)
+       self.cardTypeAcSp:runAction(CCSequence:create(array))
+
+    elseif cardtype == Common.SUIT_TYPE.suitFourAndThree  then
+        file = "sidaisan"
+    else
+        -- cclog("未定义的动画类型：%s", tostring(cardtype))
+    end
+
+
+    if cardtype == Common.SUIT_TYPE.suitDoubleStraight or cardtype == Common.SUIT_TYPE.suitTriAndTwo 
+        or cardtype == Common.SUIT_TYPE.suitStraight or cardtype == Common.SUIT_TYPE.suitFourAndThree then
+        
+        local szName = string.format("czpdkanimate/%s/%d.png",file,1)
+        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName(szName))
+        self.cardTypeTextAcSp:setVisible(true)
+        
+        local pAnimation = CCAnimation:create()
+        for i=1,6 do
+            pAnimation:addSpriteFrame(
+                CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+                string.format("czpdkanimate/%s/%d.png",file, i)
+            ))
+        end
+
+        pAnimation:setDelayPerUnit(0.2)
+        pAnimation:setRestoreOriginalFrame(true)
+
+        local Animate = CCAnimate:create(pAnimation)
+
+        local callFun = CCCallFunc:create(_callFunc)
+        local array =CCArray:create()
+        array:addObject(Animate)       
+        array:addObject(callFun)
+        self.cardTypeTextAcSp:runAction(CCSequence:create(array))
+    end
+
+end
+
+-- 显示聊天信息
+function Player:setWordFrameShow(args)
+    self.wordChatFrame:stopAllActions()
+
+    local function _callFunc()
+        self:setWordFrameHide()
+    end
+
+    local callFun = CCCallFunc:create(_callFunc)
+    local array =CCArray:create()
+    array:addObject(CCDelayTime:create(3))
+    array:addObject(callFun)
+
+    if self._ChairIndex == 0 then
+        self.wordChatLabel1:setString(args)
+        self.wordChatFrame1:setPreferredSize(CCSize(self.wordChatLabel1:getContentSize().width+20,80))
+        self.wordChatFrame1:runAction(CCSequence:create(array))
+        self.wordChatFrame1:setVisible(true)
+        self.wordChatFrame:setVisible(false)
+    else
+        self.wordChatLabel:setString(args)
+        self.wordChatFrame:setPreferredSize(CCSize(self.wordChatLabel:getContentSize().width+20,80))
+        self.wordChatFrame:runAction(CCSequence:create(array))
+        self.wordChatFrame:setVisible(true)
+        self.wordChatFrame1:setVisible(false)
+    end
+
+    -- 查询快捷短语并播放语音
+    local lan_set = AppConfig.language[SetLogic.getGameCheckByIndex(3)]
+    local quickChatCfg = AppConfig.quickChat[lan_set]
+    for k, v in ipairs(quickChatCfg) do
+        if self.gameUserInfo and args == v then
+            local sex = (self.gameUserInfo:getSex() == 1) and "man" or "woman"
+            local word = string.format("resources/music/quickchat/%s/%s/word%d.mp3", lan_set, sex, k)
+            require("CocosAudioEngine")
+            AudioEngine.playEffect(word)
+        end
+    end
+end
+
+-- 清除
+function Player:Clear()
+   self._PlayCards:clear()
+   self._OutCards:clear()
+end
+
+-- 隐藏聊天信息
+function Player:setWordFrameHide()
+    self.wordChatFrame:setVisible(false)
+    self.wordChatFrame1:setVisible(false)
+end
+
+function Player:LiPai()
+    self._PlayCards:LiPai()
+end
+
+function Player:HuiFu()
+    self._PlayCards:HuiFu()
+end
+
+function Player:PaiXu(way)
+    self._PlayCards:PaiXu(way)
+end
+
+function Player:getMyCardsLst()
+    return self._PlayCards:getMyCardsLst()
+end
+
+function Player:getChooseOutCards()
+    local outCards = self._PlayCards:getChooseOutCards()
+    return outCards
+end
+
+function Player:setHandCardsReset()
+     self._PlayCards:reset()
+end
+
+function Player:onTouchEnded(x,y)
+    self._PlayCards:onTouchEnded(x,y)
+end
+
+function Player:onTouchMoved(x,y)
+    self._PlayCards:onTouchMoved(x,y)
+end
+
+function Player:onTouchBegan(x,y)
+    self._PlayCards:onTouchBegan(x,y)
+end
+
+-- 判断是不是点在了头像上
+function Player:onTouchHead(x,y)
+    if self.userInfoframe:isVisible() == true then
+        local pTouch = ccp(x,y)
+        local point = self.userInfoframe:convertToNodeSpace(pTouch)
+        local rectSize = self.userInfoframe:getContentSize()
+        local rect = CCRectMake(0,0,rectSize.width,rectSize.height)
+        local isClicked = rect:containsPoint(point)
+        if isClicked then
+            --显示头像
+            local arg = {}
+            arg.chair = self._ChairIndex
+            require("GameLib/common/EventDispatcher"):instance():dispatchEvent(Resources.NOTIFYCATION_SHOWUSERDETAILS, arg)
+            return
+        end
+    end
+end
+
+function Player:Show()
+    self:setVisible(true)
+end
+
+function Player:Hide()
+    self.emoSp:setVisible(false)
+    self.cardTypeTextAcSp:setVisible(false)
+    self.cardTypeAcSp:setVisible(false)
+    self.wordChatFrame:setVisible(false)
+    self.wordChatFrame1:setVisible(false)
+    self:setVisible(false)
+end
+
+function Player:HeadShow()
+    self.userInfoframe:setVisible(true)
+end
+
+function Player:HeadHide()
+    self.userInfoframe:setVisible(false)
+end
+
+function Player:UpdatePlayerInfo()
+  
+end
+
+return Player

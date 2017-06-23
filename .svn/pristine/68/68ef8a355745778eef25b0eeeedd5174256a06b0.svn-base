@@ -1,0 +1,377 @@
+--LayerGame.lua
+local CCButton = require("FFSelftools/CCButton")
+
+local LayerGame=class("LayerGame",function()
+        return CCLayer:create()
+    end)
+
+function LayerGame:init() 
+    local AppConfig = require("AppConfig")
+    local player_count = 4
+    local card_zIndex = 1
+    local BtnBg_ZIndex = 3
+
+    local cardScale = 0.48
+
+    -- 背景
+    local Sprite_Bg = loadSprite("phz/images/BG2.jpg")
+    Sprite_Bg:setScale(1.25)
+    Sprite_Bg:setPosition(640, 360)
+    self:addChild(Sprite_Bg, -1)
+    self.Sprite_Bg = Sprite_Bg
+
+    --[[local Sprite_Bg2 = loadSprite("paoHuZi/BG.jpg")
+    Sprite_Bg2:setFlipX(true)
+    Sprite_Bg2:setAnchorPoint(ccp(1, 0.5))
+    Sprite_Bg2:setPosition(1280, 360)
+    self:addChild(Sprite_Bg2)]]
+
+    local Sprite_Line = loadSprite("paoHuZi/xian4.png")
+    Sprite_Line:setPosition(640, 360)
+    self:addChild(Sprite_Line)
+    self.Sprite_Line = Sprite_Line
+
+    -- 划动出牌提示
+    local Sprite_OutCardTip = loadSprite("paoHuZi/tishi.png")
+    Sprite_OutCardTip:setPosition(1102.5, 380)
+    self:addChild(Sprite_OutCardTip)
+    self.Sprite_OutCardTip = Sprite_OutCardTip
+    
+    -- 规则
+    local label_rule = CCLabelTTF:create("本房间游戏规则", "", 26)
+    label_rule:setColor(ccc3(0x47,0xb8,0x34))  --ccc3(4,60,9) 
+    label_rule:setPosition(640, 378)
+    self:addChild(label_rule)
+    self.label_rule = label_rule
+
+    local labBg = loadSprite("phz/roomBg.png")
+    labBg:setPosition(640, 670)
+    self:addChild(labBg)
+    local labBgSz = labBg:getContentSize()    
+    -- 房号
+    local label_roomNum = CCLabelTTF:create("房间号: 000000", "", 26)
+    label_roomNum:setPosition(labBgSz.width / 2, labBgSz.height - 22)
+    labBg:addChild(label_roomNum)
+    self.label_roomNum = label_roomNum
+    -- 对局数
+    local label_playCount = CCLabelTTF:create("第0/10局", "", 26)
+    label_playCount:setPosition(labBgSz.width / 2, 22)
+    labBg:addChild(label_playCount)
+    self.label_playCount = label_playCount
+
+    --电量、信号及相关UI
+    local realtimeInfoPanel = require("phz/Game/LayerRealtimeInfo").create()
+    realtimeInfoPanel:setPosition(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 330, AppConfig.SCREEN.CONFIG_HEIGHT - 35)
+    self:addChild(realtimeInfoPanel)
+    self.panel_realtimeInfo = realtimeInfoPanel
+        
+    -- 庄标识
+    local Sprite_BankerOutCardTip = loadSprite("paoHuZi/zhuangjia.png")
+    Sprite_BankerOutCardTip:setPosition(693, 340)
+    self:addChild(Sprite_BankerOutCardTip)
+    self.Sprite_BankerOutCardTip = Sprite_BankerOutCardTip
+    Sprite_BankerOutCardTip:setVisible(false)
+    
+    -- 玩家头像及相关信息
+    local pos = {ccp(100.5,670.5), ccp(100.5,46.5), ccp(1180.5,670.5), ccp(1180.5,46.5)}
+    local pos2 = {ccp(0, -60), ccp(0, 60), ccp(0, -60), ccp(0, 60)}
+    local pos3 = {ccp(140, 0), ccp(140, 0), ccp(-140, 0), ccp(-140, 0)}
+    local pos4 = {ccp(170, 0), ccp(170, 0), ccp(-170, 0), ccp(-170, 0)}
+    -- 94, 42
+    
+    local offline_zorder = 2
+    for i = 1, player_count do
+        local Button_Face = CCButton.createWithFrame("paoHuZi/wanjia1.png", false, nil)
+        Button_Face:setPosition(pos[i])
+        self:addChild(Button_Face)
+        self["Button_Face"..i] = Button_Face
+
+        local Sprite_Face = loadSprite("paoHuZi/touxiang.png")
+        Sprite_Face:setPosition(-54, 0)
+        Sprite_Face:setScale(0.8)
+        Button_Face:addChild(Sprite_Face)
+        self["Sprite_Face"..i] = Sprite_Face
+        
+        local AtlasLabel_UserGold = CCLabelAtlas:create("0", "phz/images/zhuangjiajinbi.png",11,16,string.byte('.'))
+        AtlasLabel_UserGold:setAnchorPoint(0, 0.5)
+        AtlasLabel_UserGold:setPosition(-5, -18)
+        AtlasLabel_UserGold:setScale(1.4)
+        Button_Face:addChild(AtlasLabel_UserGold)
+        self["AtlasLabel_UserGold"..i] = AtlasLabel_UserGold
+        
+        local Text_UserName = CCLabelTTF:create("玩家"..i, "", 25)
+        Text_UserName:setAnchorPoint(0, 0.5)
+        Text_UserName:setPosition(-12, 18)
+        Button_Face:addChild(Text_UserName)
+        self["Text_UserName"..i] = Text_UserName
+        
+        local Sprite_Ready = loadSprite("paoHuZi/zhunbeihaole.png")
+        Sprite_Ready:setPosition(pos4[i])
+        Button_Face:addChild(Sprite_Ready)
+        self["Sprite_Ready"..i] = Sprite_Ready
+
+        local Sprite_Offline = loadSprite("paoHuZi/offline.png")
+        Button_Face:addChild(Sprite_Offline, offline_zorder)
+        self["Sprite_Offline"..i] = Sprite_Offline
+
+
+        local Sprite_Time = loadSprite("paoHuZi/quan.png")
+        Sprite_Time:setPosition(pos3[i])
+        Button_Face:addChild(Sprite_Time)
+        self["Sprite_Time"..i] = Sprite_Time
+
+        local AtlasLabel_Time = CCLabelAtlas:create("0", "phz/images/shijiansz.png",20,29,string.byte('.'))
+        AtlasLabel_Time:setAnchorPoint(ccp(0.5,0.5))
+        AtlasLabel_Time:setPosition(36, 36)
+        Sprite_Time:addChild(AtlasLabel_Time)
+        self["AtlasLabel_Time"..i] = AtlasLabel_Time
+
+        --胡息
+        local Sprite_Points = loadSprite("paoHuZi/tip_zm.png")
+        Sprite_Points:setPosition(pos2[i])
+        Button_Face:addChild(Sprite_Points)
+        self["Sprite_Points"..i] = Sprite_Points
+        
+        local AtlasLabel_Points = CCLabelAtlas:create("0", "phz/images/jishu.png",21,27,string.byte('.'))
+        AtlasLabel_Points:setAnchorPoint(ccp(0.5,0.5))
+        AtlasLabel_Points:setPosition(73, 12.5)
+        Sprite_Points:addChild(AtlasLabel_Points)
+        self["AtlasLabel_Points"..i] = AtlasLabel_Points        
+    end
+    
+    -- 排名及文字
+    local Sprite_Dqpm = loadSprite("paoHuZi/quan.png")
+    Sprite_Dqpm:setAnchorPoint(0.5, 1)
+    Sprite_Dqpm:setPosition(901, 714)
+    self:addChild(Sprite_Dqpm)
+    self.Sprite_Dqpm = Sprite_Dqpm
+
+    -- 余牌
+    local Sprite_RemainCardBg = loadSprite("paoHuZi/fapai.png")
+    Sprite_RemainCardBg:setPosition(640, 594)
+    self:addChild(Sprite_RemainCardBg)
+    self.Sprite_RemainCardBg = Sprite_RemainCardBg
+    local AtlasLabel_RemainCardCount = CCLabelAtlas:create("50", "phz/images/jishu.png",21,27,string.byte('.'))
+    AtlasLabel_RemainCardCount:setAnchorPoint(ccp(0.5,0.5))
+    AtlasLabel_RemainCardCount:setPosition(640, 545)
+    self:addChild(AtlasLabel_RemainCardCount)
+    self.AtlasLabel_RemainCardCount = AtlasLabel_RemainCardCount
+    --底牌
+    local Node_RemainBackCard = CCNode:create()
+    Node_RemainBackCard:setScale(0.44)
+    Node_RemainBackCard:setPosition(640, 562)
+    self:addChild(Node_RemainBackCard)
+    self.Node_RemainBackCard = Node_RemainBackCard
+    self.Node_RemainBackCard:setTag(901)
+
+    -- 卡牌节点
+    for i = 1, player_count do
+        local Node_BadCard = CCNode:create()
+        Node_BadCard:setPosition(ccp(0, 0))
+        self:addChild(Node_BadCard, card_zIndex)
+        self["Node_BadCard"..i] = Node_BadCard
+        self["Node_BadCard"..i]:setTag(300 + i)
+                
+        local Node_OperateCard = CCNode:create()
+        Node_OperateCard:setPosition(ccp(0, 0))
+        self:addChild(Node_OperateCard, card_zIndex)
+        self["Node_OperateCard"..i] = Node_OperateCard
+        self["Node_OperateCard"..i]:setTag(200 + i)
+    end
+    
+    -- 其它玩家手牌
+    local anchorPoint = {ccp(0, 0.5), ccp(0.5, 0.5), ccp(1, 0.5), ccp(1, 0.5)}
+    local pos = { ccp(220, 480), ccp(0, 0), ccp(1280 - 220, 480), ccp(1280 - 220, 185)}
+    local pos2 = { ccp(30, 7), ccp(0, 0), ccp(0, 4), ccp(0, 4)}
+    
+    for i = 1, player_count do
+        local Node_HandCard = CCNode:create()
+        Node_HandCard:setScale(cardScale)
+        Node_HandCard:setPosition(pos2[i])
+        self["Node_HandCard"..i] = Node_HandCard  
+        self["Node_HandCard"..i]:setTag(100 + i)
+
+        if i ~= 2 then
+            local Sprite_HandCardBg = loadSprite("paoHuZi/wanjiashoupai.png")
+            Sprite_HandCardBg:setAnchorPoint(anchorPoint[i])
+            Sprite_HandCardBg:setPosition(pos[i])
+            self:addChild(Sprite_HandCardBg, card_zIndex)
+            self["Sprite_HandCard"..i.."Bg1"] = Sprite_HandCardBg
+            Sprite_HandCardBg:addChild(Node_HandCard)
+        else
+            Node_HandCard:setScale(1)
+            self:addChild(Node_HandCard, card_zIndex)
+        end   
+    end
+    local Button_Win = CCButton.createCCButtonByFrameName("phz/btn_hu.png", "phz/btn_hu.png", "phz/btn_hu_dk.png")
+    Button_Win:setPosition(400, 385)
+    self:addChild(Button_Win, BtnBg_ZIndex)
+    self.Button_Win = Button_Win
+    Button_Win:setVisible(false)
+
+    local Button_Pong = CCButton.createCCButtonByFrameName("phz/btn_peng.png", "phz/btn_peng.png", "phz/btn_peng_dk.png")
+    Button_Pong:setPosition(560, 385)
+    self:addChild(Button_Pong, BtnBg_ZIndex)
+    self.Button_Pong = Button_Pong
+    Button_Pong:setVisible(false)
+
+    local Button_Chow = CCButton.createCCButtonByFrameName("phz/btn_chi.png", "phz/btn_chi.png", "phz/btn_chi_dk.png")
+    Button_Chow:setPosition(720, 385)
+    self:addChild(Button_Chow, BtnBg_ZIndex)
+    self.Button_Chow = Button_Chow
+    Button_Chow:setVisible(false)
+
+    local Button_GiveUp = CCButton.createCCButtonByFrameName("phz/btn_guo.png", "phz/btn_guo.png", "phz/btn_guo_dk.png")
+    Button_GiveUp:setPosition(880, 385)
+    self:addChild(Button_GiveUp, BtnBg_ZIndex)
+    self.Button_GiveUp = Button_GiveUp
+    Button_GiveUp:setVisible(false)
+
+    -- 邀请按钮
+    local Button_Invite = CCButton.createCCButtonByFrameName("paoHuZi/anniu_invite.png", "paoHuZi/anniu_invite_dk.png", "paoHuZi/anniu_invite_dk.png")
+    Button_Invite:setPosition(640, 250)
+    self:addChild(Button_Invite)
+    self.Button_Invite = Button_Invite
+
+    --聊天
+    local Button_Chat = CCButton.createCCButtonByFrameName("chat/btnGameChat1.png", "chat/btnGameChat2.png", "chat/btnGameChat2.png")
+    Button_Chat:setPosition(AppConfig.DESIGN_SIZE.width - 50, 360 + 35)
+    self:addChild(Button_Chat)
+    self.Button_Chat = Button_Chat
+
+    -- 退出按钮
+    local Button_Exit = CCButton.createCCButtonByFrameName("paoHuZi/anniu_tuichu.png", "paoHuZi/anniu_tuichu_dk.png", "paoHuZi/anniu_tuichu_dk.png")
+    Button_Exit:setPosition(490, 670)
+    self:addChild(Button_Exit)
+    self.Button_Exit = Button_Exit
+
+    --定位
+    local Button_Location = CCButton.createCCButtonByFrameName("paoHuZi/anniu_dingwei.png", "paoHuZi/anniu_dingwei_dk.png", "paoHuZi/anniu_dingwei.png")
+    Button_Location:setPosition(790, 670)
+    self:addChild(Button_Location)
+    self.Button_Location = Button_Location
+
+    --按钮背景
+    local More_Bg = loadSprite("paoHuZi/btn_more_bg.png", true)
+    More_Bg:setPosition(1000, 668)
+    self:addChild(More_Bg)
+    self.More_Bg = More_Bg    
+    More_Bg:setVisible(false)
+    -- 更多按钮
+    local Button_More = CCButton.createCCButtonByFrameName("paoHuZi/btn_more1.png", "paoHuZi/btn_more2.png", "paoHuZi/btn_more2.png")
+    Button_More:setPosition(870, 670)
+    self:addChild(Button_More)
+    self.Button_More = Button_More
+
+    -- 设置按钮
+    local Button_SysSet = CCButton.createCCButtonByFrameName("paoHuZi/anniu_shezhi.png", "paoHuZi/anniu_shezhi_dk.png", "paoHuZi/anniu_shezhi_dk.png")
+    Button_SysSet:setPosition(115, 50)
+    self.More_Bg:addChild(Button_SysSet)
+    self.Button_SysSet = Button_SysSet
+    
+    -- 规则按钮
+    local Button_Rule = CCButton.createCCButtonByFrameName("paoHuZi/anniu_guize.png", "paoHuZi/anniu_guize_dk.png", "paoHuZi/anniu_guize_dk.png")
+    Button_Rule:setPosition(195, 50)
+    self.More_Bg:addChild(Button_Rule)
+    self.Button_Rule = Button_Rule
+
+    -- 解散按钮
+    local Button_Dismiss = CCButton.createCCButtonByFrameName("paoHuZi/anniu_jiesan.png", "paoHuZi/anniu_jiesan_dk.png", "paoHuZi/anniu_jiesan_dk.png")
+    Button_Dismiss:setPosition(275, 50)
+    self.More_Bg:addChild(Button_Dismiss)
+    self.Button_Dismiss = Button_Dismiss
+
+    -- 抓牌节点
+    local Node_CatchCard = CCNode:create()
+    self:addChild(Node_CatchCard, card_zIndex)
+    self.Node_CatchCard = Node_CatchCard
+    self.Node_CatchCard:setTag(401)
+
+    --操作牌动画起始位置，基于抓牌位置
+    local pos = {ccp(320, 644), ccp(642, 540), ccp(970, 644), ccp(970, 370)}
+    for i = 1, player_count do
+        local Node_OperateShowCard = CCNode:create()
+        Node_OperateShowCard:setScale(0.8)
+        Node_OperateShowCard:setPosition(pos[i])
+        self:addChild(Node_OperateShowCard, card_zIndex)
+        self["Node_OperateShowCard"..i] = Node_OperateShowCard
+        self["Node_OperateShowCard"..i]:setTag(500 + i)
+    end
+    
+    -- 触摸节点
+    local Node_TouchMoveCard = CCNode:create()
+    self:addChild(Node_TouchMoveCard, card_zIndex)
+    self.Node_TouchMoveCard = Node_TouchMoveCard
+    self.Node_TouchMoveCard:setTag(601)
+
+    -- 代打遮罩背景
+    local Button_CanelBg = loadSprite("paoHuZi/zhuomianshijian_bg.png", true)
+    Button_CanelBg:setPreferredSize(CCSizeMake(1280,255))
+    Button_CanelBg:setAnchorPoint(ccp(0.5,0))
+    Button_CanelBg:setPosition(640, -5)
+    Button_CanelBg:setVisible(false)
+    self:addChild(Button_CanelBg)
+    self.Button_CanelBg = Button_CanelBg
+    
+    -- 取消代打按钮
+    local Button_CanelAuto = CCButton.createWithFrame("paoHuZi/zhuomianshijian_bg.png", false, nil)
+    Button_CanelAuto:setVisible(false)
+    Button_CanelAuto:setPosition(640, 100)
+    self:addChild(Button_CanelAuto)
+    self.Button_CanelAuto = Button_CanelAuto
+    
+    -- 继续比赛按钮
+    local Button_ContinueMacth = CCButton.createWithFrame("paoHuZi/zhuomianshijian_bg.png", false, nil)
+    Button_ContinueMacth:setVisible(false)
+    Button_ContinueMacth:setPosition(640, 272)
+    self:addChild(Button_ContinueMacth)
+    self.Button_ContinueMacth = Button_ContinueMacth
+    
+    -- 等待分桌提示
+    local Sprite_TipWait = loadSprite("paoHuZi/tip_ddfz.png")
+    Sprite_TipWait:setVisible(false)
+    Sprite_TipWait:setPosition(344, 210)
+    self:addChild(Sprite_TipWait)
+    self.Sprite_TipWait = Sprite_TipWait
+    
+    -- 手指图标
+    local Sprite_Hand = loadSprite("paoHuZi/shou.png")
+    Sprite_Hand:setAnchorPoint(0, 1)
+    Sprite_Hand:setPosition(1140, 310)
+    Sprite_Hand:setVisible(false)
+    self:addChild(Sprite_Hand)
+    self.Sprite_Hand = Sprite_Hand
+    
+    local Node_Hand = CCNode:create()
+    Node_Hand:setPosition(0, 84)
+    Sprite_Hand:addChild(Node_Hand)
+    self.Node_Hand = Node_Hand
+    
+    -- 不能出牌提示
+    local Sprite_TipWarn = loadSprite("paoHuZi/warn.png")
+    Sprite_TipWarn:setVisible(false)
+    Sprite_TipWarn:setPosition(720, 320)
+    self:addChild(Sprite_TipWarn)
+    self.Sprite_TipWarn = Sprite_TipWarn
+
+    -- 开始
+    local Button_Start = CCButton.createCCButtonByFrameName("gameEnd/btn_realy1.png", "gameEnd/btn_realy2.png", "gameEnd/btn_realy2.png")
+    Button_Start:setPosition(640, 250)
+    self:addChild(Button_Start, BtnBg_ZIndex)
+    self.Button_Start = Button_Start
+
+    --返回
+    local Button_Return = CCButton.createCCButtonByFrameName("gameEnd/btn_return1.png", "gameEnd/btn_return2.png", "gameEnd/btn_return2.png")
+    Button_Return:setPosition(640, 250)
+    self:addChild(Button_Return, BtnBg_ZIndex)
+    self.Button_Return = Button_Return
+
+end
+
+function LayerGame.create()
+    local layer = LayerGame.new()
+    layer:init()
+    return layer
+end
+
+return LayerGame

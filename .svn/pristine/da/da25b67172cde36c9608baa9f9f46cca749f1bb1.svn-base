@@ -1,0 +1,1200 @@
+module(..., package.seeall)
+
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+
+local Action_Speed                  = 0.8  --动画速度
+
+----视图类定义
+--@param
+--@return
+local GameView = class("GameView")
+
+function GameView.setActionSpeed(speed)
+    Action_Speed = speed
+end
+
+--
+function GameView.initData()
+    GameView.checkLocation = false
+end
+
+----视图类对象实例化
+--@param
+--@return
+function GameView.create()
+    local GameView = GameView.new()
+    return GameView
+end
+
+----视图类对象属性   初始化值
+--@param
+--@return
+function GameView:ctor()
+    self.player_count = 4
+    self.voice_zIndex = 1
+    self.operate_zIndex = 2
+    self.panle_zIndex = 5
+    self.piao_zIndex = 6
+
+    self.viewLayer = nil
+
+    self.visibleSize = CCDirector:sharedDirector():getOpenGLView():getFrameSize()
+    self.nodePanel = nil
+    self.isOperate = false
+    
+    local wordCardClass = require("phz/Game/WordCard_Create")
+    self.wordCard = wordCardClass.create()
+    
+    --AtlasLabel类型节点
+    self.AtlasLabel_RemainCardCount = nil                   --剩余牌数文本
+    --button类型节点
+    self.Button_Talk                = nil                   --聊天按钮
+    self.Button_SysSet              = nil                   --设置按钮
+    self.Button_Exit                = nil                   --退出按钮
+    self.Button_Rule                = nil                   --规则按钮
+    self.Button_Location            = nil
+    self.Button_Menu                = nil                   --菜单按钮
+    self.Button_Start               = nil                   --开始按钮
+    self.Button_Return              = nil                  --返回按钮
+    
+
+    self.Button_ChangeDesk          = nil                   --换桌按钮
+    --    self.Button_ContinueMacth      = nil              --继续报名按钮
+    self.Button_Win                 = nil                   --胡牌按钮
+    self.Button_Pong                = nil                   --碰按钮
+    self.Button_Chow                = nil                   --吃按钮
+    self.Button_GiveUp              = nil                   --取消按钮
+    --CheckBox类型节点
+    self.CheckBox_Trustee           = nil                   --托管复选框按钮
+    self.CheckBox_Dialect           = nil                   --语言复选框按钮
+    --image类型节点
+    self.Sprite_Dqpm                = nil                   --当前排名背景图
+    self.Sprite_MenuBg              = nil                   --菜单按钮背景图 
+    self.Sprite_BtnBg               = nil                   --选择吃牌背景图
+    ---四个同类似节点数组
+    --头像相关
+    self.Button_Face                = {}                    --玩家头像按钮
+    self.Sprite_Face                = {}                    --用户头像
+    self.Text_UserName              = {}                    --用户名
+    self.Sprite_UserGold            = {}                    --金币标志
+    self.AtlasLabel_UserGold        = {}                    --金币数量
+    self.Sprite_Ready               = {}                    --准备标志
+    self.Sprite_Offline             = {}                    --断线标志
+    self.Sprite_Piao                = {}                    --飘分标志
+
+    self.Sprite_Time                = {}                    --时间背景
+    self.AtlasLabel_Time            = {}                    --时间文本
+    --牌相关
+    self.Node_OperateCard           = {}                    --吃碰牌父节点
+    self.Node_BadCard               = {}                    --臭牌父节点
+    self.Node_HandCard              = {}                    --手牌父节点
+    self.Node_OperateShowCard       = {}                    --吃碰牌展示父节点
+    self.Node_CatchCard             = nil                   --抓牌父节点
+    
+    self.Sprite_HandCardBg1         = {}                    --手牌父节点
+    self.Sprite_HandCardBg2         = {}                    --手牌父节点
+    self.Sprite_HandCardBg3         = {}                    --手牌父节点
+
+    --胡息
+    self.AtlasLabel_Points          = {}                    --桌面胡息文本
+    self.Sprite_Points              = {}                    --桌面胡息背景图
+    self.Sprite_ChowBg              = {}                    --吃牌背景图
+    self.outCardTipSchedule         = nil                   --手指提示动画定时器
+    
+    self.LayerPiao                  = nil
+
+    self.BadGameTip                 = nil
+end
+
+----时间设置
+--@param
+--@return
+function GameView:SetUserLeftTimer(wUserChairID,nLeftTimer)
+    if not wUserChairID or wUserChairID==-1 or nLeftTimer==-1 then
+        self:SetNodeTimeVisible(nil,false)
+        return
+    end
+    if nLeftTimer>=0 then
+        self:SetNodeTimeVisible(self.Sprite_Time[wUserChairID],true)
+        self.AtlasLabel_Time[wUserChairID]:setString(nLeftTimer)
+        self.AtlasLabel_Time[wUserChairID]:setScale(0.5)
+
+        local array  = CCArray:create()
+        array:addObject(CCScaleTo:create(0.15 * Action_Speed,1.2))
+        array:addObject(CCScaleTo:create(0.1 * Action_Speed,1))
+        self.AtlasLabel_Time[wUserChairID]:runAction(CCSequence:create(array))
+    end
+end
+----时间节点显示
+--@param
+--@return
+function GameView:SetNodeTimeVisible(node,isShow)
+    if(nil==node) then
+        for i = 1 , self.player_count do
+            self.Sprite_Time[i]:setVisible(false)
+            local spr = self.Sprite_Time[i]:getChildByTag(100)
+            if spr~=nil then
+                spr:removeFromParentAndCleanup(true)
+            end
+        end
+    else
+        node:setVisible(isShow)
+    end
+end
+
+----黄庄显示
+--@param
+--@return
+function GameView:SetBadGameTip()
+    self:HideBadGameTip()
+
+    local tempSpr = loadSprite("paoHuZi/huangzhuang.png")
+    tempSpr:setPosition(640,808)
+    self.viewLayer:addChild(tempSpr)
+
+    local moveTo1 = CCMoveTo:create(0.3 * Action_Speed,ccp(640,450))
+    local easeAction = CCEaseSineIn:create(moveTo1)
+    local moveTo2 = CCMoveTo:create(0.1 * Action_Speed,ccp(640,470))
+    local scaleTo1 = CCScaleTo:create(0.1 * Action_Speed,1.4)
+    local scaleTo2 = CCScaleTo:create(0.1 * Action_Speed,1)
+
+    local spawnarray  = CCArray:create()
+    spawnarray:addObject(moveTo2)
+    spawnarray:addObject(scaleTo2)    
+    local spawn2 = CCSpawn:create(spawnarray)
+
+    local array  = CCArray:create()
+    array:addObject(easeAction)
+    array:addObject(scaleTo1)
+    array:addObject(spawn2)
+    array:addObject(CCDelayTime:create(1.5 * Action_Speed))
+
+    local sequence = CCSequence:create(array)
+    tempSpr:runAction(sequence)
+
+    self.BadGameTip = tempSpr
+end
+
+function GameView:HideBadGameTip()
+    if self.BadGameTip then 
+        self.BadGameTip:removeFromParentAndCleanup(true) 
+        self.BadGameTip = nil
+    end
+
+    --隐藏返回查看按钮
+    self.Button_Return:setVisible(false)
+end
+
+local CHOW_BG_BEGIN_POS_X = 1130
+local CHOW_BG_BEGIN_POS_Y = 575
+local CHOW_BG_TAG         = 2300
+local CHOW_CARD_TAG       = 2400
+
+----吃牌背景显示
+--@param
+--@return
+function GameView:SetCardsItemBgVisible(isVisible)
+    for i=0,1 do
+        local bgSpr = self.viewLayer:getChildByTag(CHOW_BG_TAG + i)
+        if bgSpr~=nil then
+            bgSpr:setVisible(isVisible)
+        end
+    end
+end
+
+----添加吃牌背景
+--@param cardTableCount  {}
+--@return
+function GameView:SetCardsItemBg(cardTableCount,isSelect)
+    --添加吃牌背景、操作按钮
+    local layerChi = self.viewLayer:getChildByTag(CHOW_BG_TAG)
+    local chiedBg
+    if not layerChi then
+        layerChi = CCLayer:create()
+        self.viewLayer:addChild(layerChi, self.operate_zIndex, CHOW_BG_TAG)
+
+        --添加已经吃牌的背景
+        chiedBg = loadSprite("phz/img_chi_bg.png")
+        layerChi:addChild(chiedBg, 0, 1)
+        chiedBg:setScale(3.2)
+        chiedBg:setScaleX(2)
+        chiedBg:setPosition(ccp(640 + 220, 360 + 260))
+        chiedBg:setVisible(false)
+
+        --添加吃牌背景
+        local chiBg = loadSprite("phz/img_chi_bg.png")
+        layerChi:addChild(chiBg)
+        chiBg:setScale(3.2)
+        chiBg:setScaleX(4.5)
+        chiBg:setPosition(ccp(640, 395))
+
+        --关闭按钮 
+        CCButton.put(layerChi, CCButton.createCCButtonByFrameName("common/btnClose.png", 
+                "common/btnClose2.png", "common/btnClose.png", function()
+                        self.Button_GiveUp.m_actionCallBack()
+                end), ccp(640 + 420, 360 + 110), 1)
+
+        layerChi:setVisible(false)
+    else
+        chiedBg = layerChi:getChildByTag(1)
+    end
+
+    --牌数
+    local areaIndex = table.getn(cardTableCount)
+    local count = cardTableCount[areaIndex]
+
+    --位置信息
+    local xspace = 100
+    local startPos = ccp(640, 325)
+
+    --下火的牌
+    local chiedTag = 100
+    if isSelect then 
+        startPos = ccp(chiedBg:getPosition())
+
+        --最多三组组下火吃
+        for i=0,2 do
+            for j=0,2 do
+                local tag = chiedTag + i * 3 + j
+                local item = layerChi:getChildByTag(tag)
+                if item then                    
+                    item:removeFromParentAndCleanup(true)
+                end
+            end
+        end
+
+        local chiedBg = layerChi:getChildByTag(1)
+        chiedBg:setVisible(true)
+        --背景后的按钮设置为不可操作
+        self.Button_Location:setEnabled(false)
+        self.Button_More:setEnabled(false)
+
+        startPos.x = startPos.x + xspace * (count - 1) / 2
+        startPos.y = startPos.y - 72
+
+        return layerChi, startPos, xspace, chiedTag
+    else
+        chiLayer = CCLayer:create()
+        self.viewLayer:addChild(chiLayer, self.operate_zIndex, CHOW_BG_TAG + areaIndex)
+
+        startPos.x = startPos.x + xspace * (count - 1) / 2
+        return chiLayer, startPos, xspace, 1
+    end
+end
+
+function GameView:addSelectedCardsItem(count, index)
+    local layerChi = self.viewLayer:getChildByTag(CHOW_BG_TAG + 1)
+    if not layerChi then return end
+
+    for i=1, count do   
+        for j=1,3 do
+            local itemSp = layerChi:getChildByTag((i - 1) * 3 + j)
+            SetPokerColor(itemSp, ccc3(0xff, 0xff, 0xff))
+
+            if i == index then
+                --设置为选中状态
+                SetPokerColor(itemSp, ccc3(0xf5, 0xc7, 0xbc))
+            end
+        end     
+    end
+end
+
+----获取背景
+function GameView:GetCardsItemPos(cardTableCount, areaIndex)
+    local bgSpr = self.viewLayer:getChildByTag(CHOW_BG_TAG + areaIndex)
+    local itemTag = 1
+    if areaIndex > 1 then
+        --选择下火的牌
+        bgSpr = self.viewLayer:getChildByTag(CHOW_BG_TAG)
+        itemTag = 100
+    end
+
+    local startPos = ccp(bgSpr:getChildByTag(itemTag):getPosition())
+
+    local posXTable = {}
+    for i=1, cardTableCount[areaIndex] do 
+        local itemSp = bgSpr:getChildByTag((i - 1) * 3 + itemTag)
+        if true then --itemSp
+            posXTable[i] = itemSp:getPositionX()
+        else
+            break
+        end
+    end
+
+    local chowW, chowH = 90 * 0.8, 85 * 0.8
+    return posXTable, startPos.y + chowH, chowW, chowH * 3
+end
+
+----添加吃牌子项
+--@param
+--@return
+function GameView:AddCardsItem(cardTableData,cardTableCount,isSelect)
+    local areaIndex = table.getn(cardTableCount)
+    local layerChi, startPos, xspace, chiedTag = self:SetCardsItemBg(cardTableCount,isSelect)
+    --bgSpr:setScaleY(1.15)
+    local tempNum = 0
+    for i=1, cardTableCount[areaIndex] do
+        for j=1, 3 do
+            tempNum = tempNum + 1
+            local sprCard = self.wordCard:CreateWordCard(cardTableData[i][j], 2, 0.8)
+            sprCard:setTag(chiedTag + tempNum - 1)
+
+            local xpos = startPos.x - (cardTableCount[areaIndex] - i) * xspace
+            local ypos = startPos.y + (j - 1) * 85 *0.8
+            sprCard:setPosition(xpos, ypos)
+            layerChi:addChild(sprCard, 100)
+        end
+    end
+
+    --第一组
+    if areaIndex==1 and isSelect==false then
+        layerChi:setVisible(false)
+    end
+end
+
+----清除吃牌子项
+--@param
+--@return
+function GameView:ClearAllCardsItem(cardTableCount)
+    for i=0,5 do
+        local layerChi = self.viewLayer:getChildByTag(CHOW_BG_TAG + i)
+        if layerChi then
+            layerChi:removeFromParentAndCleanup(true)
+        end
+    end
+
+    self.Button_Location:setEnabled(true)
+    self.Button_More:setEnabled(true)    
+end
+
+----设置选中牌背景框
+--@param
+--@return
+function GameView:SetSelectCardBg(cardTableCount, areaIndex , chowCardData)
+    local bgSpr = self.viewLayer:getChildByTag(CHOW_BG_TAG + areaIndex)
+    if bgSpr~=nil then
+        bgSpr:removeFromParentAndCleanup(true)
+    end
+    
+    self:AddCardsItem({chowCardData},cardTableCount,true)
+        
+--	end
+end
+
+----设置操作按钮
+--@param
+--@return
+function GameView:SetBtn( chi, peng, hu, cancel)
+    self.Button_Win:setEnabled(hu)                             --胡牌按钮
+    self.Button_Pong:setEnabled(peng)                          --碰按钮
+    self.Button_Chow:setEnabled(chi)                           --吃按钮
+    self.Button_GiveUp:setEnabled(cancel)                      --取消按钮
+    --[[self.Button_Win:setButtonEnabled(hu)
+    self.Button_Pong:setButtonEnabled(peng)
+    self.Button_Chow:setButtonEnabled(chi)
+    self.Button_GiveUp:setButtonEnabled(cancel)]]
+end
+
+----设置操作按钮背景
+--@param
+--@return
+function GameView:SetBtnBg( isVisible )
+    self.Button_Win:setVisible(isVisible)
+    self.Button_Pong:setVisible(isVisible)
+    self.Button_Chow:setVisible(isVisible)
+    self.Button_GiveUp:setVisible(isVisible)
+
+    if not isVisible then
+        self:SetBtn(false, false, false, false)
+    end
+end
+
+----设置托管状态
+--@param
+--@return
+function GameView:SetTrusteeship(viewChardId,isTrusteeship)
+    if nil==viewChardId then return end
+ --    if isTrusteeship==true then
+ --        local tempSprite = loadSprite("qipaitouxiang/duanxian.png")
+ --        tempSprite:setAnchorPoint(0,0)
+ --        tempSprite:setTag(100)
+ --        --    tempSprite:setScale(80/214)
+ --        self.Sprite_Face[viewChardId]:addChild(tempSprite)
+ --    else
+ --        local tempSprite = self.Sprite_Face[viewChardId]:getChildByTag(100)
+ --        if nil~=tempSprite then
+ --            tempSprite:removeFromParentAndCleanup(true)
+ --        end
+ --    end
+    if viewChardId==ME_CHAIRID_PAOHUZI then
+        self:SetCanelTrusteeVisible(isTrusteeship)
+    end
+end
+----设置取消托管
+--@param
+--@return
+function GameView:SetCanelTrusteeVisible(isVisible)
+    self.Button_CanelAuto:setVisible(isVisible)
+    self.Button_CanelBg:setVisible(isVisible)
+end
+----显示手牌
+--@param
+--@return
+function GameView:ShowHandCard(isVisible, player)
+	for i = 1, player do
+        if i~=2 then
+            self.Sprite_HandCardBg1[i]:setVisible(isVisible)
+
+            if isVisible then
+                self.Sprite_HandCardBg1[i]:setOpacity(0)
+                self.Sprite_HandCardBg1[i]:setScale(1.5)
+                local fadeIn = CCFadeIn:create(0.15 * Action_Speed)
+                local scaleTo = CCScaleTo:create(0.15 * Action_Speed,0.8)
+                local scaleTo1 = CCScaleTo:create(0.1 * Action_Speed,1)
+
+                local spawnArray  = CCArray:create()
+                spawnArray:addObject(fadeIn)
+                spawnArray:addObject(scaleTo)
+                local array  = CCArray:create()
+                array:addObject(CCSpawn:create(spawnArray))
+                array:addObject(scaleTo1)
+                
+                local sequence = CCSequence:create(array)
+                self.Sprite_HandCardBg1[i]:runAction(sequence)
+            end
+        end
+	end
+end
+
+----删除所有牌
+--@param
+--@return
+function GameView:RemoveAllCard()
+    for i = 1, self.player_count do
+        self.Node_OperateCard[i]:removeAllChildrenWithCleanup(true)                    --吃碰牌父节点
+        self.Node_BadCard[i]:removeAllChildrenWithCleanup(true)                        --臭牌父节点
+        self.Node_HandCard[i]:removeAllChildrenWithCleanup(true)                       --手牌父节点
+        self.Node_OperateShowCard[i]:removeAllChildrenWithCleanup(true)                --吃碰牌展示父节点
+    end
+    self.Node_CatchCard:removeAllChildrenWithCleanup(true)                             --抓牌父节点
+    self.Node_TouchMoveCard:removeAllChildrenWithCleanup(true)                         --滑动牌父节点
+    self.Node_RemainBackCard:removeAllChildrenWithCleanup(true)                        --剩余牌父节点
+    self:ShowHandCard(false, self.player_count)
+end
+----删除排名信息
+--@param
+--@return
+function GameView:RemoveMatchRankingInfo()
+
+end
+----设置玩家轮次局数排名
+--@param
+--@return
+function GameView:SetMatchRankingInfo(turnCount,gameCount,scoreOrder)
+
+end
+----空闲状态提示信息显示设置
+--@param
+--@return
+function GameView:SetFreeSprTagVisible(node,isShow)
+    if(nil==node) then
+        for i = 1 , self.player_count do
+            self.Sprite_Ready[i]:setVisible(isShow)
+        end
+    else
+        node:setVisible(isShow)
+    end
+end
+
+function GameView:SetOffSprTagVisible(node,isShow)
+    if(nil==node) then
+        for i = 1 , self.player_count do
+            self.Sprite_Offline[i]:setVisible(isShow)
+        end
+    else
+        node:setVisible(isShow)
+    end
+end
+
+function GameView:SetPiaoSprTagVisible(node,isShow)
+    if(nil==node) then
+        for i = 1 , self.player_count do
+            self.Sprite_Piao[i]:setVisible(isShow)
+        end
+    else
+        node:setVisible(isShow)
+    end
+end
+
+-----语言选择
+--@param
+--@return
+function GameView:SetDialectTip(isDialect)
+
+end
+local HAND_ACTION_BEGIN_POS = ccp(1140,250)
+local HAND_ACTION_END_POS = ccp(1195,345)
+
+----设置出牌提示
+--@param 
+--@return
+function GameView:SetOutCardTip(particleClass , isShow , isMeBanker)
+    cclog("出牌提示")
+    --[[if isMeBanker then
+        self.Sprite_BankerOutCardTip:setVisible(true)
+    else
+        self.Sprite_BankerOutCardTip:setVisible(false)
+    end]]
+    if isShow then
+        self.Sprite_Hand:setPosition(HAND_ACTION_BEGIN_POS)
+        self.Sprite_Hand:setVisible(true)
+        self.Sprite_Line:setVisible(true)                          --出牌虚线
+        self.Sprite_OutCardTip:setVisible(true)                    --出牌提示
+        
+        local particle = particleClass:CreateParticleMeteor(self.Node_Hand , 40 , ccp(0,0) , "phz/images/paticle1.png")
+        if particle then
+            particle:setDuration(-1)
+            particle:setLife(0.5)
+            particle:setAngle(90)
+            particle:setAngleVar(30)
+        end
+        
+        local function MoveCallBack()
+            self.Sprite_Hand:setVisible(false)
+            self.Node_Hand:removeAllChildrenWithCleanup(true)
+        end
+        
+        local array  = CCArray:create()
+        array:addObject(CCMoveTo:create(1.2,HAND_ACTION_END_POS))
+        array:addObject(CCMoveTo:create(0,HAND_ACTION_BEGIN_POS))
+        array:addObject(CCMoveTo:create(1.2,HAND_ACTION_END_POS))
+        array:addObject(CCMoveTo:create(0,HAND_ACTION_BEGIN_POS))
+        array:addObject(CCMoveTo:create(1.2,HAND_ACTION_END_POS))
+        array:addObject(CCMoveTo:create(0,HAND_ACTION_BEGIN_POS))
+        array:addObject(CCMoveTo:create(1.2,HAND_ACTION_END_POS))
+        array:addObject(CCMoveTo:create(0,HAND_ACTION_BEGIN_POS))
+        array:addObject(CCMoveTo:create(1.2,HAND_ACTION_END_POS))
+        array:addObject(CCCallFunc:create(MoveCallBack))
+        local sequence = CCSequence:create(array)
+        self.Sprite_Hand:runAction(sequence)
+        
+--        self.outCardTipSchedule = self.viewLayer:getScheduler():scheduleScriptFunc(ParticleCallBack, 0.1, false)
+    else
+        self.Sprite_Line:setVisible(false)                          --出牌虚线
+        self.Sprite_OutCardTip:setVisible(false)                    --出牌提示
+        self.Sprite_Hand:stopAllActions()
+        self.Sprite_Hand:setVisible(false)
+        self.Sprite_Hand:setPosition(HAND_ACTION_BEGIN_POS)
+        self.Node_Hand:removeAllChildrenWithCleanup(true)
+    end
+end
+
+----设置胡息
+--@param 
+--@return
+function GameView:SetHuXiCount(wViewChairID,huXiCount)
+    if(nil==wViewChairID) then
+        for i = 1 , self.player_count do
+            self.Sprite_Points[i]:setVisible(false)
+            self.AtlasLabel_Points[i]:setString("")
+        end
+    else
+        self.Sprite_Points[wViewChairID]:setVisible(true)
+        self.AtlasLabel_Points[wViewChairID]:setString(huXiCount)
+    end
+end
+
+----设置剩余底牌数
+--@param
+--@return
+function GameView:SetBackCards(bLeftCardCount,isGameBegin)
+    if bLeftCardCount==nil then
+        -- self.Sprite_RemainCardBg:setVisible(false)
+        self.AtlasLabel_RemainCardCount:setString("0")
+        return
+    end
+    if bLeftCardCount<0 then return end
+    self.Sprite_RemainCardBg:setVisible(true)
+    self.AtlasLabel_RemainCardCount:setString(bLeftCardCount)
+    if isGameBegin then
+        self.Sprite_RemainCardBg:removeAllChildrenWithCleanup(true)
+        local initPos = ccp(37,35)
+        for i = 1, bLeftCardCount do
+            local sprite = loadSprite("wordCard/fapai2.png")
+            sprite:setPosition(initPos.x,initPos.y+math.floor((i-1)/2))
+            sprite:setTag(i)
+            self.Sprite_RemainCardBg:addChild(sprite)
+        end
+    else
+        local backCardCount = self.Sprite_RemainCardBg:getChildrenCount()
+        local tempSprite = self.Sprite_RemainCardBg:getChildByTag(backCardCount)
+        if tempSprite~=nil then
+            tempSprite:removeFromParentAndCleanup(true)
+        end
+    end
+end
+
+----设置庄家
+--@param
+--@return
+function GameView:SetBankerUser(wChairID,isClear)
+    if isClear then
+        local sprite1 = self.Button_Face[wChairID]:getChildByTag(101)
+        if sprite1~=nil then
+            sprite1:removeFromParentAndCleanup(true)
+        end
+    else
+        local sprite1=loadSprite("paoHuZi/zhuang.png")
+        sprite1:setPosition(ccp(85, 35))
+        sprite1:setTag(101)
+        sprite1:setAnchorPoint(0.5,0.5)
+        sprite1:setScale(0.6)
+        self.Button_Face[wChairID]:addChild(sprite1, 1)
+    end
+end
+
+----删除庄家图标
+--@param
+--@return
+function GameView:DeleteBankerTip()
+	for i = 1, self.player_count do
+        local spr = self.Button_Face[i]:getChildByTag(101)
+        if spr~=nil then 
+            spr:removeFromParentAndCleanup(true)
+        end
+	end
+end
+----设置游戏基数
+--@param
+--@return
+function GameView:SetBaseScore(baseScore)
+    --self.AtlasLabel_BaseScore:setString(baseScore)
+end
+
+function GameView:SetRoomRule(countStr, roomStr, ruleStr)
+    self.label_playCount:setString(countStr)  --房间号
+
+    if roomStr then self.label_roomNum:setString(roomStr) end --房间号
+
+    if ruleStr then self.label_rule:setString(ruleStr) end --房间规则
+end
+
+function GameView:SetInviteBtn(able)
+    self.Button_Invite:setVisible(able)
+end
+
+function GameView:SetDismissBtn(able)
+    self.Button_Dismiss:setEnabled(able)
+end
+
+----听牌出牌警告
+--@param
+--@return
+function GameView:SetWarnSpr()
+    self.Sprite_TipWarn:stopAllActions()
+    self.Sprite_TipWarn:setOpacity(255)
+    self.Sprite_TipWarn:setVisible(true)
+
+    local array  = CCArray:create()
+    array:addObject(CCDelayTime:create(2 * Action_Speed))
+    array:addObject(CCFadeOut:create(0.5 * Action_Speed))    
+    local sequene = CCSequence:create(array)
+    self.Sprite_TipWarn:runAction(sequene)
+end
+----插入列表信息
+--@param
+--@return
+function GameView:InsertMsInListView(strMs,isBack)
+    self.Sprite_TipTopMsBg:setPosition(ccp(640,720))
+    self.Text_TipTopMs:setString(strMs)
+    if not isBack then
+        local beginPos = ccp(640,720)
+        local moveAction = CCMoveTo:create(0.2 * Action_Speed,ccp(640,480))
+        self.Sprite_TipTopMsBg:runAction(moveAction);
+    else
+        local beginPos = ccp(640,720)
+        local moveAction = CCMoveTo:create(0.2 * Action_Speed,ccp(640,480))
+        local reverseAction = CCMoveTo:create(0.2 * Action_Speed,beginPos)
+
+        local array  = CCArray:create()
+        array:addObject(moveAction)
+        array:addObject(CCDelayTime:create(4.6 * Action_Speed))   
+        array:addObject(reverseAction)      
+        local sequence = CCSequence:create(array)
+        self.Sprite_TipTopMsBg:runAction(sequence);
+    end
+end
+
+--用户信息
+function GameView:GetUserInfo(wChairID)
+    local sprite = self.Sprite_Face[wChairID]
+    return sprite
+end
+
+----设置用户信息
+--用户信息
+function GameView:SetUserInfo(wChairID,pUserData,serverType)
+    cclog("SetUserInfo")
+    --判断位置
+    --if(not IsRightChairID(wChairID-1))then return end;
+    --清理信息
+
+    if(0==pUserData)then
+        self.Text_UserName[wChairID]:setString("");
+        self.AtlasLabel_UserGold[wChairID]:setString("");
+
+        self.Sprite_Face[wChairID].addInfo = nil
+    else
+        local strName=pUserData._name
+        --会员
+        if pUserData.cbMemberOrder and pUserData.cbMemberOrder > 0 then
+            self.Text_UserName[wChairID]:setColor(ccc3(208,54,54))
+        end
+
+        strName = require("HallUtils").getLabText(strName, self.Text_UserName[wChairID], 90)
+        self.Text_UserName[wChairID]:setString(strName)
+        
+        local bGold = false--(GAME_GENRE_MATCH~=serverType or GameServer.eMatchType~=CCenMatchType_Leisure); 
+        if (bGold) then
+            self.AtlasLabel_UserGold[wChairID]:setString(pUserData.lScore);
+        else
+            local lscore = pUserData._score or pUserData:getScore()
+            local scorestr = tostring(lscore)
+            if lscore < 0 then
+                scorestr = "."..(-lscore)
+            end
+            self.AtlasLabel_UserGold[wChairID]:setString(scorestr);
+        end
+
+        if(not self.Button_Face[wChairID]:isVisible())then
+            self.Sprite_Face[wChairID]:removeFromParentAndCleanup(true)
+
+            self.Sprite_Face[wChairID] = require("FFSelftools/CCUserFace").create(pUserData._userDBID, CCSizeMake(70,70), pUserData._sex)
+            self.Sprite_Face[wChairID]:setPosition(-54, 0)
+            self.Button_Face[wChairID]:addChild(self.Sprite_Face[wChairID])
+
+            --设置回调
+            self.Button_Face[wChairID]:setActionCallback(function()
+                local facesp = self.Sprite_Face[wChairID]
+                if not self.Sprite_Face[wChairID].addInfo then
+                    require("Lobby/Login/LoginLogic").getUserInfo(pUserData._userDBID, function(userinfo)
+                        self.Sprite_Face[wChairID].addInfo = userinfo
+                        self:showPlayerDetail(facesp, pUserData._name, 
+                                    pUserData._userDBID, pUserData._userIP, self.Sprite_Face[wChairID].addInfo)
+                    end)
+                else
+                    self:showPlayerDetail(facesp, pUserData._name, 
+                                pUserData._userDBID, pUserData._userIP, self.Sprite_Face[wChairID].addInfo)      
+                end
+            end)            
+        end        
+    end
+
+    self.Button_Face[wChairID]:setVisible(0~=pUserData);
+    self.Sprite_Face[wChairID]:setVisible(0~=pUserData);  
+end
+
+function GameView:InitPiaoNode()
+    if not self.Sprite_Piao[1] then
+        for i=1,self.player_count do
+            local Sprite_Piao = loadSprite("paoHuZi/label_5.png")
+            self.Button_Face[i]:addChild(Sprite_Piao, 1)
+            Sprite_Piao:setPosition(ccp(-40, -20))
+            self.Sprite_Piao[i] = Sprite_Piao
+            Sprite_Piao:setVisible(false)
+        end        
+    end
+end
+
+----主层NODE节点   初始化    Tools为自定义获取全局节点类
+--@param
+--@return
+function GameView:InitNode()
+    self.AtlasLabel_RemainCardCount = self.nodePanel.AtlasLabel_RemainCardCount           --剩余牌数文本
+    
+    self.label_rule                 = self.nodePanel.label_rule                           --房间规则
+    self.label_roomNum              = self.nodePanel.label_roomNum                        --房间号
+    self.label_playCount            = self.nodePanel.label_playCount                      --对局数
+    --button类型节点
+    self.More_Bg                    = self.nodePanel.More_Bg
+    self.Button_More                = self.nodePanel.Button_More
+
+    self.Button_Talk                = self.nodePanel.Button_Talk                          --聊天按钮
+    self.Button_SysSet              = self.nodePanel.Button_SysSet                        --设置按钮
+    self.Button_Exit                = self.nodePanel.Button_Exit                          --退出按钮
+    self.Button_Dismiss             = self.nodePanel.Button_Dismiss                       --解散按钮
+    self.Button_Rule                = self.nodePanel.Button_Rule                          --规则按钮
+    self.Button_Location            = self.nodePanel.Button_Location
+    self.Button_Menu                = self.nodePanel.Button_Menu                          --菜单按钮
+    self.Button_Start               = self.nodePanel.Button_Start                         --开始按钮
+    self.Button_Return              = self.nodePanel.Button_Return                       --返回按钮   
+    --self.Button_ChangeDesk          = self.nodePanel.Button_ReplaceDesk                   --换桌
+
+
+    self.Button_Invite              = self.nodePanel.Button_Invite                        --邀请按钮
+    self.Button_Chat                = self.nodePanel.Button_Chat                        --邀请按钮
+
+    self.Button_ContinueMacth       = self.nodePanel.Button_ContinueMacth                 --继续报名按钮
+    self.Button_Win                 = self.nodePanel.Button_Win                           --胡牌按钮
+    self.Button_Pong                = self.nodePanel.Button_Pong                          --碰按钮
+    self.Button_Chow                = self.nodePanel.Button_Chow                          --吃按钮
+    self.Button_GiveUp              = self.nodePanel.Button_GiveUp                        --取消按钮
+    self.Button_CanelBg             = self.nodePanel.Button_CanelBg                       --取消托管背景
+    self.Button_CanelAuto           = self.nodePanel.Button_CanelAuto                     --取消托管按钮
+
+    --CheckBox类型节点
+    self.CheckBox_Trustee           = self.nodePanel.CheckBox_Trustee                     --托管复选框按钮
+    self.CheckBox_Dialect           = self.nodePanel.CheckBox_Dialect                     --语言复选框按钮
+    --image类型节点
+    self.Sprite_Dqpm                = self.nodePanel.Sprite_Dqpm                          --当前排名背景图
+    self.Sprite_MenuBg              = self.nodePanel.Sprite_MenuBg                        --菜单按钮背景图 
+    self.Sprite_BtnBg               = self.nodePanel.Sprite_BtnBg                         --选择吃牌背景图
+    self.Sprite_RemainCardBg        = self.nodePanel.Sprite_RemainCardBg                  --剩余牌底框图
+    self.Sprite_TipWait             = self.nodePanel.Sprite_TipWait                       --分桌提示图
+--    self.Sprite_ScrolBg             = self.nodePanel.Sprite_ScrolBg                       --滚动背景
+    self.Sprite_HornIcon            = self.nodePanel.Sprite_HornIcon                      --喇叭
+    self.Sprite_Hand                = self.nodePanel.Sprite_Hand                          --手指精灵
+    self.Sprite_Line                = self.nodePanel.Sprite_Line                          --出牌虚线
+    self.Sprite_OutCardTip          = self.nodePanel.Sprite_OutCardTip                    --出牌提示
+    self.Sprite_BankerOutCardTip    = self.nodePanel.Sprite_BankerOutCardTip              --庄家出牌提示
+    self.Sprite_TipWarn             = self.nodePanel.Sprite_TipWarn                       --警告提示
+--    self.Sprite_Wait                = self.nodePanel.Sprite_Wait                          --等待玩家提示
+    
+    --node类型节点
+    self.Node_RemainBackCard        = self.nodePanel.Node_RemainBackCard                  --剩余牌父节点
+    self.Node_CatchCard             = self.nodePanel.Node_CatchCard                       --抓牌父节点
+    self.Node_TouchMoveCard         = self.nodePanel.Node_TouchMoveCard                   --滑动牌父节点
+    self.Node_Hand                  = self.nodePanel.Node_Hand                            --手指父节点
+                      
+    ---3个同类似节点数组
+    
+    for i = 1, self.player_count do    
+        --头像相关
+        self.Button_Face[i]         = self.nodePanel["Button_Face"..i]                       --玩家头像按钮
+        self.Sprite_Face[i]         = self.nodePanel["Sprite_Face"..i]                        --用户头像
+        self.Text_UserName[i]       = self.nodePanel["Text_UserName"..i]                      --用户名
+        self.Sprite_UserGold[i]     = self.nodePanel["Sprite_UserGold"..i]                    --金币标志
+        self.AtlasLabel_UserGold[i] = self.nodePanel["AtlasLabel_UserGold"..i]                --金币数量
+        self.AtlasLabel_UserGold[i]:setAnchorPoint(0,0.5)
+        self.Sprite_Ready[i]        = self.nodePanel["Sprite_Ready"..i]                       --准备标志
+        self.Sprite_Offline[i]      = self.nodePanel["Sprite_Offline"..i]                     --断线标志
+        
+        self.Sprite_Time[i]         = self.nodePanel["Sprite_Time"..i]                        --时间背景
+        self.AtlasLabel_Time[i]     = self.nodePanel["AtlasLabel_Time"..i]                    --时间文本
+        --牌相关
+        self.Node_OperateCard[i]    = self.nodePanel["Node_OperateCard"..i]                   --吃碰牌父节点
+        self.Node_BadCard[i]        = self.nodePanel["Node_BadCard"..i]                       --臭牌父节点
+        self.Node_HandCard[i]       = self.nodePanel["Node_HandCard"..i]                      --手牌父节点
+        self.Node_OperateShowCard[i]= self.nodePanel["Node_OperateShowCard"..i]               --吃碰牌展示父节点
+        if i~=2 then
+            self.Sprite_HandCardBg1[i]       = self.nodePanel["Sprite_HandCard"..i.."Bg1"]    --手牌父节点
+        end
+
+        --胡息
+        self.AtlasLabel_Points[i]   = self.nodePanel["AtlasLabel_Points"..i]                  --桌面胡息文本
+        self.Sprite_Points[i]       = self.nodePanel["Sprite_Points"..i]                      --桌面胡息背景图
+
+    end
+--    self.Sprite_TipTopMsBg          = self.nodePanel.Sprite_TipTopMsBg                    --晋级、淘汰消息提示
+--    self.Text_TipTopMs              = self.nodePanel.Text_TipTopMs                        --晋级、淘汰消息提示
+--    for i = 1 , 4 do
+--        self.Sprite_ChowBg[i]       = CCuiloader:seekNodeByName(self.nodePanel,"Sprite_ChowBg"..i)                     --吃牌背景图
+--    end
+end
+--节点重置
+function GameView:ResetNodeStatus()
+    --晋级提示
+--    self.Sprite_TipTopMsBg:setPosition(ccp(640,720))
+    self.Button_Start:setVisible(false)
+    self.Button_Return:setVisible(false)
+
+    --分桌提示
+    self.Sprite_TipWait:setVisible(false)
+--    --设置打牌按钮
+--    self:SetBtnBg(false)
+    -- 设置邀请按钮
+    self.Button_Invite:setVisible(false)
+    --设置剩余数
+    self:SetBackCards(nil,nil)
+    --删除所有牌
+    self:RemoveAllCard()  
+    --删除庄家提示
+    self:DeleteBankerTip()
+    --出牌提示
+    self:SetOutCardTip(nil , false)
+    --设置胡息
+    self:SetHuXiCount(nil,0)
+end
+--节点初始化状态
+function GameView:InitNodeStatus()
+    --用户信息设置
+    for i = 1 , self.player_count do
+        self.Button_Face[i]:setVisible(false)
+        self.Sprite_Time[i]:setVisible(false)
+    end
+    --时间设置
+    self:SetNodeTimeVisible(nil,false)
+    --胡息设置
+    self:SetHuXiCount(nil,0)
+    --方言
+    -- self:SetDialectTip(true)
+    --开始按钮
+    self.Button_Start:setVisible(false)
+    self.Button_Return:setVisible(false)
+
+    --self.Button_ChangeDesk:setVisible(false)
+    -- 设置邀请按钮
+    self.Button_Invite:setVisible(false)
+    --分桌提示
+    self.Sprite_TipWait:setVisible(false)
+    --设置准备图片
+    self:SetFreeSprTagVisible(nil,false)
+--    --设置打牌按钮
+--    self:SetBtnBg(false)
+    --设置剩余数
+    self:SetBackCards(nil,nil)
+    --删除排名信息
+    self.Sprite_Dqpm:setVisible(false)
+    self:RemoveMatchRankingInfo()
+    --删除所有麻将牌
+    self:RemoveAllCard()  
+    --出牌提示
+    self:SetOutCardTip(nil , false)
+end
+
+--隐藏播放界面操作按钮
+function GameView:hideVideoBtns()
+    self.Button_SysSet:setVisible(false)                   --设置按钮
+    self.Button_Rule:setVisible(false)                       --规则按钮
+    self.Button_Location:setVisible(false)
+
+    self.Button_Exit:setVisible(false)                       --退出按钮
+    self.Button_Dismiss:setVisible(false)                 --解散按钮
+    self.Button_More:setVisible(false)
+
+    self.Button_Win:setVisible(false)                         --胡按钮
+    self.Button_Pong:setVisible(false)                       --碰牌按钮
+    self.Button_Chow:setVisible(false)                       --吃牌按钮
+    self.Button_GiveUp:setVisible(false)                   --取消按钮
+    
+    self.Button_Start:setVisible(false)                  --开始按钮
+    self.Button_Return:setVisible(false)
+
+    self.Button_Invite:setVisible(false)                   --邀请按钮
+    self.Button_Chat:setVisible(false)                   --聊天
+    
+    self.Button_CanelAuto:setVisible(false)          --取消托管按钮
+    self.Button_ContinueMacth:setVisible(false)     --继续报名
+
+    self.viewLayer.panel_realtimeInfo:setPosition(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 55, AppConfig.SCREEN.CONFIG_HEIGHT - 55)
+end
+
+---------------------------------点击事件------------------------------------
+--注册回调函数
+function GameView:RegisterClickEvent(OnTalkFunc,OnExitFunc,OnDismissFunc,OnEntrustFunc,OnDialectFunc,
+    OnStartFunc,OnReturntFunc,OnInviteFunc,OnWinFunc,OnPongFunc,OnChowFunc,OnGiveUpFunc,OnCanelEntrustFunc,OnContinueMacthFunc,OnChangeDeskFunc)
+    
+    self.Button_SysSet:setActionCallback(handler(self, self.OnSysSetFunc))                   --设置按钮
+    self.Button_SysSet:resetTouchPriorty(kCCMenuHandlerPriority - 2, true)
+    self.Button_Rule:setActionCallback(handler(self, self.OnRuleFunc))                       --规则按钮
+    self.Button_Rule:resetTouchPriorty(kCCMenuHandlerPriority - 2, true)
+
+    --添加动画
+    if not GameView.checkLocation then
+        local animFrames = CCArray:create()
+        for i = 1,6 do
+            local frame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
+                string.format("paoHuZi/anniu_dingwei_%d.png", i))
+            animFrames:addObject(frame)
+        end
+        local animation = CCAnimation:createWithSpriteFrames(animFrames, 0.1)
+        local animate = CCAnimate:create(animation);
+        self.Button_Location.m_normalSp:runAction(CCRepeatForever:create(animate))
+    end
+    self.Button_Location:setActionCallback(handler(self, self.OnLocationFunc))                       --规则按钮
+
+    self.Button_Exit:setActionCallback(handler(self, OnExitFunc))                       --退出按钮
+    self.Button_Dismiss:setActionCallback(handler(self, OnDismissFunc))                 --解散按钮
+    self.Button_Dismiss:resetTouchPriorty(kCCMenuHandlerPriority - 2, true)
+    
+    self.Button_More:setActionCallback(handler(self, self.OnMoreFunc))                 
+
+    self.Button_Win:resetTouchPriorty(kCCMenuHandlerPriority - 4, true)
+    self.Button_Win:setActionCallback(handler(self, OnWinFunc))                         --胡按钮
+
+    self.Button_Pong:resetTouchPriorty(kCCMenuHandlerPriority - 4, true)
+    self.Button_Pong:setActionCallback(handler(self, OnPongFunc))                       --碰牌按钮
+
+    self.Button_Chow:resetTouchPriorty(kCCMenuHandlerPriority - 4, true)
+    self.Button_Chow:setActionCallback(handler(self, OnChowFunc))                       --吃牌按钮
+
+    self.Button_GiveUp:resetTouchPriorty(kCCMenuHandlerPriority - 4, true)
+    self.Button_GiveUp:setActionCallback(handler(self, OnGiveUpFunc))                   --取消按钮
+    
+    self.Button_Start:setActionCallback(handler(self, OnStartFunc))                  --开始按钮
+    self.Button_Return:setActionCallback(handler(self, OnReturntFunc))                  --开始按钮    
+
+    self.Button_Invite:setActionCallback(handler(self, OnInviteFunc))                   --邀请按钮
+    self.Button_Chat:setActionCallback(handler(self, self.OnGameChatFunc))                   --聊天
+    
+    self.Button_CanelAuto:setActionCallback(handler(self, OnCanelEntrustFunc))          --取消托管按钮
+    self.Button_ContinueMacth:setActionCallback(handler(self, OnContinueMacthFunc))     --继续报名
+end
+
+--显示聊天
+function GameView:OnGameChatFunc(event)
+    self.viewLayer.layerChat:show()
+    self.viewLayer.current_panel = self.viewLayer.layerChat
+end
+
+function GameView:showPlayerDetail(faceSp, name, userid, ip, addInfo)
+    self.viewLayer.current_panel = require("Lobby/Info/LayerInfo").putPlayer(
+               self.viewLayer, self.panle_zIndex, faceSp, name, userid, ip, addInfo):show() 
+end
+
+--系统设置按钮事件
+function GameView:OnMoreFunc(event)
+    self.More_Bg:setVisible(not self.More_Bg:isVisible())
+end
+
+--系统设置按钮事件
+function GameView:OnSysSetFunc(event)
+    self.viewLayer.current_panel = require("phz/Game/LayerGameSet").put(self.viewLayer, self.panle_zIndex):show()
+end
+
+--规则按钮事件
+function GameView:OnRuleFunc(event)
+    if not self.viewLayer.rule_panel then
+        self.viewLayer.rule_panel = require("phz/LayerGameRule").put(self.viewLayer, self.panle_zIndex)
+    end
+
+    self.viewLayer.rule_panel:show()
+    self.viewLayer.current_panel = self.viewLayer.rule_panel
+end
+
+function GameView:OnLocationFunc(event)
+    local GameLogic = require("phz/Game/GameLogic"):getInstance()
+    local chair = GameLogic:GetMeChairID()
+    local userList = require("HallUtils").tableDup(GameLogic.user_list)
+
+    local users = {}
+    for k, v in pairs(userList) do
+        if v ~= 0 then
+            table.insert(users, v)
+        end
+    end
+
+    if not GameView.checkLocation then
+     self.Button_Location.m_normalSp:stopAllActions()
+     self.Button_Location.m_normalSp:setDisplayFrame(
+        CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("paoHuZi/anniu_dingwei.png"))
+        GameView.checkLocation = true
+    end
+    self.current_panel = require("Lobby/Info/LayerLocation").put(self.viewLayer, self.panle_zIndex, 
+        GAME_PLAYER_PAOHUZI, users, chair):show()
+
+    --GameLogic:updataUITheme(true)
+end
+
+--隐藏当前界面
+function GameView:HideCurrentPanel()
+    if self.viewLayer.current_panel and self.viewLayer.current_panel:isVisible() then
+        self.viewLayer.current_panel:hide()
+        self.viewLayer.current_panel = nil
+    end
+end
+
+--主层layer创建
+function GameView:CreateViewLayer()
+    --self.viewLayer = CCLayer:create()
+    self.nodePanel = require("phz/Game/LayerGame"):create()
+    self.viewLayer = self.nodePanel
+
+    --self.viewLayer:addChild(self.nodePanel)
+
+    --创建聊天
+    self.viewLayer.layerChat = require("phz/Game/LayerChat").put(self.viewLayer, self.panle_zIndex)
+    self.viewLayer.layerChat.layerShow = require("phz/Game/LayerChatShow").put(self.viewLayer, self.panle_zIndex)
+
+    --语音聊天按钮及相关UI
+    self.viewLayer.voicePanel = require("phz/Game/LayerVoice").create()
+    self.viewLayer:addChild(self.viewLayer.voicePanel, self.voice_zIndex)
+
+    --初始化背景
+--    SparrowCZ_InitBackGrounp()
+    --获取主界面画布
+    --self.nodePanel = CCuiloader:load("ccbResources/paohuziRes/MainUI.json")
+
+    
+    --获取节点元素
+    self:InitNode()
+
+    self:InitNodeStatus()
+
+    self:InitPiaoNode()
+
+    return self.viewLayer
+end
+
+function GameView:addPiaoPanel(score, func)
+    self.layerPiao = require("phz/Game/LayerPiao").put(self.viewLayer, self.piao_zIndex, score, function(index)
+        func(index) 
+    end)
+    self.layerPiao:show()
+end
+
+function GameView:addFriendTableTime(exprireTime, validTime) 
+    self:clearFriendValidTimerUI()
+
+    --尚未开始有效时间
+    local tipbg =  loadSprite("lobby_message_tip_bg.png")
+    tipbg:setPosition(ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2, AppConfig.SCREEN.CONFIG_HEIGHT / 2 + 130)) 
+    self.viewLayer:addChild(tipbg, self.voice_zIndex)   
+    local bgsz = tipbg:getContentSize()
+    tipbg.validTime = validTime
+    self.viewLayer.timerTipSp = tipbg
+
+    --设置倒计时
+    local msgs, posy = {"30分钟未开始游戏，系统自动解散房间", "00:00"}, {bgsz.height / 2 + 26, bgsz.height / 2 - 26}
+    local ftsz, tempLab = {26, 40}
+    for i,v in ipairs(ftsz) do
+        tempLab = CCLabelTTF:create(msgs[i], AppConfig.COLOR.FONT_ARIAL, v)
+        tempLab:setPosition(ccp(bgsz.width / 2, posy[i]))
+        tempLab:setDimensions(CCSizeMake(bgsz.width, 0))
+        tempLab:setHorizontalAlignment(kCCTextAlignmentCenter)
+        tipbg:addChild(tempLab, 0, i)
+    end 
+
+    local tb  = CCArray:create()
+    tb:addObject(CCDelayTime:create(1))
+    tb:addObject(CCCallFunc:create(function()
+        self.viewLayer.timerTipSp.validTime = self.viewLayer.timerTipSp.validTime - 1
+        local timeSeces = self.viewLayer.timerTipSp.validTime
+        local labttf = self.viewLayer.timerTipSp:getChildByTag(2)
+
+        local temp = "00:00"
+        if timeSeces > 0 then
+            temp = string.format("%02d:%02d", 
+                math.floor(timeSeces % 86400 % 3600 / 60), timeSeces % 86400 % 3600 % 60)
+        end
+        labttf:setString(temp)
+
+        if timeSeces < 0 then
+            self:clearFriendValidTimerUI()
+        end        
+    end))
+
+    local action = CCRepeatForever:create(CCSequence:create(tb))
+    tipbg:runAction(action)
+end
+
+function GameView:clearFriendValidTimerUI()
+    if self.viewLayer.timerTipSp ~= nil then
+        self.viewLayer.timerTipSp:stopAllActions()
+        self.viewLayer.timerTipSp:removeFromParentAndCleanup(true)
+        self.viewLayer.timerTipSp = nil       
+    end
+end
+
+return GameView

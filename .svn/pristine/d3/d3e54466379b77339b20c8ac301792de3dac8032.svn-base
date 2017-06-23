@@ -1,0 +1,293 @@
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+
+local LayerDeskResult = class("LayerDeskResult")
+
+local TOTAL_END_LAYER       =           2000
+
+--结算layer对象创建
+function LayerDeskResult.create()
+    local layer = LayerDeskResult.new()
+
+
+    return layer
+end
+
+function LayerDeskResult:ctor()
+    self.layer = nil
+    self.layer_zIndex = 110
+    self.btn_zIndex = 111   
+end
+
+function LayerDeskResult:updataResultInfo(infos)
+    for i,v in ipairs(infos) do
+        self:updataPlayerInfo(v, i)
+
+        self:updataGameInfo(v.RuleScoreInfo, i)
+    end
+
+    self:addGameMark()
+end
+
+--显示隐藏层设置
+function LayerDeskResult:SetLayerVisible(isVisible)
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    local gameEndLayer = scene:getChildByTag(TOTAL_END_LAYER)
+    if nil==gameEndLayer then cclog("gameEndLayer nil") end
+
+    gameEndLayer:setVisible(isVisible)
+    gameEndLayer:setTouchEnabled(isVisible)
+end
+
+--玩家信息
+function LayerDeskResult:updataPlayerInfo(info, index)
+    --头像
+    local pos = ccp(self.layer.userPanel[index].Sprite_Face:getPosition())
+    self.layer.userPanel[index].Sprite_Face:removeFromParentAndCleanup(true)
+
+    self.layer.userPanel[index].Sprite_Face = require("FFSelftools/CCUserFace").create(info.UserID, CCSizeMake(82,82), info.Sex)
+    self.layer.userPanel[index].Sprite_Face:setPosition(pos)
+    self.layer.userPanel[index]:addChild(self.layer.userPanel[index].Sprite_Face)
+
+    --姓名
+    self.layer.userPanel[index].Text_Name:setString(info.UserNickName)
+
+    --ID
+    self.layer.userPanel[index].Text_ID:setString("ID:"..info.UserID)
+
+    --房主
+    self.layer.userPanel[index].Sprite_Owner:setVisible(index == 1)
+
+    --IP
+    if info.UserIP then
+        self.layer.userPanel[index].Text_IP:setString("IP:"..info.UserIP)
+    else
+        self.layer.userPanel[index].Text_IP:setVisible(false)
+        self.layer.userPanel[index].Sprite_SameIP:setVisible(false)  
+    end
+
+    --总分数
+    local msg = ""..info.Score
+    if info.Score > 0 then msg = "+"..info.Score end    
+    self.layer.userPanel[index].AtlasLabel_Points:setString(msg)
+
+    --大赢家
+    self.layer.userPanel[index].Sprite_Winner:setVisible(info.Winner)
+    
+end
+
+--游戏详情
+function LayerDeskResult:updataGameInfo(scoreInfo, index)
+    local pos2 = { ccp(25, 315), ccp(25, 255), ccp(25, 195), ccp(25, 135) }
+
+    local parseTable, paoNum = require("CocosJson").decode(scoreInfo)
+    for i,v in ipairs(parseTable) do
+        for k,v in pairs(v) do
+            local count_title = CCLabelTTF:create(k, AppConfig.COLOR.FONT_ARIAL, 28)
+            count_title:setAnchorPoint(0, 0.5)
+            count_title:setPosition(pos2[i])
+            count_title:setColor(ccc3(0x14, 0x53, 0x14))
+            self.layer.userPanel[index]:addChild(count_title)
+            
+
+            local count_value = CCLabelTTF:create(""..v, AppConfig.COLOR.FONT_ARIAL, 28)
+            count_value:setColor(ccc3(0x14, 0x53, 0x14))
+            count_value:setAnchorPoint(1, 0.5)
+            count_value:setPosition(ccp(288 - pos2[i].x, pos2[i].y))
+            self.layer.userPanel[index]:addChild(count_value)
+        end
+    end
+end
+
+function LayerDeskResult:addGameMark()   
+    local ruletext, roomtext = require("phz/LayerDeskRule").getRuleText()
+
+    local msg = roomtext.."\n" --..CommonInfo.Game_Name.."："
+    msg = msg..ruletext
+
+    local ttfLab = CCLabelTTF:create(msg, AppConfig.COLOR.FONT_ARIAL, 22)
+    ttfLab:setHorizontalAlignment(kCCTextAlignmentLeft)
+    ttfLab:setAnchorPoint(ccp(0, 0.5))
+    ttfLab:setPosition(ccp(60, 50))
+    self.layer:addChild(ttfLab) 
+    ttfLab:setVisible(false)
+
+    self.layer.ruleLab = ttfLab
+end
+
+--关闭
+function LayerDeskResult:OnShareFunc(event)
+    self.layer.Button_Return:setVisible(false)
+    self.layer.Button_Share:setVisible(false)
+    self.layer.Button_Create:setVisible(false)
+    self.layer.ruleLab:setVisible(true)
+
+    CJni:shareJni():shareScreenShot(1, 75, PAOHUZI_NAME_GAME, "好友卓总战绩", function() end)
+
+    self.layer.Button_Return:setVisible(true)
+    self.layer.Button_Share:setVisible(true)  
+    self.layer.Button_Create:setVisible(true)
+    self.layer.ruleLab:setVisible(false)  
+end
+
+--注册回调函数
+function LayerDeskResult:RegisterClickEvent(OnCloseFunc, OnCreateFunc)
+    self.layer.Button_Return:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+    self.layer.Button_Return:setActionCallback(handler(self, OnCloseFunc))
+
+    self.layer.Button_Share:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+    self.layer.Button_Share:setActionCallback(handler(self, self.OnShareFunc))
+
+    self.layer.Button_Create:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+    self.layer.Button_Create:setActionCallback(handler(self, OnCreateFunc))
+end
+
+--结算layer创建
+function LayerDeskResult:CreateGameEndLayer(OnCloseFunc, OnCreateFunc, playerCount)
+    self.layer = CCLayerColor:create(ccc4(0, 0, 0, 200))
+    
+    --主场景属性、常量定义
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self.layer:registerScriptTouchHandler(onTouch,false, kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self.layer:setTouchEnabled(true) 
+
+    local pos = {ccp(195, 245), ccp(195 + 380, 245), ccp(195 + 760, 245)}
+    local bgsz = CCSizeMake(1160,490)
+    if playerCount == 4 then 
+        pos = {ccp(155, 245), ccp(155 + 305, 245), ccp(155 + 610, 245), ccp(155 + 915, 245)}
+        bgsz = CCSizeMake(1226,490)  --56      
+    end
+
+
+    -- 背景
+    local bg = loadSprite("gameEnd/border.png", true)
+    bg:setPreferredSize(bgsz)
+    bg:setPosition(640, 340)
+    self.layer:addChild(bg)
+    self.layer.bg = bg
+    
+    local Sprite_Title = loadSprite("gameEnd/result_title.png")
+    Sprite_Title:setPosition(bgsz.width / 2, 515)
+    bg:addChild(Sprite_Title)
+    
+    self.layer.userPanel = {}
+    for i = 1, playerCount do
+        local panelBg = loadSprite("gameEnd/di.png")
+        panelBg:setPosition(pos[i])
+        bg:addChild(panelBg)
+        self.layer.userPanel[i] = panelBg
+        local bgsz = panelBg:getContentSize()
+
+        -- 头像
+        local Sprite_Face = loadSprite("paoHuZi/touxiang.png")
+        Sprite_Face:setPosition(67, 399)
+        Sprite_Face:setScale(0.8)
+        panelBg:addChild(Sprite_Face)
+        panelBg.Sprite_Face = Sprite_Face
+
+        -- 房主标识
+        local Sprite_Owner = loadSprite("gameEnd/rom_owner.png")
+        Sprite_Owner:setPosition(67, 370)
+        panelBg:addChild(Sprite_Owner, 2)        
+        panelBg.Sprite_Owner = Sprite_Owner
+        
+        --姓名
+        local Text_Name = CCLabelTTF:create("玩家姓名", AppConfig.COLOR.FONT_ARIAL, 20)
+        Text_Name:setAnchorPoint(0, 0.5)
+        Text_Name:setPosition(115, 430)
+        Text_Name:setColor(ccc3(0x14, 0x53, 0x14))
+        panelBg:addChild(Text_Name)
+        panelBg.Text_Name = Text_Name
+        
+        --ID
+        local Text_ID = CCLabelTTF:create("ID:0000000", AppConfig.COLOR.FONT_ARIAL, 20)
+        Text_ID:setAnchorPoint(0, 0.5)
+        Text_ID:setPosition(115, 400)
+        Text_ID:setColor(ccc3(0x14, 0x53, 0x14))
+        panelBg:addChild(Text_ID)
+        panelBg.Text_ID = Text_ID
+        
+        --IP
+        local Text_IP = CCLabelTTF:create("IP:127.0.0.1", AppConfig.COLOR.FONT_ARIAL, 20)
+        Text_IP:setAnchorPoint(0, 0.5)
+        Text_IP:setColor(ccc3(0x14, 0x53, 0x14))
+        Text_IP:setPosition(115, 370)
+        panelBg:addChild(Text_IP)
+        panelBg.Text_IP = Text_IP
+
+        --同IP标识
+        local Sprite_SameIP = loadSprite("gameEnd/sameip.png")
+        Sprite_SameIP:setPosition(270, 395)
+        panelBg:addChild(Sprite_SameIP)
+        panelBg.Sprite_SameIP = Sprite_SameIP
+        
+        -- 大赢家标识
+        local Sprite_Winner = loadSprite("gameEnd/dayingja.png")
+        Sprite_Winner:setPosition(bgsz.width / 2, 95)
+        panelBg:addChild(Sprite_Winner)
+        panelBg.Sprite_Winner = Sprite_Winner
+        
+        -- 总积分
+        local Sprite_Total = loadSprite("gameEnd/total.png")
+        Sprite_Total:setPosition(20, 40)
+        Sprite_Total:setAnchorPoint(0, 0.5)
+        panelBg:addChild(Sprite_Total)
+        
+        local AtlasLabel_Points = CCLabelAtlas:create("0", "phz/images/num_totalpoint.png",28,35,string.byte('+'))
+        AtlasLabel_Points:setAnchorPoint(1, 0.5)
+        AtlasLabel_Points:setPosition(bgsz.width - 20, 40)
+        panelBg:addChild(AtlasLabel_Points)
+        panelBg.AtlasLabel_Points = AtlasLabel_Points
+    end
+    
+    -- 返回按钮
+    local Button_Return = CCButton.createCCButtonByFrameName("gameEnd/btn_return.png", "gameEnd/btn_return_dk.png", "gameEnd/btn_return_dk.png")
+    Button_Return:setPosition(340, 50)
+    self.layer:addChild(Button_Return)
+    self.layer.Button_Return = Button_Return
+    
+    -- 分享按钮
+    local Button_Share = CCButton.createCCButtonByFrameName("gameEnd/btn_share.png", "gameEnd/btn_share_dk.png", "gameEnd/btn_share_dk.png")
+    Button_Share:setPosition(640, 50) 
+    self.layer:addChild(Button_Share)
+    self.layer.Button_Share = Button_Share
+
+    -- 创建按钮
+    local Button_Create = CCButton.createCCButtonByFrameName("gameEnd/btn_create1.png", "gameEnd/btn_create2.png", "gameEnd/btn_share_dk.png")
+    Button_Create:setPosition(940, 50)
+    self.layer:addChild(Button_Create)
+    self.layer.Button_Create = Button_Create
+
+    -- 警示标识
+    local Text_Warn = CCLabelTTF:create("游戏仅供娱乐，禁止赌博", AppConfig.COLOR.FONT_ARIAL, 26)
+    Text_Warn:setAnchorPoint(ccp(0, 0.5))
+    Text_Warn:setPosition(60, 610)
+    self.layer:addChild(Text_Warn)
+    
+    -- 日期
+    local now = os.date("*t")
+    local Text_Data = CCLabelTTF:create(
+        string.format("%d-%02d-%02d %02d:%02d",now.year,now.month,now.day,now.hour,now.min)
+        , AppConfig.COLOR.FONT_ARIAL, 26)
+    Text_Data:setAnchorPoint(ccp(1, 0.5))
+    Text_Data:setPosition(1220, 610)
+    self.layer:addChild(Text_Data)
+
+    --节点回调事件注册
+    self:RegisterClickEvent(OnCloseFunc, OnCreateFunc)
+
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    if nil == self.layer then cclog("gameEndLayer nil") end
+    self.layer:setTag(TOTAL_END_LAYER)
+    self.layer:setVisible(false)
+    self.layer:setTouchEnabled(false)
+    scene:addChild(self.layer,110)
+end
+
+return LayerDeskResult

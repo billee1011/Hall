@@ -1,0 +1,344 @@
+--LayerDeskResult.lua
+local AppConfig = require("AppConfig")
+local CommonInfo = require("sgmj/GameDefs").CommonInfo
+local CCButton = require("FFSelftools/CCButton")
+--总结算界面
+local LayerDeskResult=class("LayerDeskResult",function()
+    return CCLayerColor:create(AppConfig.COLOR.ColorLayer_Bg)
+end)
+
+function LayerDeskResult:show() 
+    self:setVisible(true)    
+    require("Lobby/Common/AnimationUtil").spriteScaleShowAction(self.panel_bg, function()
+
+        local array = CCArray:create()
+        for i,v in ipairs(self.result_mark) do
+            array:addObject(CCTargetedAction:create(v,CCDelayTime:create(0.1)))
+            array:addObject(CCTargetedAction:create(v,CCShow:create()))
+            array:addObject(CCTargetedAction:create(v,CCScaleTo:create(0, 8)))
+            array:addObject(CCTargetedAction:create(v,CCScaleTo:create(0.3, 0.90)))            
+        end
+        array:addObject(CCCallFunc:create(function() self:setTouchEnabled(true) end))
+
+        self:runAction(CCSequence:create(array))
+    end)
+
+    return self
+end
+
+function LayerDeskResult:init(info)   
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self:registerScriptTouchHandler(onTouch,false, kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self:setTouchEnabled(true)
+    --self:setVisible(false)
+
+    --背景185
+    local bgsz, wspace, xpos = CCSizeMake(1247, 542), 305, -139
+    if #info == 3 then 
+        wspace = 425 
+        xpos = -240
+        bgsz.width = 1220
+    end
+    self.panel_bg = loadSprite("mjResult/frendResultBg.png", true)
+    
+    self:addChild(self.panel_bg)
+    self.panel_bg:setPreferredSize(bgsz)
+    self.panel_bg:setPosition(ccp(AppConfig.SCREEN.CONFIG_WIDTH/ 2, AppConfig.SCREEN.CONFIG_HEIGHT / 2 + 6))
+    self.panel_sz = bgsz
+
+    --标题
+    local titleSp = loadSprite("mjResult/frendResultTitle.png")
+    --loadSprite("lobby_frendgame_result_title_img.png")
+    titleSp:setPosition(ccp(bgsz.width / 2, bgsz.height + 30))
+    self.panel_bg:addChild(titleSp)
+    
+    --游戏结束时间
+    local tipmsg = CCLabelTTF:create(""..require("HallUtils").getTime(), AppConfig.COLOR.FONT_ARIAL, 20)      
+    tipmsg:setPosition(ccp(bgsz.width - 5, 570))
+    tipmsg:setAnchorPoint(ccp(1, 0.5))
+    self.panel_bg:addChild(tipmsg) 
+
+    local labItem = CCLabelTTF:create("游戏仅供娱乐，禁止赌博", AppConfig.COLOR.FONT_ARIAL, 20)
+    --labItem:setColor(ccc3(0x29, 0xff, 0xfc))        
+    labItem:setAnchorPoint(ccp(0, 0.5))
+    labItem:setPosition(ccp(130, 570))
+    self.panel_bg:addChild(labItem) 
+
+    local gameTip = self:addGameMark()
+
+    --获取玩家ip
+    local sameIpStr = CCUserDefault:sharedUserDefault():getStringForKey("same_ip12")
+    local sameIPs = {}
+    if sameIpStr ~= "" then
+        sameIPs = require("cjson").decode(sameIpStr)
+    end
+  
+    local function getPlayerIp(chair)
+        if (not sameIPs["count"]) or sameIPs["count"] < 1 or (not sameIPs[tostring(chair)]) then 
+            return "" 
+        end
+
+        return "IP:"..sameIPs[tostring(chair)].ip
+    end
+
+    local marks, statues, items = {{}, {}}, {false, false, false, false}, {}
+    self.result_mark = {}
+    for i,v in ipairs(info) do
+        info[i].UserIP = getPlayerIp(i - 1)
+
+        local pos = ccp(xpos + wspace * i, bgsz.height / 2)
+        local item = self:createInfoItem(info[i], i, marks)
+        item:setPosition(pos)
+        self.panel_bg:addChild(item)
+        table.insert(items, item)
+    end
+
+    --最大赢家、最佳炮手特效
+    for i,v in ipairs(marks) do
+        table.sort(v, function(a, b)
+            return a[2] < b[2]
+        end)
+
+        local maxval = v[#v][2]
+        if maxval > 0 then
+            for j,w in ipairs(v) do
+                local index = w[1]
+                if w[2] == maxval and not statues[index] then
+                    statues[index] = true
+
+                    --添加玩家标示
+                    local mask = loadSprite("mjResult/resultMark"..i..".png")
+                    mask:setPosition(ccp(-10 + xpos + wspace * index, bgsz.height / 2 - 30))
+                    self.panel_bg:addChild(mask)  
+                    mask:setVisible(false)
+                    table.insert(self.result_mark, mask)                  
+                end
+            end
+        end
+    end
+    
+
+
+    --[[返回按钮 
+    CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("lobby_return_btn1.png", 
+            "lobby_return_btn2.png", "lobby_return_btn1.png", function()
+                self:removeFromParentAndCleanup(true)
+            end), ccp(50, 860), self.btn_zIndex)]]
+    self.btn_uis = {}
+    local returnBtn = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("mjResult/btnReturn1.png", 
+            "mjResult/btnReturn2.png", "mjResult/btnReturn1.png", function()
+                self:removeFromParentAndCleanup(true)
+                require("LobbyControl").backToHall()
+            end), ccp(bgsz.width / 2 - 400, -50), self.btn_zIndex)
+    table.insert(self.btn_uis, returnBtn)
+
+    --分享
+    local shareBtn = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("mjResult/btnShare1.png", 
+            "mjResult/btnShare2.png", "mjResult/btnShare1.png", function()
+                    for i,v in ipairs(self.btn_uis) do
+                        v:setVisible(false)
+                    end
+                    self.self_mark:stopAllActions()
+                    self.self_mark:setOpacity(255)
+                    gameTip:setVisible(true)
+
+                    CJni:shareJni():shareScreenShot(1, 75, CommonInfo.Game_Name, "好友卓总战绩", function()end)
+                    
+                    require("Lobby/Common/AnimationUtil").runFlickerAction(self.self_mark, true)
+                    for i,v in ipairs(self.btn_uis) do
+                        v:setVisible(true)
+                    end  
+                    gameTip:setVisible(false)         
+            end), ccp(bgsz.width / 2, -50), self.btn_zIndex)
+    table.insert(self.btn_uis, shareBtn)
+
+    --创建
+    local createBtn = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gameResult/btnCreate1.png", 
+            "gameResult/btnCreate2.png", "gameResult/btnCreate1.png", function()
+                    self:removeFromParentAndCleanup(true)
+                    require("LobbyControl").backToHall(true)        
+            end), ccp(bgsz.width / 2 + 400, -50), self.btn_zIndex)
+    table.insert(self.btn_uis, createBtn)
+
+   if AppConfig.ISAPPLE then
+        shareBtn:setVisible(false)
+        --returnBtn:setPositionX(bgsz.width / 2)
+    end
+
+    self:setVisible(false)
+    self:setTouchEnabled(false)  
+end
+
+function LayerDeskResult:createInfoItem(info, index, marks)
+    local item = loadSprite("mjResult/itemBg.png", true)
+    local bgsz = CCSizeMake(303, 510)
+    item:setPreferredSize(bgsz)   
+
+    local ancposes, poses, flowerSp = {ccp(1, 1), ccp(0, 0)}, {ccp(bgsz.width - 5, bgsz.height - 40), ccp(5, 0)}
+    for i,v in ipairs(ancposes) do
+        flowerSp = loadSprite("mjResult/darkFlower.png")
+        flowerSp:setAnchorPoint(v)
+        item:addChild(flowerSp) 
+        flowerSp:setPosition(poses[i]) 
+    end
+    flowerSp:setScale(3)
+    flowerSp:setFlipX(true)
+
+    self:addPlayerInfo(item, bgsz, info, index)
+
+    
+    self:addPlayerScore(item, bgsz, info.Score)
+    table.insert(marks[1], {index, info.Score})
+
+    table.insert(marks[2], {index, self:addGameInfo(item, bgsz, info.RuleScoreInfo)})
+    
+    return item
+end
+
+--总成绩
+function LayerDeskResult:addPlayerScore(item, bgsz, score)
+    local markSp = loadSprite("mjResult/scoreMark.png")
+    markSp:setPosition(ccp(bgsz.width / 2, 80))
+    item:addChild(markSp)
+
+    --彩带标示
+    local poses = {ccp(bgsz.width / 2 - 90, 65), ccp(bgsz.width / 2 + 90, 65)}
+    local flipes = {true, false}
+    for i,v in ipairs(poses) do
+        local sp = loadSprite("mjResult/flowerMark.png")
+        sp:setPosition(v)
+        sp:setFlipX(flipes[i])
+        item:addChild(sp)
+    end
+
+    local msg = ""..score
+    if score > 0 then
+        msg = "+"..score
+    end
+    local labItem = CCLabelAtlas:create(msg, CommonInfo.Mj_Path.."num_score.png",40,43,string.byte('+'))
+    labItem:setAnchorPoint(ccp(0.5, 0.5))
+    labItem:setPosition(ccp(bgsz.width / 2, 40))
+    labItem:setScale(0.8)
+    item:addChild(labItem)  
+end
+
+function LayerDeskResult:addPlayerInfo(item, bgsz, info, index)
+    --头像
+    local faceSp = require("FFSelftools/CCUserFace").create(info.UserID, CCSizeMake(140,140), info.Sex)
+    local faceBg, sz = require("Lobby/Info/LayerInfo").createLogo(faceSp)
+    faceBg:setScale(0.6)
+    faceBg:setAnchorPoint(ccp(0, 1))
+    faceBg:setPosition(ccp(20, bgsz.height - 20))
+    item:addChild(faceBg)
+
+    --昵称、id、ip
+    local msgs = {info.UserNickName, "ID:"..info.UserID, info.UserIP} 
+    local poses = {ccp(120, bgsz.height - 33), ccp(120, bgsz.height - 68), ccp(120, bgsz.height - 103)}   
+    local labItem            
+    for i,v in ipairs(msgs) do
+        labItem = CCLabelTTF:create(v, AppConfig.COLOR.FONT_ARIAL, 20)
+        labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)        
+        labItem:setHorizontalAlignment(kCCTextAlignmentLeft)
+        labItem:setAnchorPoint(ccp(0, 0.5))
+        labItem:setPosition(poses[i])
+        item:addChild(labItem)
+
+        labItem:setString(require("HallUtils").getLabText(v, labItem, 180))     
+    end
+    labItem:setColor(ccc3(250,55,55))
+
+    --房主标示
+    if index == 1 then
+        local markSp = loadSprite("mjResult/wornMark.png")
+        markSp:setPosition(ccp(68, bgsz.height - 120))
+        markSp:setAnchorPoint(ccp(0.5, 0.5))
+        item:addChild(markSp)
+    end
+    if info.UserID == require("Lobby/Login/LoginLogic").UserInfo.UserID then
+    --自己标示
+        local markSp =  loadSprite("mjResult/friendSelfMark.png", true)
+        markSp:setPreferredSize(CCSizeMake(bgsz.width + 20, bgsz.height + 20))
+        item:addChild(markSp) 
+
+        require("Lobby/Common/AnimationUtil").runFlickerAction(markSp, true)
+        markSp:setPosition(ccp(bgsz.width / 2, bgsz.height / 2))
+        self.self_mark = markSp
+    end    
+end
+
+--游戏详情
+function LayerDeskResult:addGameInfo(item, bgsz, scoreInfo)
+    --背景
+    local panelBg =  loadSprite("mjResult/friendTextBg.png", true)
+    panelBg:setPreferredSize(CCSizeMake(bgsz.width - 10, 268))
+    item:addChild(panelBg)    
+
+    panelBg:setPosition(ccp(bgsz.width / 2, bgsz.height / 2 - 6))
+    
+    --游戏详情
+    local itemIndex = 0
+    function addGameDetail(msgs)
+        local item = CCLayer:create()
+        item:setContentSize(CCSizeMake(266, 60))
+        local anchorPts, poses, ftsz, labItem = {ccp(0, 0), ccp(0, 0)}, {ccp(6, 13), ccp(260, 13)}, {32, 32}
+        for i,v in ipairs(msgs) do
+            labItem = CCLabelTTF:create(v, AppConfig.COLOR.FONT_ARIAL, ftsz[i])
+            labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)        
+            labItem:setHorizontalAlignment(kCCTextAlignmentLeft)
+            labItem:setAnchorPoint(anchorPts[i])
+            labItem:setPosition(poses[i])
+            item:addChild(labItem)
+        end
+        labItem:setPositionX(labItem:getPositionX() - labItem:getContentSize().width)
+
+        item:setPosition(ccp(13, 200 - 60 * itemIndex))
+        itemIndex = itemIndex + 1
+        panelBg:addChild(item)
+    end
+
+    local parseTable, paoNum = require("CocosJson").decode(scoreInfo)
+    for i,v in ipairs(parseTable) do
+        for k,v in pairs(v) do
+            if k ~= "点炮" then
+                addGameDetail({k, ""..v})
+            else
+                paoNum = v
+            end
+        end
+    end 
+
+    return paoNum
+    --scroll:resetCommonScroll()
+end
+
+function LayerDeskResult:addGameMark()   
+    local ruletext, birdtext, roomtext = require("sgmj/LayerDeskRule").getRuleText()
+
+    local msg = roomtext.."\n" --..CommonInfo.Game_Name.."："
+    msg = msg..ruletext.."，"..birdtext
+
+    local ttfLab = CCLabelTTF:create(msg, AppConfig.COLOR.FONT_ARIAL, 20)
+    ttfLab:setHorizontalAlignment(kCCTextAlignmentLeft)
+    ttfLab:setAnchorPoint(ccp(0, 0.5))
+    ttfLab:setPosition(ccp(25, -40))
+    self.panel_bg:addChild(ttfLab) 
+    ttfLab:setVisible(false)
+
+    return ttfLab
+end
+
+function LayerDeskResult.put(super, zindex, info)
+    local layer = LayerDeskResult.new()
+    super:addChild(layer, zindex)
+    layer.layer_zIndex = zindex
+    layer.btn_zIndex = zindex + 1
+
+    layer:init(info)
+    return layer
+end
+
+return LayerDeskResult

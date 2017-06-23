@@ -1,0 +1,237 @@
+----------------------------------音乐效果--------------------------
+local GENDER_FEMALE=1
+local GENDER_MALE=2
+local SetLogic = require("Lobby/Set/SetLogic")
+local AppConfig = require("AppConfig")
+
+
+local that = nil
+--音乐类定义
+local Music = class("Music")
+--工具类对象实例化
+function Music.create()
+    local music = Music.new()
+    music:InitMusic();
+    return music
+end
+--工具类对象属性   初始化值
+function Music:ctor()
+    --[[self.audioInstance = CCSimpleAudioEngine:getInstance()
+    self.bgMusicEffect = true
+    self.playMusicEffect = true
+    self.bgMusicEffectID = nil
+    self.bgMusicVolume = nil
+    self.effectsVolume = nil]]
+    math.randomseed(os.time())
+    that = self
+end
+--初始化音乐   将音乐添加到内存
+function Music:InitMusic()
+--    PublicMusicLandInit();
+end;
+
+local MASK_COLOR                 = 0xF0                                --花色掩码
+local MASK_VALUE                 = 0x0F                                --数值掩码
+
+function Music:playVoiceEffect(sex, chatid)
+    local sexpath = "man/"
+    if sex ~= 1 then
+        sexpath = "woman/"
+    end
+
+    local lan_set = AppConfig.language[SetLogic.getGameCheckByIndex(3)]
+    local source = string.format("resources/music/quickchat/%s/%sword%d.mp3", lan_set, sexpath, chatid)
+    SetLogic.playGameEffect(source)
+end
+
+--音乐
+function Music:MusicFuc(playType,operateType,sexType,data,isDialect)
+    --是否为普通话
+    isDialect = SetLogic.getGameCheckByIndex(3) ~= 1
+
+    if playType==PAOHUZI_MUSIC_PLAY_BG then              --背景音乐
+        --播放背景音乐 
+        SetLogic.playGameGroundMusic("phz/music/backgroup"..AppConfig.SoundFileExtName) 
+--      CCSimpleAudioEngine:getInstance():playMusic("ccbResources/paohuziRes/music/backgroup.mp3", true) 
+    elseif playType==PAOHUZI_MUSIC_PLAY_WAIT then 
+        SetLogic.playGameEffect("phz/music/backgroup"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_SENDCARD then 
+        SetLogic.playGameEffect("phz/music/sendcard"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_WARN then
+        SetLogic.playGameEffect("phz/music/gamewarn"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_START then
+        SetLogic.playGameEffect("phz/music/gamestart"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_WIN then
+        SetLogic.playGameEffect("phz/music/win"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_END then
+        SetLogic.playGameEffect("phz/music/huapai"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_LOST then
+        SetLogic.playGameEffect("phz/music/gamelost"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_TIME_UP then
+        SetLogic.playGameEffect("phz/music/timeup"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_SORT_CARD then
+        SetLogic.playGameEffect("phz/music/sortcard"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_GAME_LAYER then
+        SetLogic.playGameEffect("phz/music/changescene"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_OPERATE1 then
+        SetLogic.playGameEffect("phz/music/operate1"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_OPERATE2 then
+        SetLogic.playGameEffect("phz/music/operate2"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_OPERATE3 then
+        SetLogic.playGameEffect("phz/music/operate3"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_BACKCARD then
+        SetLogic.playGameEffect("phz/music/button"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_HANDCARD then
+        SetLogic.playGameEffect("phz/music/backcard"..AppConfig.SoundFileExtName)
+    elseif playType==PAOHUZI_MUSIC_PLAY_COINSROLL then
+        SetLogic.playGameEffect("phz/music/coinsroll"..AppConfig.SoundFileExtName)
+        
+    elseif playType==PAOHUZI_MUSIC_PLAY_OUT_CARD then
+        local musicFilePath = "phz/music/Mandarin/"
+        if isDialect then
+            musicFilePath = "phz/music/Dialect/"
+        end
+
+        if sexType==GENDER_FEMALE then
+            musicFilePath = musicFilePath.."male/"
+        else
+            musicFilePath = musicFilePath.."female/"
+        end
+
+        local cardPathStr = self:GetCardMusicPathStr(data)
+        musicFilePath = musicFilePath .. cardPathStr
+        SetLogic.playGameEffect(musicFilePath)
+    elseif playType==PAOHUZI_MUSIC_PLAY_OPERATE then
+        local musicFilePath = "phz/music/Mandarin/"
+        if isDialect then
+            musicFilePath = "phz/music/Dialect/"
+        end
+        if sexType==GENDER_FEMALE then musicFilePath = musicFilePath.."male/"
+        else musicFilePath = musicFilePath.."female/" end
+
+        local operatePathStr = self:GetOperateMusicPathStr(operateType)
+        musicFilePath = musicFilePath .. operatePathStr
+        cclog("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "..musicFilePath)
+        SetLogic.playGameEffect(musicFilePath)
+    end
+end
+----获取操作音乐路径名
+--@param
+--@return
+function Music:GetOperateMusicPathStr(operateType)    
+    local isDialect = SetLogic.getGameCheckByIndex(3) ~= 1
+
+    if operateType==PAOHUZI_OPERATE_TYPE_CHOW then  -- 吃
+        if isDialect then
+            if math.random(100) < 50 then
+                return "A_CHI.mp3"
+            else
+                return "A_CHI.mp3"
+            end
+        else
+            return "A_CHI.mp3"
+        end
+    elseif operateType==PAOHUZI_OPERATE_TYPE_PONG then  -- 碰
+        if isDialect then
+            if math.random(100) < 50 then
+                return "A_PENG.mp3"
+            else
+                return "A_PENG1.mp3"
+            end
+        else
+            return "A_PENG.mp3"
+        end
+    elseif operateType==PAOHUZI_OPERATE_TYPE_LONG then  -- 龙
+        return "A_TI.mp3"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_PAO then  -- 跑
+        return "A_PAO.mp3"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_WEI then  -- 畏
+        if isDialect then
+            if math.random(100) < 50 then
+                return "A_WEI.mp3"
+            else
+                return "A_WEI.mp3"
+            end
+        else
+            return "A_WEI.mp3"
+        end        
+    elseif operateType==PAOHUZI_OPERATE_TYPE_FANGPAO then  -- 炮
+        if isDialect then
+            return "A_FangPao.mp3"
+        else
+            return "A_CHI_HU.mp3"
+        end        
+    elseif operateType==PAOHUZI_OPERATE_TYPE_HU then  
+        return "A_CHI_HU.mp3"        
+    elseif operateType==PAOHUZI_OPERATE_TYPE_ZIMO then  -- 自摸
+        return "A_ZIMO.mp3"
+    elseif operateType==PAOHUZI_OPERATE_TYPE_TWOLONG then  -- 双龙
+        if isDialect then
+            return "A_SHUANGLONG.mp3"
+        else
+            return "A_TI.mp3"
+        end        
+    elseif operateType==PAOHUZI_OPERATE_TYPE_REPAO then  -- 重跑
+        if isDialect then
+            return "A_CHONGPAO.mp3"
+        else
+            return "A_PAO.mp3"
+        end
+    elseif operateType>PAOHUZI_OPERATE_TYPE_TIANHU then  
+        if isDialect then
+            if math.random(100) < 50 then
+                return "A_TIANHU.mp3"
+            else
+                return "A_TIANHU"..(operateType-PAOHUZI_OPERATE_TYPE_TIANHU)..".mp3"
+            end
+        else
+            return "A_CHI_HU.mp3"
+        end
+    end        
+    return "A_CHI.mp3"
+end
+----获取牌音乐路径名
+--@param
+--@return
+function Music:GetCardMusicPathStr(data)
+
+    local cbType= Bit:_and(data , MASK_COLOR);
+    local cbValue= Bit:_and(data , MASK_VALUE);
+    local pathStr = ""
+    if cbType==0x10 then  --大牌
+        pathStr = "D_"..cbValue..".mp3";
+    elseif cbType==0x00 then  --小牌
+        pathStr = "X_"..cbValue..".mp3";
+    end
+    return pathStr
+end
+function Music:StopBgMusic()
+    AudioEngine.stopMusic()
+end
+function Music:StopEffectsMusic()    
+    AudioEngine.stopAllEffects()
+end
+--停止所有音乐 清除缓存
+function Music:StopAllMusic()
+    self:StopBgMusic()
+    self:StopEffectsMusic()
+end
+
+local times = 1;
+local sendEntry = nil;
+--播放发牌音效
+function Music:PlaySendCardMusic()
+    --NORMAL_COUNT
+    that:MusicFuc(PAOHUZI_MUSIC_PLAY_SENDCARD,nil,nil,nil)
+    if not sendEntry then
+        sendEntry = CCDirector:sharedDirector():getScheduler():scheduleScriptFunc(that.PlaySendCardMusic, 0.06, false)
+    end;
+    times = times +1 ;
+    if times>=20 then
+        CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(sendEntry);
+        times = 1;
+        sendEntry = nil;
+    end
+end;
+
+return Music

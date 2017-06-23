@@ -1,0 +1,819 @@
+--LayerHall.lua
+local AppConfig = require("AppConfig")
+local json = require("CocosJson")
+local CCButton = require("FFSelftools/CCButton")
+local WebRequest = require("GameLib/common/WebRequest")
+local LoginLogic = require("Lobby/Login/LoginLogic")
+local LobbyLogic = require("Lobby/LobbyLogic")
+
+local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+
+local LayerHall=class("LayerHall",function()
+        return CCLayer:create()
+    end)
+
+function LayerHall:init(info, funcs) 
+    --WebRequest.IsCallBack = false
+
+    --大厅状态：1、起始界面， 2、大厅游戏
+    self.hall_state = 1
+    self.game_request = false
+    self.location_uploaded = false
+
+    self.btn_zIndex = 1
+    self.game_zIndex = 3
+    self.panel_zIndex = 7
+    self.main_gameid = 12
+    self.main_mode = 10
+    self.check_game = false
+
+    --清空
+    if AppConfig.ISIOS then
+        --CCHttpClient:getInstance():destroyInstance()
+        --CCHttpClient:getInstance()
+    else
+        --CCHttpClient:getInstance()
+        --CCHttpClient:destroyInstance()
+        --CCHttpClient:getInstance()        
+    end 
+
+    --设置背景
+    local bg = loadSprite("lobby_bg.jpg")
+    bg:setScale(1.25)
+    bg:setPosition(AppConfig.SCREEN.MID_POS)
+    self:addChild(bg)
+
+    self.main_layer = CCLayer:create()
+    self:addChild(self.main_layer)
+    self.main_layer.bShow = true
+
+    self.main_layer.topLayer = CCLayer:create()
+    self.main_layer:addChild(self.main_layer.topLayer)
+
+    --底部背景
+    self.main_layer.bottomBg = loadSprite("lobby/lobby_bottom.png", true)
+    self.main_layer.bottomBg:setPosition(ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2, 25))
+    self.main_layer:addChild(self.main_layer.bottomBg)
+    self.main_layer.bottomBg:setPreferredSize(CCSizeMake(1200, self.main_layer.bottomBg:getContentSize().height))
+
+
+    local s = string.format(AppConfig.TIPTEXT.Version_Msg, require("GameConfig").getHallVerName())
+    self.main_layer.versionTipShadow = CCLabelTTF:create(s, AppConfig.COLOR.FONT_BLACK, 14)
+    self.main_layer.versionTipShadow:setHorizontalAlignment(kCCTextAlignmentLeft)
+    self.main_layer.versionTipShadow:setPosition(ccp(7,  6))
+    self.main_layer.versionTipShadow:setAnchorPoint(ccp(0, 0))
+    self.main_layer.versionTipShadow:setColor(ccc3(30, 30, 30))
+    self.main_layer:addChild(self.main_layer.versionTipShadow)
+    
+    self.main_layer.versionTip = CCLabelTTF:create(s, AppConfig.COLOR.FONT_BLACK, 14)
+    self.main_layer.versionTip:setHorizontalAlignment(kCCTextAlignmentLeft)
+    self.main_layer.versionTip:setPosition(ccp(6,  7))
+    self.main_layer.versionTip:setAnchorPoint(ccp(0, 0))
+    self.main_layer.versionTip:setColor(ccc3(220, 220, 220))
+    self.main_layer:addChild(self.main_layer.versionTip)
+
+    --添加个人信息
+    self.info_panel = require("Lobby/Info/LayerUser").put(info, self.main_layer.topLayer, self.panel_zIndex, function()
+        self:showLobbyPanel("Lobby/Info/LayerInfo")
+    end, function() self:showStorePanel(info) end)
+    self.info_panel:setPosition(ccp(AppConfig.SCREEN.LEFTUP_POS.x+12, AppConfig.SCREEN.LEFTUP_POS.y - 110))
+
+    self:initBtns(info)
+
+    self:initMessage()
+
+    self:initKeyPad()
+
+    local function onNodeEvent(event)
+        if event == "exit" then
+            self:onExit()
+        elseif event == "enter" then
+            self:onEnter()
+        end     
+    end
+    self:registerScriptHandler(onNodeEvent)
+    
+    if debugMode then
+        local function KeypadHandler(strEvent)
+            if "backClicked" == strEvent and CJni:shareJni().showTextureCache then
+                CJni:shareJni():showTextureCache()
+            end
+        end
+        self:registerScriptKeypadHandler(KeypadHandler)
+        self:setKeypadEnabled(true)
+    end
+end
+
+function LayerHall:onEnter()
+    require("LobbyControl").hall_layer = self    
+
+    self:initRoomUI()
+
+    self:startCheckStatus()
+
+    if self.check_game then
+        self:checkExitsFriendTable()
+        
+        self:checkPlayerLogon()         
+
+        self:checkPlayerAction()
+
+        self.check_game = false
+    else
+        self:checkGameStatus()
+    end
+end
+
+function LayerHall:onExit()
+    self.message_bg:stopAllActions()
+
+    self:stopAllActions()
+    
+    self:unregisterScriptKeypadHandler()
+    self:setKeypadEnabled(false)
+
+    require("LobbyControl").hall_layer = nil
+
+    --[[local cache = CCSpriteFrameCache:sharedSpriteFrameCache()
+    cache:removeSpriteFramesFromFile(AppConfig.ImgFilePathName.."gamerank/Rank.plist")
+    cache:removeSpriteFramesFromFile(AppConfig.ImgFilePathName.."shoppingMall.plist")]]
+
+    --清空
+    if AppConfig.ISIOS then
+        --CCHttpClient:getInstance():destroyInstance()
+        --CCHttpClient:getInstance()
+    else
+        --CCHttpClient:getInstance()
+        --CCHttpClient:destroyInstance()
+        --CCHttpClient:getInstance()        
+    end 
+end
+
+--检查是否存在未解散房间，有则进入
+function LayerHall:checkExitsFriendTable()
+    if FriendGameLogic.exit_table == 2 then
+        return
+    end
+
+    local function checkGameUpdata(isvilad, code, msg, table)
+        if isvilad then
+            if code == 0 and #table > 0 then
+                FriendGameLogic.exit_table = 1
+
+                if require("LobbyControl").hall_layer and not self.game_request then
+                    --进入游戏
+                    FriendGameLogic.game_id = table[1].GameID
+                    FriendGameLogic.pay_type = table[1].PayType
+                    FriendGameLogic.enterGameRoom(table[1].ServerName, table[1].FriendTableID, table[1].InviteCode)
+                end
+            else
+                FriendGameLogic.exit_table = 2              
+            end
+        end
+    end
+
+    FriendGameLogic.ServerName = nil
+    FriendGameLogic.game_id = self.main_gameid        
+    local userid = LoginLogic.UserInfo.UserID
+    local szData = string.format("UserID=%d&PartnerID=%d&GameID=%d", userid, AppConfig.CONFINFO.PartnerID, self.main_gameid)   
+    cclog(szData)
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        checkGameUpdata(isvilad, code, msg, table)
+    end
+    
+    WebRequest.getData(httpCallback,"GetUserExitsFriendTable.aspx",szData,1)        
+end
+
+function LayerHall:checkTGCode()
+    self.check_game = true   
+end
+
+function LayerHall:checkGameStatus()
+    if require("LobbyControl").appWebData and require("LobbyControl").appWebData.reCreate then
+        --创建房间
+        self:showCreateRoomPanel()
+        require("LobbyControl").appWebData = nil
+        return
+    end
+
+    --检查游戏返回到大厅信息变更
+    self:checkAppWebData(require("LobbyControl").appWebData)
+end
+
+function LayerHall:checkPlayerLogon()
+    --邀请码提示界面
+    if not AppConfig.ISAPPLE and ""..require("Lobby/Login/LoginLogic").UserInfo.TGCode == "66666" then
+        local agreen = CCUserDefault:sharedUserDefault():getStringForKey("tgcode_agreen")
+        if not agreen or agreen ~= "1" then
+            self.current_panel = self.current_panel or require("Lobby/Info/LayerTGCode").putTip(self, 
+                self.panel_zIndex):show()
+        end        
+    end
+
+    self:checkAppWebData(require("LobbyControl").checkAppWebData())
+end
+
+function LayerHall:checkPlayerAction()
+    --获取动作指令
+    require("LobbyControl").getActionCmd(function(data)
+        if not require("LobbyControl").hall_layer then return end
+        
+        --动作指令ID
+        for i,v in ipairs(data) do
+            if v.ActionID == "ForceNotice" then
+                if self.hall_state == 1 then
+                    self:showNoticePanel(true)
+                end
+            end
+            if v.ActionID == "ShowAgentApply" then
+                ShowAgentApply = true
+            end
+        end
+    end)
+end
+
+function LayerHall:startCheckStatus()
+    local delayTime, nCount = 6, 7
+
+    local function onCheck()        
+        if not require("LobbyControl").hall_layer then
+            return
+        end
+        local LoginLogic = require("Lobby/Login/LoginLogic")
+        
+        if nCount > 6 then
+            if not self.horse_data then
+                require("LobbyControl").getPlatformMessage(2, function(data)
+                    if data then
+                        if require("LobbyControl").hall_layer then
+                            self.horse_data = data
+                            for i,v in ipairs(self.horse_data) do
+                                self:addMessage(v.MsgContent)
+                            end
+                        end
+                    end
+                end, 2)
+            else
+                if require("LobbyControl").hall_layer then
+                    for i,v in ipairs(self.horse_data) do
+                        cclog("yyyyyyyyyyyyyy"..v.MsgContent)
+                        self:addMessage(v.MsgContent)
+                    end
+                end
+            end
+            nCount = 1
+        end
+
+        --检查游戏状态
+        require("LobbyControl").checkNewStatus(function(status)
+            local info = require("Lobby/Login/LoginLogic").UserInfo
+            if not require("LobbyControl").hall_layer then
+                return
+            end
+
+            --大厅公告
+            local noticeIndex = status.NoticeTip
+            if noticeIndex ~= info.NoticeIndex then
+                require("Lobby/Login/LoginLogic").UserInfo.NoticeIndex = noticeIndex
+                self.main_layer.bottomBg.noticeBtn:removeChildByTag(10, true)
+
+                local mark = loadSprite("lobby/hong.png")
+                mark:setPosition(ccp(40, 32))
+                self.main_layer.bottomBg.noticeBtn:addChild(mark, 0, 10)
+                self.main_layer.bottomBg.noticeBtn.noticeIndex = noticeIndex
+            end
+
+            --系统客户信息
+            if status.ServiceMessageTip > 0 then
+                self:getSystemMessage()
+            end
+
+            --钻石
+            if status.DiamondAmount ~= info.DiamondAmount then
+                require("Lobby/Login/LoginLogic").UserInfo.DiamondAmount = status.DiamondAmount
+                self.info_panel:updataDiamond(status.DiamondAmount)
+            end
+        end)
+        
+        -- 检查定位信息上报
+        if not self.location_uploaded then
+            local s = AMap:get()
+            if s and s.address then
+                local szData = string.format(
+                    "UserID=%d&LocationInfo=%s",
+                    LoginLogic.UserInfo.UserID,
+                    json.encode(s)
+                )
+                WebRequest.getData(function()
+                        self.location_uploaded = true
+                    end,
+                    "WriteClientLocationLog.aspx",
+                    szData
+                )
+            end
+        end
+
+        local array = CCArray:create() 
+        array:addObject(CCDelayTime:create(delayTime))     
+        array:addObject(CCCallFunc:create(onCheck))
+        nCount = nCount + 1
+        self:runAction(CCSequence:create(array))
+    end
+
+    onCheck()    
+end
+
+function LayerHall:checkAppWebData(invitetable)
+    if not invitetable then
+        return
+    end
+
+    if invitetable.InviteCode and invitetable.GameID then
+        --进入房间
+        self:showEnterRoomPanel(invitetable.InviteCode, nil, invitetable.GameID)
+    elseif invitetable.PlayCode and invitetable.InviteCode then
+        --播放码
+        require("Lobby/Record/LayerGameRecord").playVideo(invitetable.PlayCode, invitetable.InviteCode)     
+    end 
+
+    require("LobbyControl").appWebData = nil
+end
+
+function LayerHall:isCurrentPanelExist()
+    return self.current_panel
+end
+
+function LayerHall:showLobbyPanel(filepath, bforce)
+    if not bforce and self.current_panel then
+        return false
+    else
+        self.current_panel = require(filepath).put(self, self.panel_zIndex):show()
+        return true
+    end
+end
+
+function LayerHall:showRankPlayerInfo(faceSp, name, userid)  
+    if not self.current_panel then 
+        self.current_panel = require("Lobby/Info/LayerInfo").putRankPlayer(self, self.panel_zIndex, 
+            faceSp, name, userid, ""):show()
+
+        require("Lobby/Login/LoginLogic").getUserInfo(userid, function(addInfo)
+            self.current_panel:updateUserWords(addInfo.UserWords)
+        end) 
+    end
+end
+
+function LayerHall:showNoticePanel(bforce)
+    -- 获取公告内容，根据内容格式决定公告显示形式
+    require("LobbyControl").getPlatformMessage(1, function(data)
+        local msg = require("HallUtils").textDataStr(data[1].MsgContent, 2)
+        -- 图片公告
+        if string.upper(string.sub(msg, 1, 5)) == "HTTP:" then
+            -- 获取图片
+            local str = split(msg, "/")
+            local filePath = CJni:shareJni():getStoragePath()..str[#str]
+            local sprite = loadSprite(filePath)
+            if sprite then
+                self.current_panel = (bforce and self.current_panel) or 
+                    require("Lobby/Info/LayerNotice").put(self, self.panel_zIndex, 1, sprite):show()
+            -- 下载图片
+            else
+                WebRequest.getWebData(
+                    -- 读取到图像数据回调
+                    function(isSucceed, tag, data)
+                        if string.len(data) > 0 then
+                            if C2dxEx:isFileExist(filePath) then os.remove(filePath) end
+                            -- 写入文件
+                            local f = io.open(filePath, "wb+")
+                            f:write(data);f:flush(); f:close()
+                            -- 弹出公告
+                            local sp = loadSprite(filePath)
+                            if sp then
+                                self.current_panel = (bforce and self.current_panel) or 
+                                    require("Lobby/Info/LayerNotice").put(self, self.panel_zIndex, 1, sp):show()
+                            end
+                        end
+                    end,
+                msg, nil, nil, false, true)
+            end
+        -- 文字公告
+        else
+            self.current_panel = (bforce and self.current_panel) or 
+                require("Lobby/Info/LayerNotice").put(self, self.panel_zIndex, 2, msg):show()
+        end
+    end, 1)
+end
+
+-- 显示商店
+function LayerHall:showStorePanel()   
+    self.current_panel = self.current_panel or require("Lobby/Shop/LayerShop").put(
+        self, self.panel_zIndex,
+        function() self.current_panel:removeFromParentAndCleanup(true) self.current_panel = nil end
+    ):show()
+end
+
+-- 显示分享
+function LayerHall:showShare()
+    if self.current_panel then
+        return false
+    else
+        self.current_panel = require("Lobby/Info/LayerShare").put(
+            self, self.panel_zIndex):show()
+        return true
+    end
+end
+
+-- 显示客服
+function LayerHall:showService()
+    if self.current_panel then
+        return false
+    else
+        self.current_panel = require("Lobby/Common/LobbySecondDlg").putConfirmTip(self, self.panel_zIndex, 
+            "", function() self.current_panel:removeFromParentAndCleanup(true)
+                        self.current_panel = nil end
+        , kCCTextAlignmentLeft, CCSizeMake(AppConfig.SCREEN.CONFIG_WIDTH*0.7, AppConfig.SCREEN.CONFIG_HEIGHT*0.7)):show()
+
+        local tipPanel = nil
+        local function updataMsg()
+            tipPanel:setVisible(false)
+            require("LobbyControl").getPlatformMessage(3, function(data)
+                if data then
+                    tipPanel:removeFromParentAndCleanup(true)
+
+                    --data[1].MsgContent = "欢迎体验郴州麻将cr申请成为代理获得更多优惠，代理相关咨询和更多游戏咨询请联系客服：cr客服微信号：czmj001cr代理微信号：fcqp01cr代理手机号：13267163824crcr加客服微信体验好友桌玩法，参与活动赢取现金红包"
+                    local msg, title = require("HallUtils").textDataStr(data[1].MsgContent, 2), nil
+                    local minIndex, maxIndex = string.find(msg, "\n")
+                    if minIndex then
+                        title = string.sub(msg, 1, minIndex - 1)
+                        msg = string.sub(msg, maxIndex + 1)
+                    end
+
+                    self.current_panel:addAddedLab(msg, 250)
+                    if title then
+                        self.current_panel:addAddedLab(title, 420, 52, kCCTextAlignmentCenter)
+                    end
+                else
+                    tipPanel:setVisible(true)
+                end
+            end)
+        end
+
+        tipPanel = require("Lobby/LayerPopup").createTipBtn("获取客服信息失败，", 
+            updataMsg, kCCMenuHandlerPriority - self.panel_zIndex - 1, self.current_panel)
+        updataMsg()
+
+        return true
+    end
+end
+
+--响应手机按键
+function LayerHall:initKeyPad()
+    self.kekpad_count = 0
+
+    local function KeypadHandler(strEvent)      
+        if "backClicked" == strEvent then            
+            if self.kekpad_count == 0 then
+                self.kekpad_count = getTickCount()
+            else
+                local last = getTickCount() - self.kekpad_count                
+                if last < 100 then
+                    self.kekpad_count = 0
+                    return
+                end
+
+                self.kekpad_count = getTickCount()
+
+                if self.current_panel then
+                    self.current_panel:hide()
+                    return
+                end
+
+                --弹出框
+                self.current_panel = require("Lobby/Common/LobbySecondDlg").putTip(self, self.panel_zIndex, "是否退出游戏", 
+                    function() CCDirector:sharedDirector():endToLua() end, 
+                    function() 
+                        self.current_panel:removeFromParentAndCleanup(true)
+                        self.current_panel = nil end, kCCTextAlignmentCenter)
+                self.current_panel:show()                    
+            end
+        end
+    end
+    self:setKeypadEnabled(true)
+    self:registerScriptKeypadHandler(KeypadHandler)
+end
+
+function LayerHall:initBtns(info)
+    local leftpos, tempBtn = ccp(AppConfig.SCREEN.CONFIG_WIDTH + 54, AppConfig.SCREEN.CONFIG_HEIGHT - 54)
+    local imgs = {"lobby/service_btn", "lobby/help", "lobby/share"}
+    local topBtn = {}
+    local funcs = {
+        function() self:showService() end,
+        function() self:showLobbyPanel("Lobby/Info/LayerHelp") end,
+        function() self:showShare() end
+    }
+    for i,v in ipairs(imgs) do
+        local pos = ccp(leftpos.x - 105 * i, leftpos.y)
+        tempBtn = CCButton.put(self.main_layer.topLayer, CCButton.createCCButtonByFrameName(v.."1.png", 
+                v.."2.png", v.."1.png", funcs[i]), pos, self.btn_zIndex)
+        table.insert(topBtn, tempBtn)
+    end
+
+    local space, ypos, middleX = 226, 56, self.main_layer.bottomBg:getPreferredSize().width / 2
+    --邀请码
+    local tgcodeBtn = CCButton.put(self.main_layer.bottomBg, CCButton.createCCButtonByFrameName("lobby/tgcode_btn1.png", 
+            "lobby/tgcode_btn2.png", "lobby/tgcode_btn1.png", function() self:showLobbyPanel("Lobby/Info/LayerTGCode") end), 
+            ccp(middleX, ypos), self.btn_zIndex)    
+
+    --战绩
+    local recordBtn = CCButton.put(self.main_layer.bottomBg, CCButton.createCCButtonByFrameName("lobby/record_btn1.png", 
+            "lobby/record_btn2.png", "lobby/record_btn1.png", function()      
+                self:showLobbyPanel("Lobby/Record/LayerGameRecord")
+            end), ccp(middleX + space, ypos), self.btn_zIndex) 
+
+    --公告
+    self.main_layer.bottomBg.noticeBtn = CCButton.put(self.main_layer.bottomBg, CCButton.createCCButtonByFrameName("lobby/notice_btn1.png", 
+            "lobby/notice_btn2.png", "lobby/notice_btn1.png", function()
+                if self.main_layer.bottomBg.noticeBtn.noticeIndex then
+                    self.main_layer.bottomBg.noticeBtn:removeChildByTag(10, true) 
+                    CCUserDefault:sharedUserDefault():setIntegerForKey("notice_index", 
+                                    require("Lobby/Login/LoginLogic").UserInfo.NoticeIndex)
+                    self.main_layer.bottomBg.noticeBtn.noticeIndex = nil
+                end
+                self:showNoticePanel() 
+            end), 
+            ccp(middleX - space, ypos), self.btn_zIndex)
+
+    --设置
+    CCButton.put(self.main_layer.bottomBg, CCButton.createCCButtonByFrameName("lobby/set_btn1.png", 
+            "lobby/set_btn2.png", "lobby/set_btn1.png", function() self:showLobbyPanel("Lobby/Set/LayerSet") end), 
+            ccp(middleX + space * 2, ypos), self.btn_zIndex) 
+
+    --商城
+    local storyBtn = CCButton.put(self.main_layer.bottomBg, CCButton.createCCButtonByFrameName("lobby/storye_btn1.png", 
+            "lobby/storye_btn2.png", "lobby/storye_btn1.png", function() self:showStorePanel(info)  end), 
+            ccp(middleX - space * 2, ypos), self.btn_zIndex)    
+    local sprite = loadSprite("lobby/storye_btn3.png")
+    storyBtn:addChild(sprite, -1)
+    require("Lobby/Common/AnimationUtil").runFlickerAction(sprite, true)
+    local storymark = loadSprite("lobby/storye_tip.png")
+    storymark:setAnchorPoint(ccp(0,1))
+    storymark:setPosition(ccp(20, 10))
+    local array = CCArray:create()
+    array:addObject(CCRotateBy:create(1,-4))
+    array:addObject(CCRotateBy:create(2,8))
+    array:addObject(CCRotateBy:create(1,-4))
+    storymark:runAction(CCRepeatForever:create(CCSequence:create(array)))
+    storyBtn:addChild(storymark)
+
+    if AppConfig.ISAPPLE then
+        topBtn[2]:setVisible(false)
+        topBtn[3]:setVisible(false)
+        tgcodeBtn:setVisible(false)
+        recordBtn:setPositionX(middleX + space - space / 4)
+        self.main_layer.bottomBg.noticeBtn:setPositionX(middleX - space + space / 4)
+    end    
+end
+
+function LayerHall:initRoomUI()
+    if AppConfig.ISAPPLE then
+        --显示好友卓、练习场
+        putControltools(self.main_layer, createButtonWithFilePath(AppConfig.ImgFilePath.."lobby_gametype1_img.png", 0, function()
+                self:showCreateRoomPanel()
+            end), ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 440, AppConfig.SCREEN.CONFIG_HEIGHT / 2 - 10), self.btn_zIndex)
+
+        putControltools(self.main_layer, createButtonWithFilePath(AppConfig.ImgFilePath.."lobby_gametype3_img.png", 0, function()
+                self:showEnterGame()
+            end), ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2, AppConfig.SCREEN.CONFIG_HEIGHT / 2 - 10), self.btn_zIndex)
+
+        putControltools(self.main_layer, createButtonWithFilePath(AppConfig.ImgFilePath.."lobby_gametype2_img.png", 0, function()
+                require("Lobby/FriendGame/FriendGameLogic").game_id = self.main_gameid
+                require("Lobby/FriendGame/FriendGameLogic").enterGameRoom(nil, nil, nil, 1)
+            end), ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2 + 440, AppConfig.SCREEN.CONFIG_HEIGHT / 2 - 10), self.btn_zIndex)
+    else
+        if not self.main_panle then
+            self.main_layer.mainPanle = require("Lobby/Hall/LayerRoom").put(self.main_layer, 0):show()
+            if debugMode then Cache.log("大厅加载完成后材质使用内存状况") end
+        end
+    end 
+end
+
+--显示、隐藏主界面 dirct：-1为显示，1为隐藏
+function LayerHall:hideMainPanel(func)
+    if not self.main_layer.bShow then
+        return
+    end
+
+    if AppConfig.ISAPPLE then
+        self.main_layer:setVisible(false)
+        func()
+    else
+        self.main_layer:setVisible(true)
+        local duration, space = 0.3, -AppConfig.SCREEN.CONFIG_WIDTH / 2
+        self.main_layer.topLayer:runAction(CCMoveBy:create(duration, ccp(0, -space)))
+        self.main_layer.bottomBg:runAction(CCMoveBy:create(duration, ccp(0, space)))
+
+        self.main_layer.mainPanle.rank_bg:runAction(CCMoveBy:create(duration, ccp(space, 0)))
+        
+        for i,v in ipairs(self.main_layer.mainPanle.roomBtns) do
+            v:runAction(CCMoveBy:create(duration, ccp(-space, 0)))
+        end
+
+        self.main_layer.versionTip:setVisible(false)
+        self.main_layer.versionTipShadow:setVisible(false)
+        local array  = CCArray:create()
+        array:addObject(CCDelayTime:create(duration + 0.01))
+        array:addObject(CCCallFunc:create(function()
+            self.main_layer:setVisible(false)
+            func()
+        end))
+        self.main_layer:runAction(CCSequence:create(array))
+        --self.main_layer:setVisible(dirct == -1)
+    end
+
+    self.main_layer.bShow = false     
+end
+
+function LayerHall:showMainPanel()
+    if self.main_layer.bShow then
+        return
+    end
+
+    if AppConfig.ISAPPLE then
+        self.main_layer:setVisible(true)
+    else
+        self.main_layer:setVisible(true)
+        local duration, space = 0.3, AppConfig.SCREEN.CONFIG_WIDTH / 2
+        self.main_layer.topLayer:runAction(CCMoveBy:create(duration, ccp(0, -space)))
+        self.main_layer.bottomBg:runAction(CCMoveBy:create(duration, ccp(0, space)))
+
+        self.main_layer.mainPanle.rank_bg:runAction(CCMoveBy:create(duration, ccp(space, 0)))
+        
+        for i,v in ipairs(self.main_layer.mainPanle.roomBtns) do
+            v:runAction(CCMoveBy:create(duration, ccp(-space, 0)))
+        end
+
+        local array  = CCArray:create()
+        array:addObject(CCDelayTime:create(duration + 0.01))
+        array:addObject(CCCallFunc:create(function()
+            self.main_layer:setVisible(true)
+            self.main_layer.versionTip:setVisible(true)
+            self.main_layer.versionTipShadow:setVisible(true)
+        end))
+        self.main_layer:runAction(CCSequence:create(array))
+    end 
+
+    self.main_layer.bShow = true    
+end
+
+function LayerHall:returnMainPanle(func) 
+    self.friend_game_panle:hide(function()
+        self:showMainPanel()
+        self.hall_state = 1
+        if func then func() end
+    end)
+end
+
+function LayerHall:showNormalGame() 
+    FriendGameLogic.game_id = self.main_gameid
+    FriendGameLogic.enterGameRoom(nil, nil, nil, 1)
+    --require("HallUtils").showWebTip(AppConfig.TIPTEXT.Tip_NewFunction_Msg)
+end
+
+function LayerHall:showEnterGame() 
+    self.game_request = true
+    FriendGameLogic.getUserExitsFriendTable(function()
+        require("Lobby/FriendGame/LayerEnterRoom").put(self, self.game_zIndex):show()
+    end, self.main_gameid)
+    --require("HallUtils").showWebTip(AppConfig.TIPTEXT.Tip_NewFunction_Msg)
+end
+
+--显示创建房间界面
+function LayerHall:showCreateRoomPanel(gameid)
+    self.game_request = true
+    local ID = gameid or self.main_gameid
+
+    FriendGameLogic.getUserExitsFriendTable(function()
+        self.hall_state = 2
+        self:hideMainPanel(function()  
+            if gameid then
+                CCUserDefault:sharedUserDefault():setIntegerForKey("defaultGameId", gameid)
+            end                  
+            self.friend_game_panle = require("Lobby/FriendGame/LayerCreateRoom").put(self, self.panel_zIndex, gameName):show()        
+        end)
+    end, ID)
+end
+
+--显示输入房间界面
+function LayerHall:showEnterRoomPanel(inviteCode, errorfunc, gameid)
+    gameid = gameid or self.main_gameid
+
+    FriendGameLogic.getUserExitsFriendTable(function()
+        FriendGameLogic.getFriendTableByInviteCode(inviteCode, errorfunc)
+    end, gameid)   
+end
+
+--添加系统消息
+function LayerHall:getSystemMessage()
+--SysMsgID    int Y   系统消息ID
+--Title   string  Y   标题
+--Content string  y   消息内容
+--ToolTypeID  int Y   道具类型ID
+--ToolNum int Y   道具数量
+--IsGift  int Y   是否领取 0=未领取 1=已领取
+--Crdate  string  y   创建时间
+    LobbyLogic.getSysMessageList(function(msgs)
+        if not require("LobbyControl").hall_layer then
+            return
+        end
+                    
+        local array = CCArray:create()
+        array:addObject(CCDelayTime:create(0.5))
+
+        for i,v in ipairs(msgs) do
+            if v.MsgType and v.MsgType == 1 then
+                array:addObject(CCCallFunc:create(function()
+                    --显示弹框消息
+                    require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                        require("LobbyControl").hall_layer, 99, 
+                        v.Content, function() end, kCCTextAlignmentCenter):show()
+                end))
+            else
+                array:addObject(CCCallFunc:create(function()
+                    --显示消息
+                    require("HallUtils").showWebTip(v.Content)
+                end))
+            end
+            array:addObject(CCDelayTime:create(3))
+
+            --删除消息
+            LobbyLogic.deleteGiftSysMessageTool(v.SysMsgID)
+        end
+
+        self:runAction(CCSequence:create(array))
+    end)
+end
+
+function LayerHall:initMessage()
+    local bg =  loadSprite("lobby/message_bg.png")
+    bg:setPosition(ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 60, AppConfig.SCREEN.CONFIG_HEIGHT - 88))
+    self.main_layer.topLayer:addChild(bg)
+    local bgsz = bg:getContentSize()
+
+    self.message_bg = require("Lobby/Common/LobbyScrollView").createHorizontalScroll(
+                CCSizeMake(535, 28), ccp(20, 8), kCCMenuHandlerPriority)
+    self.message_bg:setTouchEnabled(false)
+    bg:addChild(self.message_bg)
+
+    self.message_queue = {}
+end
+
+--添加跑马灯
+function LayerHall:addMessage(message)
+    table.insert(self.message_queue, 1, message)
+
+    if #self.message_queue == 1 then
+        self:createMessageAction(message)
+    end
+end
+
+--跑马灯动画
+function LayerHall:createMessageAction(message)
+    self.message_bg:clearCommonScrollItem()
+    self.message_bg:stopAllActions()
+
+    local bgsz = self.message_bg:getContentSize()
+
+    local text = CCLabelTTF:create(message, AppConfig.COLOR.FONT_ARIAL, 24)  
+    local textsize = text:getContentSize()     
+    text:setAnchorPoint(ccp(0,0))
+    self.message_bg:addHorizontalScrollItem(text, ccp(bgsz.width, 0))
+  
+    local distance = textsize.width + bgsz.width + 50
+    local speed = 100
+    local array = CCArray:create()
+    array:addObject(CCTargetedAction:create(text, CCMoveBy:create(distance / speed, ccp(0 - distance, 0))))
+    array:addObject(CCCallFunc:create(function()
+        table.remove(self.message_queue)
+        if #self.message_queue > 0 then
+            self:createMessageAction(self.message_queue[#self.message_queue])
+        end      
+    end))
+    self.message_bg:runAction(CCSequence:create(array))
+end
+
+function LayerHall.create(info, funcs)
+    local layer = LayerHall.new()
+    layer:init(info, funcs)
+    return layer
+end
+
+function LayerHall.createScene(info, funcs)
+    local layer = LayerHall.create(info, funcs)
+    local scene = CCScene:create()
+    scene:addChild(layer)
+    return scene, layer    
+end
+
+ return LayerHall

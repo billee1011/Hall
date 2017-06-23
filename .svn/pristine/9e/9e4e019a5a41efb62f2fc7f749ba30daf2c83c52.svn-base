@@ -1,0 +1,85 @@
+local LOGIC_MASK_COLOR      = 0xF0      --花色掩码
+local LOGIC_MASK_VALUE      = 0x0F      --数值掩码
+
+local CARD_TYPE_BIG         = 1         --扑克类型  大 
+local CARD_TYPE_SMALL       = 2         --扑克类型  小 
+
+--扑克逻辑类定义
+local WordCard = class("WordCard")
+--扑克逻辑类对象实例化
+function WordCard.create()
+    local wordCard = WordCard.new()
+    return wordCard
+end
+--扑克逻辑类对象属性   初始化值
+function WordCard:ctor()
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+end
+----牌值精灵缩放
+--@param
+--@return
+function WordCard:CreateWordCardDataSpr(parentNode,cardType,dataSprPathStr)
+    local dataSpr = loadSprite(dataSprPathStr);
+    if cardType==CARD_TYPE_BIG then
+        local dataSpr1 = loadSprite(dataSprPathStr);
+        dataSpr1:setPosition(44.5,47)
+        dataSpr1:setRotation(-180)
+        parentNode:addChild(dataSpr1)
+        dataSpr1:setScale(0.95)
+        dataSpr:setPosition(44.5,205)
+    else
+        dataSpr:setPosition(44.5,44.5)
+    end
+    dataSpr:setScale(0.95)
+    parentNode:addChild(dataSpr)
+end
+----获取底框路径值
+--@param
+--@return
+function WordCard:GetCardFramePath(cbCardData,cardType)
+    local str = ""
+    --背牌类型
+    if cbCardData==0 and cardType==CARD_TYPE_BIG then
+        str = "wordCard/bei1.png"
+    elseif cbCardData==0 and cardType==CARD_TYPE_SMALL then
+        str = "wordCard/bei2.png"
+    --字牌尺寸大小类型
+    elseif cbCardData~=0 and cardType==CARD_TYPE_BIG then
+        str = "wordCard/paidi1.png"
+    elseif cbCardData~=0 and cardType==CARD_TYPE_SMALL then
+        str = "wordCard/paidi2.png"
+    end
+
+    return str
+end
+----创建牌
+--@param 数据值, 方向值, 类型, X方向缩放, Y方向缩放
+--@return
+function WordCard:CreateWordCard(cbCardData,cardType,scaleValue)
+    local wordCard = nil ; -- 麻将牌
+    --背牌  无数据
+    if(0==cbCardData)then
+        local cardPathStr = self:GetCardFramePath(cbCardData,cardType)
+        local wordCard = loadSprite(cardPathStr);
+        if(scaleValue~=nil and scaleValue>0 and scaleValue~=1)then wordCard:setScale(scaleValue) end;
+        
+        return wordCard;
+    end
+    local cardValue = Bit:_and(cbCardData,LOGIC_MASK_VALUE)
+    local cardColor = Bit:_and(cbCardData,LOGIC_MASK_COLOR)
+    local temStr = "x"   --小牌
+    if cardColor==16 then temStr = "d" end  --大牌
+    local cardDataSprPath = "wordCard/"..temStr..cardValue..".png"
+    --创建底框
+    local cardPathStr = self:GetCardFramePath(cbCardData,cardType)
+    wordCard = loadSprite(cardPathStr);
+    wordCard:setCascadeOpacityEnabled(true) --子节点随父节点变化
+    --添加牌数据精灵   进行 缩放、翻转、旋转等
+    self:CreateWordCardDataSpr(wordCard,cardType,cardDataSprPath)
+    --整张牌缩放操作
+    if(scaleValue~=nil and scaleValue>0 and scaleValue~=1)then wordCard:setScale(scaleValue) end;
+    
+    return wordCard
+end
+
+return WordCard

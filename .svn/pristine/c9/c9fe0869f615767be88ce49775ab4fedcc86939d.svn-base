@@ -1,0 +1,570 @@
+--GamePlayLogic.lua
+local GameDefs = require("czmj/GameDefs")
+
+local GamePlayLogic = {
+    cdAllDownCard = nil,
+    cbAllCard = nil,
+    cbDiscardCard = nil,
+    cbLeftCard = nil,
+
+    userList = nil,
+
+    cbOperateCount = nil,
+    cbOperateIndex = nil,
+
+    cbBird = nil,
+    cbValidBird = nil,
+    nHuRight = nil,
+
+    leftCount = nil,
+    masterIndex = nil,
+    gameOperator = nil,
+    gameEndInfo = nil,
+}
+setmetatable(GamePlayLogic, require("czmj/Game/GameLogic"))
+GamePlayLogic.__index = GamePlayLogic 
+
+function GamePlayLogic:new()  
+  local self = require("czmj/Game/GameLogic"):new()
+  setmetatable(self,GamePlayLogic)
+  
+  return self 
+end  
+
+local instance = nil
+function GamePlayLogic:getInstance()  
+    if instance == nil then  
+        instance = self:new()
+        instance:init() 
+    end  
+    return instance  
+end 
+
+function GamePlayLogic:init()
+    self.cbPlayerNum = 4
+    if require("Lobby/FriendGame/FriendGameLogic").game_id == 17 then
+        self.cbPlayerNum = 3
+    end
+        
+    self.cbGameCardCount = 98
+
+    self.messageBack_funcs = {}    --消息回调函数
+    self.operatorBack_funcs = {}    --操作广播
+
+    self.userList = {}
+
+    self.cbOperateCount = 0
+    self.cbOperateIndex = 0
+
+    self.cbBird = {}
+    self.cbValidBird = {}
+    self.nHuRight = 0
+
+    self.leftCount = {}
+    self.masterIndex = {}
+    self.gameOperator = {}
+    self.gameEndInfo = {} 
+
+    self.gamePiao = {}   
+end
+
+--初始化游戏信息
+function GamePlayLogic:initGameData()
+    self.cbSiceData = {}
+
+    self.cdDownPengCard = {{}, {}, {}, {}}
+    self.cdDownCard = {{}, {}, {}, {}}
+    self.cbCardData = {{}, {}, {}, {}}
+
+    self.cdAllDownCard = {}
+    self.cbAllCard = {}    
+    self.cbDiscardCard = {}
+
+    self.bTrustee = {}
+
+    self.bIsPiao = require("HallUtils").tableDup(self.gamePiao)  
+end
+
+--解析游戏信息
+function GamePlayLogic:analysisGameData(data)
+    --开局用户列表
+    self:onGamBegin(data.Opening)
+
+    --游戏操作
+    self:onGamAction(data.Action)
+
+    --游戏结束
+    self:onGamEnd(data.Ending)
+
+    self.main_layer:initFriendGameRule()
+end
+
+function GamePlayLogic:onGamBegin(data)
+    --开局用户列表 SX
+    for i,v in ipairs(data.UL) do
+        local info = {_name = v.UN, _userDBID = v.DB, _chairID = v.ID, _sex = v.SX, 
+                _faceID = v.FID, m_cbFaceChagneIndex = 0, _userIP = v.IP, _score = v.US}
+        self.main_layer.playerLogo_panel:addUserLogo(info)
+        table.insert(self.userList, info)
+
+        --刷新标示
+        if v.PS ~= 0 then
+            table.insert(self.gamePiao, {info._chairID, v.PS})
+            self.main_layer.playerLogo_panel:updataPlayerPiao({info._chairID, v.PS})
+        end
+
+        --手牌
+        for j,w in ipairs(v.HCL) do
+            if w > 0 then
+                table.insert(self.cbCardData[i], w)    
+            end        
+        end
+    end
+    self.wChair = 0
+
+    --设置位置
+    self.main_layer:setTimerDirct(0)
+
+    --游戏规则
+    self.wBankerUser = data.DD
+    self.wLastChair = self.wBankerUser
+    local cellScore = data.CS
+    self.bSender = self.wChair == self.wBankerUser
+
+    --骰子点数
+    self.cbSiceData[1] = math.floor(data.Sn / 256)
+    self.cbSiceData[2] = data.Sn % 256
+    local cbActionMask = data.DA
+
+    --规则参数
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+    FriendGameLogic.my_rule = {}
+    table.insert(FriendGameLogic.my_rule, {2, 4})
+    table.insert(FriendGameLogic.my_rule, {3, data.BK}) 
+    local IsMagic = data.IM
+
+    self.cbLeftCard = 55 + (4 - self.cbPlayerNum) * 13
+    if IsMagic and IsMagic ~= 0 then
+        self.cbGameCardCount = 112
+        self.cbLeftCard = 59 + (4 - self.cbPlayerNum) * 13
+        if data.IsD then 
+            table.insert(FriendGameLogic.my_rule, {4, 2})
+        else
+            table.insert(FriendGameLogic.my_rule, {4, 1})
+        end
+    end
+    if data.IH and data.IH ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {5, 1})
+    end
+    if data.OIP and data.OIP ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {100, 1})
+    end
+    if data.EH and data.EH ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {7, 1})
+    end
+
+    self.bIsPiao = require("HallUtils").tableDup(self.gamePiao)
+end
+
+function GamePlayLogic:onGamAction(data)
+    self.cbOperateCount = data.ActN
+    local cbDiscardCard = {{}, {}, {}, {}} 
+    local cbCardData = require("HallUtils").tableDup(self.cbCardData)
+    local cdDownCard = {} 
+    
+    local tempdata = require("HallUtils").tableDup(data)
+    for i=1,self.cbOperateCount do
+        local node = tempdata["NO."..(i - 1)]
+        if node then
+            table.insert(self.gameOperator, node)
+        end
+        local opertorType, wOutCardUser, cbOutCardData = node.RT, node.AD, node.CD
+
+        if opertorType == 2 then
+            --打牌
+            if wOutCardUser == self.wBankerUser then
+                table.insert(self.cbDiscardCard, require("HallUtils").tableDup(cbDiscardCard))
+                table.insert(self.cdAllDownCard, require("HallUtils").tableDup(cdDownCard))
+                table.insert(self.cbAllCard, require("HallUtils").tableDup(cbCardData))
+                table.insert(self.masterIndex, i)
+                table.insert(self.leftCount, self.cbLeftCard)
+            end
+            table.insert(cbDiscardCard[wOutCardUser + 1], cbOutCardData)
+            self:removeCardsByChair(cbCardData, {cbOutCardData}, wOutCardUser)
+        end
+
+        if opertorType == 3 then
+            --摸牌
+            table.insert(cbCardData[wOutCardUser + 1], cbOutCardData) 
+            self.cbLeftCard = self.cbLeftCard - 1  
+        end
+
+        if opertorType == 4 then
+            local wProvideUser, cbActionMask = node.PD, node.PA
+            table.insert(cdDownCard, {cbActionMask, cbOutCardData, wOutCardUser, wProvideUser})
+
+            local downcard, removeCard
+            if cbActionMask == GameDefs.OperateCmd.Peng then
+                downcard = {cbOutCardData, cbOutCardData, cbOutCardData}
+                removeCard = {cbOutCardData, cbOutCardData}
+
+                --手牌，倒下去的牌
+                table.remove(cbDiscardCard[wProvideUser + 1])
+                self:removeCardsByChair(cbCardData, removeCard, wOutCardUser)
+            end
+
+            if cbActionMask == GameDefs.OperateCmd.Gang then
+                if wProvideUser == wOutCardUser then
+                    --暗杠
+                    self:removeCardsByChair(cbCardData, 
+                        {cbOutCardData, cbOutCardData, cbOutCardData, cbOutCardData}, wOutCardUser)
+                elseif wProvideUser >= self.cbPlayerNum then
+                    --碰杠  
+                    self:removeCardsByChair(cbCardData, {cbOutCardData}, wOutCardUser)          
+                    --删除碰
+                    for i,v in ipairs(cdDownCard) do
+                        if v[1] == GameDefs.OperateCmd.Peng and 
+                           v[2] == cbOutCardData and v[3] == wOutCardUser then
+                           table.remove(cdDownCard, i)
+                           break
+                        end
+                    end
+                else
+                    table.remove(cbDiscardCard[wProvideUser + 1])
+                    self:removeCardsByChair(cbCardData, {cbOutCardData, cbOutCardData, cbOutCardData}, wOutCardUser)
+                end
+            end
+        end
+    end
+
+end
+
+function GamePlayLogic:onGamEnd(data)
+    --抓鸟
+    for j,w in ipairs(data.BC) do
+        if w == 0 then
+            break
+        end
+        table.insert(self.cbBird, w)
+    end
+    for j,w in ipairs(data.VBC) do
+        if w == 0 then
+            break
+        end
+        table.insert(self.cbValidBird, w)
+    end
+
+    --结算
+    self.gameEndInfo.cbProvideCard = data.CD
+    self.gameEndInfo.wProvideUser = data.PD
+    self.gameEndInfo.cbWinUser = data.Win
+    self.nHuRight = data.HR
+
+    self.gameEndInfo.cbCardData = {{}, {}, {}, {}}                                 --玩家扑克数目
+    self.gameEndInfo.UserScoreList, self.gameEndInfo.gameScores = {}, {}           --游戏积分
+    for i,v in ipairs(data.UL) do
+        for j,w in ipairs(v.HCL) do
+            table.insert(self.gameEndInfo.cbCardData[i], w)
+        end
+
+        local score = {nTotoalScore = v.GSL[1], nHuScore = v.GSL[2], nGangScore = v.GSL[3], 
+                nBirdScore = v.GSL[4], nPiaoScore = v.GSL[5]}
+        table.insert(self.gameEndInfo.UserScoreList, score)  
+
+        table.insert(self.gameEndInfo.gameScores, score.nTotoalScore - score.nBirdScore)                
+    end
+end
+
+function GamePlayLogic:setIfGetSocketData(bvalue)
+    self.main_layer.play_panel:setPlayState(bvalue)
+end
+
+--上一轮
+function GamePlayLogic:playLast() 
+    self.main_layer.play_panel:setPlayState(false)
+    local count = #self.masterIndex
+    for i=count,1,-1 do
+        if self.masterIndex[i] < self.cbOperateIndex then
+            self:playScenceByIndex(self.masterIndex[i], i)
+            self.cbOperateIndex = self.masterIndex[i] - 1
+            break
+        end
+    end
+    self.main_layer.play_panel:setPlayState(true)
+end 
+
+--下一轮
+function GamePlayLogic:playNext() 
+    self.main_layer.play_panel:setPlayState(false)
+    for i,v in ipairs(self.masterIndex) do
+        if v - 1 > self.cbOperateIndex then            
+            self:playScenceByIndex(v, i)
+            self.cbOperateIndex = v - 1
+           
+            self.main_layer.play_panel:setPlayState(true)
+            return
+        end
+    end
+
+    self.main_layer.play_panel:setPlayState(true)  
+end 
+
+function GamePlayLogic:playNextOeprator() 
+    self.cbOperateIndex = self.cbOperateIndex + 1
+
+    if self.cbOperateCount + 1 == self.cbOperateIndex then
+        self:playGameResult()
+    elseif self.cbOperateCount >= self.cbOperateIndex then
+        self:playGameAction()
+    else
+        self.cbOperateIndex = self.cbOperateCount + 2
+        --self.main_layer.play_panel:setPlayState(false)
+    end
+end
+
+function GamePlayLogic:playScenceByIndex(operator, index)
+    self.bSender = false
+    self.main_layer:resetGameDesk()
+    --额外删除
+    if self.main_layer.residue_bg then 
+        self.main_layer.residue_bg:removeFromParentAndCleanup(true) 
+        self.main_layer.residue_bg = nil
+    end
+    --刷新飘标示
+    for i,v in ipairs(self.gamePiao) do
+        self.main_layer.playerLogo_panel:updataPlayerPiao({v[1], v[2]})
+    end
+
+    --初始化  
+    self.cdDownCard = {{}, {}, {}, {}}
+    self.cdDownPengCard = {{}, {}, {}, {}}
+
+    self.cbCardData = require("HallUtils").tableDup(self.cbAllCard[index])
+    local cdDownCard = require("HallUtils").tableDup(self.cdAllDownCard[index])
+    local cbDiscardCard = require("HallUtils").tableDup(self.cbDiscardCard[index])
+    local cbLeftCardCount = self.leftCount[index]
+
+    --倒下去的牌
+    self.main_layer:addPlayerStaticDiscardCard(self.wChair, self.wBankerUser, cbDiscardCard)
+
+    --吃碰杠
+    local gangNum = 0
+    for i,v in ipairs(cdDownCard) do
+        local card, chair, provide = v[2], v[3], v[4]
+        if v[1] == GameDefs.OperateCmd.Peng then
+            local downcard = {card, card, card}
+            local dirct = self:getProvideDirct(chair, provide)
+            local uis, pos, dirction = self.main_layer.player_panel[chair + 1]:addPengWeave(downcard, dirct)
+
+            table.insert(self.cdDownCard[chair + 1], downcard)
+            table.insert(self.cdDownPengCard[chair + 1], card)
+            table.insert(self.cdDownPengCard[chair + 1], uis[dirction])             
+        end
+
+        if v[1] == GameDefs.OperateCmd.Gang then
+            gangNum = gangNum + 1
+            local downcard = {card, card, card, card}
+            if chair == provide then
+                --暗杠
+                downcard[1], downcard[2], downcard[3] = 0, 0, 0
+                self.main_layer.player_panel[chair + 1]:addAnGangWeave(card)
+            elseif provide >= self.cbPlayerNum then
+                --碰杠
+                local dirct = self:getProvideDirct(chair, provide - self.cbPlayerNum)
+                local uis, pos, dirction = self.main_layer.player_panel[chair + 1]:addPengWeave(downcard, dirct)
+                self.main_layer.player_panel[chair + 1]:addGangCard(uis[dirction])
+            else
+                --杠
+                local dirct = self:getProvideDirct(chair, provide)
+                self.main_layer.player_panel[chair + 1]:addGangWeave(downcard, 
+                                self:getProvideDirct(chair, provide))
+            end 
+            table.insert(self.cdDownCard[chair + 1], downcard)           
+        end        
+    end
+
+    local handCard = self.cbCardData[self.wBankerUser + 1]   
+    local card = handCard[#handCard]
+    table.remove(handCard)
+
+    --杠牌，取后面
+    cbLeftCardCount = cbLeftCardCount + gangNum + 1
+    self.main_layer:addOpenStaticPanel(self.wChair, self.cbCardData)
+                :getGameCardAnima(self.cbGameCardCount - cbLeftCardCount)
+    for i=1,gangNum do
+        self.main_layer:setCardDirct(1)
+        self.main_layer:getGameCardAnima(1)
+    end
+
+    self.main_layer:playTimerAnima(self.wBankerUser)
+    self.main_layer.player_panel[self.wBankerUser + 1]:getCardAnima(card, function() 
+            if self.wChair == self.wBankerUser then
+                self:onSelfSendCard(0, card) 
+            end end)
+    self:onOpenAddBack(self.wBankerUser, card)
+end
+
+function GamePlayLogic:playGameAction()
+    local node = self.gameOperator[self.cbOperateIndex]
+    local opertorType, wOutCardUser, cbOutCardData = node.RT, node.AD, node.CD
+
+    if opertorType == 2 then
+        self.main_layer.playerLogo_panel:playCardVoice(wOutCardUser, cbOutCardData)
+
+        self.wLastChair = wOutCardUser
+        self:setCardIndex(wOutCardUser, cbOutCardData)
+
+        if  wOutCardUser == self.wChair then self:onSelfOutCard(cbOutCardData) end
+        self.main_layer.player_panel[wOutCardUser + 1]:sendCardAnima(cbOutCardData) 
+        self:onOpenCardBack(wOutCardUser, {cbOutCardData})  
+        return    
+    end
+
+    if opertorType == 3 then
+        --摸牌
+        self.main_layer:playTimerAnima(wOutCardUser) 
+
+        self.main_layer.player_panel[wOutCardUser + 1]:getCardAnima(cbOutCardData,function() 
+                if self.wChair == wOutCardUser then
+                    self:onSelfSendCard(0, cbOutCardData) 
+                end
+            end)
+        self:onOpenAddBack(wOutCardUser, cbOutCardData)
+        return    
+    end
+
+    if opertorType == 4 then
+        local wProvideUser, cbActionMask = node.PD, node.PA
+
+        --去掉打出的牌
+        self.main_layer:playTimerAnima(wOutCardUser)
+        local removeCard = self.operatorBack_funcs[cbActionMask](wOutCardUser, cbOutCardData, wProvideUser)
+        if removeCard then
+            self:onOpenCardBack(wOutCardUser, removeCard) 
+        end
+        return    
+    end
+
+    self:playNextOeprator()
+end
+
+
+function GamePlayLogic:playGameResult() 
+    self.cbOperateIndex = self.cbOperateCount + 2
+    self:setIfGetSocketData(false)
+    self:playGameEnd()
+end
+
+function GamePlayLogic:playGameEnd() 
+    self:playGameEndAnim(self.gameEndInfo)
+    if self.main_layer.result_panel and self.main_layer.result_panel.shareBtn then
+        self.main_layer.result_panel.shareBtn:setVisible(false) 
+    end
+end
+
+
+function GamePlayLogic:dispose() 
+    if not instance then
+        return
+    end
+
+    --设置当前操作UI
+    self.main_layer:removeFromParentAndCleanup(true)
+    require("LobbyControl").hall_layer = self.hall_layer
+    require("LobbyControl").hall_layer:setVisible(true)
+
+    self.removeCache()
+
+    if instance.main_layer then
+        instance.main_layer = nil
+    end
+
+    instance = nil
+    --require("LobbyControl").backToHall()
+end
+
+--替换到登录主界面
+function GamePlayLogic:replaceMainScence(data)
+    self:initGameData()
+    self:registOperatorBack()
+
+    local scene = CCDirector:sharedDirector():getRunningScene()
+    local layer = require(GameDefs.CommonInfo.Code_Path.."Game/LayerGame").create(self.cbPlayerNum)
+    scene:addChild(layer, 1)
+    layer:initPlayUI()
+
+    require("LobbyControl").hall_layer:setVisible(false)
+    self.hall_layer = require("LobbyControl").hall_layer
+    require("LobbyControl").hall_layer = nil
+    --require("LobbyControl").removeHallCache()
+
+    --设置当前操作UI
+    self.main_layer = layer
+
+    self:analysisGameData(data)
+
+    --显示牌墙
+    self.main_layer:addPlayerPanel(0, self.wBankerUser, nil, function()
+        --摊牌
+        for i=1,4 do
+            if i-1 ~= self.wChair then
+                self.main_layer.player_panel[i]:initPublicHandPais(self.cbCardData[i])
+            end
+        end        
+
+        self:setIfGetSocketData(true)
+        self.main_layer.play_panel:startCheckStatus()
+    end)
+end
+
+
+function GamePlayLogic:getUserByChair(chair)
+    return self.userList[chair + 1]
+end
+
+function GamePlayLogic:getProvideDirct(obtain, provide)
+    local obtainChair = self:getRelativeChair(obtain)
+    local provideChair = self:getRelativeChair(provide)
+    local chair = (provideChair - obtainChair + 4) % 4
+
+    return chair    
+end
+
+function GamePlayLogic:getAbsolutelyChair(chair)
+    if self.cbPlayerNum == 3 then
+        local chairs = {0, 1, 3, 2}
+        return chairs[chair]
+    end
+
+    return chair - 1
+end
+
+function GamePlayLogic:getRelativeChair(pos)
+    if self.cbPlayerNum == 3 then
+        local chairs = {1, 2, 4}
+        return chairs[pos + 1]
+    end
+
+    return pos + 1
+end
+
+
+
+function GamePlayLogic:onOpenCardBack(chair, removeCard)
+    if chair ~= self.wChair then
+        --替换为倒下手牌
+        local indexs, cards = self:removePlayerCards(chair, removeCard)
+        self.main_layer.player_panel[chair + 1]:initPublicHandPais(cards)
+    end  
+end
+
+function GamePlayLogic:onOpenAddBack(chair, card)
+    if chair ~= self.wChair then
+        table.insert(self.cbCardData[chair + 1], card)
+        table.sort(self.cbCardData[chair + 1])
+
+        self.main_layer.player_panel[chair + 1]:initPublicHandPais(self.cbCardData[chair + 1])
+    end  
+end
+
+return GamePlayLogic

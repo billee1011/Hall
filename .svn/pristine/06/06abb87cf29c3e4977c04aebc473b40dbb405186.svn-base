@@ -1,0 +1,82 @@
+require("CocosExtern")
+local Card =require("pdk/Game/Card")
+local Resources =require("pdk/Resources")
+local OutCards=class("OutCards", function()
+                           return CCLayer:create()
+                           end)
+OutCards._Span = 30
+OutCards._MaxSpan = 30
+OutCards._ChairIndex = -1
+
+function OutCards.create()
+    local layer = OutCards.new()
+    layer:init(chair)
+	return layer
+end
+
+function OutCards:setChairIndex(chairIndex)
+     self._ChairIndex = chairIndex
+end
+
+function OutCards:init()
+    self.winSize = CCSizeMake(require("pdk/GameDefs").CommonInfo.View_Width, require("pdk/GameDefs").CommonInfo.View_Height)
+
+    self.cardsSpVec = {}
+    for i = 1,16 do
+        local CardSp = Card:create()
+        CardSp:setScale(0.5)
+        self:addChild(CardSp)
+        table.insert(self.cardsSpVec,CardSp)
+    end
+end
+
+function OutCards:setPos(point)
+    for i = 1,#self.cardsSpVec do
+        if self._ChairIndex == 1 then
+            self.cardsSpVec[i]:setPos(ccp(point.x + self._Span * (i-1), point.y))      
+        else
+            local offsetX = (i - 1) % 8;
+            local offsetY = math.floor((i - 1) / 8);
+            self.cardsSpVec[i]:setPos(ccp(point.x +  self._Span * (offsetX - 1), point.y - offsetY*70));
+        end
+    end
+end
+
+function OutCards:clear()
+end
+
+function OutCards:reFreshOutCards(outCardsLst,chair)
+    -- cclog("OutCards:reFreshOutCards "..chair.." "..#outCardsLst)
+    for i = 1,#self.cardsSpVec do
+        self.cardsSpVec[i]:setVisible(false)
+    end
+
+    for i = 1,#outCardsLst do
+        self.cardsSpVec[i]:setCardSp(i, outCardsLst[i])
+        self.cardsSpVec[i]:setVisible(true)
+    end
+
+    self._offset = 0
+    self._Span = (self.winSize.width - 46 - 2*self._offset)/(#outCardsLst - 1)
+    if self._Span > self._MaxSpan then
+        self._Span = self._MaxSpan
+    end
+
+    if chair == 1 then
+        local offsetY = 240
+        self._offset = (self.winSize.width - self._Span * (#outCardsLst - 1) - 46)/2
+        self:setPos(ccp(self._offset,offsetY))
+    elseif chair == 0 or chair == 2 then
+        if chair == 0 then
+            local length = #outCardsLst > 8 and 7 or (#outCardsLst - 1)
+            self._offset = self.winSize.width - self._Span * length - 280
+        elseif chair == 2 then
+            self._offset = 244
+        end
+        self:setPos(ccp(self._offset,426))
+    end
+end
+
+return OutCards
+
+

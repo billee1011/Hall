@@ -1,0 +1,2850 @@
+--GameLogic.lua
+
+local SOCKET_TYPE_SCENE                 = 1  --场景信息
+local SOCKET_TYPE_GAME                  = 2  --游戏消息
+local SOCKET_TYPE_USEREXIT              = 3  --玩家退出
+local SOCKET_TYPE_FRIENDRULE            = 4  --好友桌规则
+local SOCKET_TYPE_LEAVETABLE            = 5  --玩家离开
+local SOCKET_TYPE_FRIENDABLED           = 6  --好友桌加入
+local SOCKET_TYPE_FRIENDEND             = 7  --好友桌结束
+local SOCKET_TYPE_USERSTATUS            = 8  --玩家状态
+local SOCKET_TYPE_REPLACE               = 9  --玩家退出
+
+local GameLogic = {
+    cbPlayerNum = nil,
+    cbGameCardCount = nil,
+
+    cbSiceData = nil,       --骰子
+    cbCardData = nil,       --手牌
+    cdDownPengCard = nil,
+    cdDownCard = nil,
+
+    wBankerUser = nil,      --庄家椅子
+    wLastChair = nil,       --打牌玩家椅子
+    wChair = nil,           --当前玩家
+
+    bBanker = nil,          --是否为庄家
+    bSender = nil,          --是否可以出牌
+    cbSendCard = nil,       --自己摸到牌
+
+    bTrustee = nil,         --是否托管
+    bOperated = nil,        --是否完成操作
+
+    bPublicCard = nil,          --玩家是否亮牌
+
+    bIsQiShouHu = nil,
+    cbQiShouHuRight = nil,  --起手胡
+
+    bIsKaiGanged = nil,     --是否已经开过杠
+    cbHuRightCount = nil,   --胡牌种类
+    bIsHu = nil,     --是否已经开过杠
+
+    bIsPiao = nil,         --是否托管
+    cbBird = nil,
+    cbValidBird = nil,
+
+    bGameEnd = nil,         --单局游戏是否结束
+    bFriendEnd = nil,       --总结算
+
+    cbOperateCode = nil,    --当前操作码
+    cbOperateCard = nil,    --当前操作牌值
+
+    messageBack_funcs = nil,     --消息回调函数
+    operatorBack_funcs = nil,    --操作广播
+    socketBack_funcs              = nil,
+
+    bPiaoType = nil,            --飘的类型
+
+    main_layer = nil,
+
+    --新增
+    bGet159Bird = nil,
+
+    startStatus                    = 0,
+    bGameEndState                  = 0,  
+
+    user_list                     = {},  
+    gang_cards                    = {},
+} 
+
+GameLogic.message_data                   = {}
+GameLogic.bGetGameRule = false
+GameLogic.temp_data                      = {} 
+
+local GameDefs = require("csmj/GameDefs") 
+local CmdInfo = require("csmj/GameDefs").CmdInfo
+local AppConfig = require("AppConfig")
+local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+
+local GameLibSink = require(GameDefs.CommonInfo.GameLib_File)
+local instance = nil
+
+require("csmj/Game/TutorialLogic")
+
+function GameLogic:new(o)  
+    o = o or {}  
+    setmetatable(o,self)  
+    self.__index = self  
+    return o  
+end  
+
+function GameLogic.removeCache()
+    local path = GameDefs.CommonInfo.Mj_Path
+    Cache.removePlist{path.."mjcard", "emote", path.."mjresult", path.."mjdesk",GameDefs.CommonInfo.Img_Path.."czmj","csmj/images/csmj", "csmj/images/csmjAnimate"}
+    Cache.removeTexture{"csmj/images/MJDeskBg.jpg", "lobby_message_tip_bg.png"}
+
+    if instance then 
+        instance:dispose() 
+    end 
+end
+
+function GameLogic.loadingCache()
+    local path = GameDefs.CommonInfo.Mj_Path
+    -- 加载游戏资源 应按从大到小顺序加载避免峰值过高
+    Cache.add{path.."mjcard", "emote", path.."mjresult", path.."mjdesk",GameDefs.CommonInfo.Img_Path.."czmj","csmj/images/csmj", "csmj/images/csmjAnimate"}
+end
+
+function GameLogic.isLogicExist()
+    return instance ~= nil
+end
+
+function GameLogic:getInstance()  
+    if instance == nil then  
+        instance = self:new()
+        instance:init()
+        instance:registGameBack()
+    end  
+    return instance  
+end 
+
+function GameLogic:init()  
+    self.cbPlayerNum = 4
+    if FriendGameLogic.game_id == 19 then
+        self.cbPlayerNum = 3
+    end
+
+    self.cbGameCardCount = 108
+
+    self.messageBack_funcs = {}     --消息回调函数
+    self.operatorBack_funcs = {}   --操作广播
+
+    self.messageBack_funcs              = {}
+    self.socketBack_funcs              = {}
+
+    self.bIsPiao = {}
+end
+
+--初始化游戏信息
+function GameLogic:initGameData()
+    self.cbSiceData = {}
+    self.cbBird = {}
+    self.cbValidBird = {}
+
+    --新增变量
+    self.bIsKaiGanged = {false, false, false, false}
+    self.cbHuRightCount = 0
+    self.bIsHu = false
+    self.gang_cards = {}
+
+    self.cdDownPengCard = {{}, {}, {}, {}}
+    self.cdDownCard = {{}, {}, {}, {}}
+
+    self.cbCardData = {{}, {}, {}, {}}
+
+    self.bTrustee = {}
+
+    self.bGameEnd = false
+    self.bFriendEnd = false
+
+    self.startStatus                    = 0
+    self.bGameEndState                  = 0    
+end
+
+function GameLogic:dispose() 
+    if not instance then
+        return
+    end
+
+    instance:clearSecesTimerScript()
+
+    if instance.main_layer then
+        instance.main_layer = nil
+    end
+
+    GameLogic.message_data                   = {}
+    GameLogic.bGetGameRule = false
+    GameLogic.temp_data                      = {}  
+
+    instance = nil
+end
+
+------------------------------公共方法-----------------------------------
+--自动坐桌准备
+function GameLogic:onAutoRealy()
+    if GameLibSink.game_lib then
+        GameLibSink.game_lib:sendReadyCmd()
+    end
+end
+
+--自动坐桌准备
+function GameLogic:onRealy()
+    if GameLibSink.game_lib then
+        GameLibSink.game_lib:autoSit()
+    end
+end
+
+function GameLogic:onEnterGameView()
+    if GameLibSink.game_lib then
+        GameLibSink.game_lib:sendReadyCmd()
+    end
+end
+
+function GameLogic:returnToLobby()
+    GameLibSink:exit()
+    require("LobbyControl").backToHall()
+end
+
+--托管
+function GameLogic:sendTrustee()
+    if GameLibSink.game_lib then
+        local index = self.bTrustee[self.wChair + 1]
+        if index == 1 then
+            index = 0
+        else
+            index = 1
+        end
+
+        local ba = require("ByteArray").new()
+        ba:writeUByte(index)
+        ba:setPos(1)
+        GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.Trustee_Game, ba:getBuf(), ba:getLen())  
+
+        self.bTrustee[self.wChair + 1] = index
+    end
+end
+
+-- 癞子判定
+function GameLogic:isSpecialCard(cbCardData)
+    if cbCardData == 0x35 then
+        return true
+    end
+    return false
+end
+
+--出牌
+function GameLogic:sendOutCard(index)
+    if GameLibSink.game_lib then
+        if self.bIsQiShouHu ~= 0 then
+            --等待玩家起手胡
+            require("HallUtils").showWebTip("等待其他玩家操作")
+            return
+        end
+
+        --游戏已经开始，起手胡完结
+        if not self.bIsKaiGanged[self.wChair + 1] then
+            --开杠无法打出牌，系统打牌
+            local cbCardData = self.cbCardData[self.wChair + 1][index]
+            if self:mineIsSender() then
+                if not self:isSpecialCard(cbCardData) then
+                    local ba = require("ByteArray").new()
+                    ba:writeUByte(cbCardData)
+                    ba:setPos(1)
+                    GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.Out_Card, ba:getBuf(), ba:getLen()) 
+                    cclog("GameLogic:sendOutCard "..cbCardData..";"..index)  
+
+                    --逻辑检测
+                    self:onSelfOutCard(cbCardData)
+                    self:onPlayerOutCard(self.wChair, cbCardData)
+                    return true
+                else
+                    require("HallUtils").showWebTip("赖子牌不能打出")
+                end
+            end            
+        end
+	end
+	return false
+end
+
+--cbOperateCode   WORD    操作代码
+--cbOperateCard   BYTE    操作扑克
+--操作牌
+function GameLogic:sendOperateCard(cmd)
+    if GameLibSink.game_lib then
+        cclog("sendOperateCard "..cmd..";"..tostring(self.cbOperateCard))
+        if self.cbOperateCard and Bit:_and(cmd, self.cbOperateCode) == cmd then
+            local ba = require("ByteArray").new()
+            ba:writeUByte(cmd)
+            ba:writeUByte(self.cbOperateCard)
+            ba:setPos(1)
+            GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.Operate_Card, ba:getBuf(), ba:getLen()) 
+            cclog("操作牌 "..cmd)
+
+            --过操作不收到回复消息
+            if cmd > GameDefs.OperateCmd.No then
+                self.bSender = false --等待操作通知
+            end
+        end
+    end
+end
+
+--用户起手胡类型
+function GameLogic:sendShouHu(huRight)
+    if GameLibSink.game_lib then
+        local ba = require("ByteArray").new()
+        ba:writeInt(huRight)
+        
+        ba:setPos(1)
+        GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.C_IS_QI_SHOU_HU, ba:getBuf(), ba:getLen()) 
+
+        self.cbQiShouHuRight = 0
+    end 
+end
+
+--选择是否海底
+function GameLogic:sendOpenHaiDi(bopen)
+    if GameLibSink.game_lib then
+        local ba = require("ByteArray").new()
+        ba:writeUByte(bopen)
+
+        ba:setPos(1)
+        GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.C_IS_OPEN_HAIDI, ba:getBuf(), ba:getLen()) 
+    end 
+end
+
+--操作飘
+function GameLogic:sendPiao(bpiao, score)
+    if GameLibSink.game_lib then
+        local ba = require("ByteArray").new()
+        ba:writeUByte(bpiao)
+        ba:writeUByte(score)
+
+        ba:setPos(1)
+        GameLibSink.game_lib:sendOldGameCmd(GameDefs.CmdInfo.C_PiaoStatus, ba:getBuf(), ba:getLen()) 
+    end 
+end
+
+function GameLogic:clearSecesTimerScript()
+    if self.realy_timer ~= nil then
+        CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.realy_timer)
+        self.realy_timer = nil       
+    end  
+end
+
+function GameLogic:OnReadyGame()
+    --轮询准备，防止准备失败
+    local pDirector = CCDirector:sharedDirector()
+    self.realy_timer = self.realy_timer or pDirector:getScheduler():scheduleScriptFunc(
+    function() 
+        if self and self.realy_timer then
+            self:onGetSocketData() 
+        end
+    end,0.01,false)
+end
+
+function GameLogic:onRecveSocketData(socketdata)
+    local data = require("HallUtils").tableDup(socketdata)
+
+    cclog("onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxxxxxxxx "..data[1]..";"..#GameLogic.message_data)
+    if data[1] == SOCKET_TYPE_REPLACE then
+        --等待规则消息标识
+        GameLogic.bGetGameRule = false
+        GameLogic.message_data                      = {}
+        GameLogic.temp_data                         = {}
+
+        --重回标识
+        self.startStatus = 0        
+        if self.main_layer then self.startStatus = 1 end  
+        table.insert(GameLogic.message_data, data)
+        --self:replaceMainScence(socketdata[2])
+        return
+    end
+
+    if not GameLogic.bGetGameRule then
+        cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx 111")
+        --尚未收到游戏规则、处理收到消息顺序
+        if data[1] == SOCKET_TYPE_FRIENDRULE then
+            cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx 222")
+            self.bShowEnd = false
+            table.insert(GameLogic.message_data, 1, data)
+
+            for i,v in ipairs(GameLogic.temp_data) do
+                table.insert(GameLogic.message_data, 1, v)
+
+                --判断是否为重回显示结算界面
+                if v[1] == SOCKET_TYPE_GAME and v[2][2] == GameDefs.CmdInfo.S_Game_End then
+                    self.bShowEnd = true
+                end
+            end
+
+            GameLogic.temp_data                      = {}
+            GameLogic.bGetGameRule = true
+        else
+            --断线重回
+            if self.startStatus == 1 and self.bGameEndState > 0 then
+                cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData  333 "..data[1])
+                --忽略场景、抓鸟、单局结算
+                if not (data[1] == SOCKET_TYPE_SCENE or 
+                    (data[1] == SOCKET_TYPE_GAME and 
+                     (data[2][2] == GameDefs.CmdInfo.S_ChoosePiao or data[2][2] == GameDefs.CmdInfo.S_Game_End))) then
+                    cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx 444")
+                    table.insert(GameLogic.temp_data, data)
+                end
+            else
+                cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData 555 "..data[1]..";"..self.startStatus..";"..self.bGameEndState)
+                table.insert(GameLogic.temp_data, data)
+            end
+        end
+    else
+        cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData 6666 "..data[1])
+        table.insert(GameLogic.message_data, 1, data)
+    end
+end
+
+function GameLogic:onGetSocketData()
+    local count = #GameLogic.message_data
+    
+    if count > 0 then        
+        local data = require("HallUtils").tableDup(GameLogic.message_data[count])
+        table.remove(GameLogic.message_data)
+
+        local tag = data[1]
+        --cclog("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx onGetSocketData "..count..";"..tag)
+        if self.socketBack_funcs[tag] then
+            self.socketBack_funcs[tag](data[2])
+        end
+    end
+end
+
+function GameLogic:setIfGetSocketData(bvalue)
+    if bvalue then
+        cclog("GameLogic:setIfGetSocketData startTimer")
+        --GameLibSink.game_lib:startTimer()
+        self:OnReadyGame()
+    else
+        cclog("GameLogic:setIfGetSocketData releaseTimer")
+        --GameLibSink.game_lib:releaseTimer()        
+        self:clearSecesTimerScript()
+    end
+end
+
+
+function GameLogic:isPlayingGame()
+    return self:GetMeStatus() > 4
+end
+
+function GameLogic:onFriendRuleMessage(marstID, exprireTime, validTime)
+    self.bGet159Bird = FriendGameLogic.getRuleValueByIndex(6) > 1
+    local bInit = self.main_layer:initFriendGameUI() 
+    
+    if self.main_layer.game_dismiss and FriendGameLogic.game_abled then
+        self.main_layer.game_dismiss:setVisible(true)
+    else
+        self.main_layer:addFriendInviteUI()
+        if self.main_layer.game_dismiss and marstID == self:GetMeDBID() then
+            self.main_layer.game_dismiss:setVisible(true)
+        end
+    end
+
+    if not FriendGameLogic.game_abled and validTime and validTime > 0 then
+        self.main_layer:addFriendTableTime(exprireTime, validTime)
+        self:resetGameConfig()
+    end
+
+    self:checkGameReturnStatus()  
+end
+
+function GameLogic:checkGameReturnStatus()
+    --检查回放结果
+    if (not self.bShowEnd) and self.bGameEndState == 0 then
+        self.bIsPiao = {}
+
+        --自动准备
+        if self:GetMeStatus() < 4 and 
+            (not FriendGameLogic.isRulevalid(100) or FriendGameLogic.game_used < 1) then  
+            cclog("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "..FriendGameLogic.game_used)          
+            --不需要等待飘界面
+            self.main_layer:waitForPiao(0)
+        end        
+    end
+
+    self.bShowEnd = false
+end
+
+function GameLogic:onFriendTabledAbled()
+    self.main_layer:updataFriendGameUI(0)
+end
+
+function GameLogic:onDismissTableNoticeMessage(userID)
+    local msg = "玩家："..self:GetUserName(userID)
+    msg = msg.."\n发起解散请求，您是否同意？"
+    FriendGameLogic.showDismissTipDlg(
+                    self, self.panle_zIndex, require(CommonInfo.GameLib_File))
+end
+
+function GameLogic:onFriendTableVoteMessage(userID, cbIsAgree)
+    local msg = "玩家："..self:GetUserName(userID)
+    if cbIsAgree ~= 0 then
+        msg = msg.." 同意解散游戏"
+    else
+        msg = msg.." 拒绝解散游戏"
+    end
+    
+    require("HallUtils").showWebTip(msg)
+end
+
+--cbGameStatus    BYTE    游戏状态
+--lCellScore  LONG    基础金币
+--wSiceCount  WORD    骰子点数
+--wBankerUser WORD    庄家用户
+--wCurrentUser    WORD    当前用户
+--cbActionCard    BYTE    动作扑克
+--cbActionMask    BYTE    动作掩码
+--cbHearStatus    BYTE[2] 听牌状态
+--cbLeftCardCount BYTE    剩余数目
+--bTrustee    Bool[2] 是否托管
+--wOutCardUser    WORD    出牌用户
+--cbOutCardData   BYTE    出牌扑克
+--cbDiscardCount  BYTE[2] 丢弃数目
+--cbDiscardCard   BYTE[2][60] 丢弃记录
+--cbCardCount BYTE    扑克数目
+--cbCardData  BYTE[2] 扑克列表
+--cbSendCardData  BYTE    发送扑克
+--cbWeaveCount    BYTE[2] 组合数目
+--WeaveItemArray  CMD_WeaveItem[2][4] 组合扑克
+
+------------------------------游戏方法-----------------------------------
+function GameLogic:onSceneChanged(pData, nLen)
+    local ba = require("ByteArray").new()
+    ba:writeBuf(pData)
+    ba:setPos(1)
+
+    self:initGameData()
+    self.bSender = false
+    self.bPublicCard = false
+
+    self.main_layer:resetGameDesk()
+
+    local cbGameStatus = ba:readByte()
+    --[[if cbGameStatus == 1 then
+        --空闲状态
+        return
+    end]]
+
+    --确定玩家椅子
+    local playChair = 1
+    if self.wChair == 1 then
+        playChair = 0
+    end
+
+    local lCellScore = ba:readInt() --底分  
+    for i=1,2 do
+        --骰子点数
+        table.insert(self.cbSiceData, ba:readUByte())    
+    end      
+    self.wBankerUser = ba:readUShort() --庄家用户
+    local wCurrentUser = ba:readShort() --当前用户
+    local cbActionCard = ba:readUByte() --动作扑克
+    local cbActionMask = ba:readUByte() --动作掩码
+    local bIsQiangGang = ba:readUByte() --是否抢杠
+    
+    local cbHearStatus = {}
+    for i=1,self.cbPlayerNum do
+        --听牌状态
+        table.insert(cbHearStatus, ba:readUByte())    
+    end
+    local cbLeftCardCount = ba:readUByte() --剩余数目
+    cclog("剩余数目 "..cbLeftCardCount)
+    for i=1,self.cbPlayerNum do
+        --是否托管
+        table.insert(self.bTrustee, ba:readUByte())    
+    end
+
+    local wOutCardUser = ba:readShort()         --出牌用户
+    local cbOutCardData = ba:readUByte()        --出牌扑克
+    if wOutCardUser > GameDefs.INVALID_CHAIR then
+        self.wLastChair = wOutCardUser
+    else
+        self.wLastChair = self.wChair
+    end
+
+    local cbDiscardCount, cbDiscardCard = {}, {{}, {}, {}, {}} --丢弃数目
+    for i=1,self.cbPlayerNum do
+        table.insert(cbDiscardCount, ba:readUByte())    
+    end    
+    for j=1,self.cbPlayerNum do
+        for i=1,37 do
+            local card = ba:readUByte()
+            if cbDiscardCount[j] >= i then
+                table.insert(cbDiscardCard[j], card)  
+            end
+        end
+    end
+
+    local cbCardCount = {}--扑克数目
+    for i=1,self.cbPlayerNum do
+        table.insert(cbCardCount, ba:readUByte())
+    end    
+    for i=1,14 do
+        --扑克列表
+        local card = ba:readUByte()
+        if cbCardCount[self.wChair + 1] >= i then
+            table.insert(self.cbCardData[self.wChair + 1], card) 
+        end
+    end
+
+    local cbSendCardData = ba:readUByte()         --发送扑克
+    self.main_layer:addPlayerStaticDiscardCard(self.wChair, self.wBankerUser, cbDiscardCard, cbGameStatus ~= 1)
+    for i=1,self.cbPlayerNum do
+        local chair, bScore = i - 1, ba:readUByte()
+        if bScore > 0 then
+            table.insert(self.bIsPiao, {chair, bScore})
+        end
+    end
+    self.main_layer:addPiaoMark()
+
+    --起手胡数据
+    self.bIsQiShouHu = ba:readUByte()
+    local wShouHuUser = ba:readShort()
+    self.cbQiShouHuRight = ba:readInt()
+
+    --开杠数据
+    local cbBuGangCardData = {} --扑克数据
+    for i=1,2 do
+        local card = ba:readUByte()
+        if card > 0 then table.insert(cbBuGangCardData, card) end
+    end
+    local cbBuGANGActionMask, bkaiGang = {} --玩家对补牌能做的动作掩码
+    for i=1,2 do
+        local mask = ba:readUByte()
+        if cbBuGangCardData[i] then 
+            table.insert(cbBuGANGActionMask, mask) 
+            if mask > 0 then bkaiGang = true end
+        end
+    end
+    local cbKaiGangCard = ba:readUByte() --杠的牌
+    local wKaiGangUser = ba:readShort()     --开杠用户 
+    cbLeftCardCount = cbLeftCardCount + #cbBuGangCardData
+
+    --海底数据
+    local bIsChoseHaiDi = ba:readUByte()      --选择能是否要海底  
+    local wUserChairID = ba:readShort()     --要海底椅子号
+    local cbHaiDiCard = ba:readUByte()      --海底扑克  
+    local cbHaiDiActionMask = ba:readUByte()     --动作掩码 
+    cclog("选择能是否要海底 "..bIsChoseHaiDi)
+
+    --解析吃碰杠
+    local weaveFuncs = {}
+    --吃牌操作
+    local function chiOperator(downcard, removeCard, dirct, index)
+        local panel = self.main_layer.player_panel[index]
+        local panelTag = panel:getTag() --相对位置
+        table.insert(self.cdDownCard[index], downcard)
+        
+        if panelTag == 1 or panelTag == 4 then
+            --修正吃牌顺序
+            downcard[1], downcard[3] = downcard[3], downcard[1]
+        end
+        panel:addPengWeave(downcard, dirct)
+    end
+    weaveFuncs[GameDefs.OperateCmd.Right_Chi] = function(card, public, index, provide)
+        local downcard = {card - 2, card, card - 1}
+        local removeCard = {card - 2, card - 1}   
+
+        chiOperator(downcard, removeCard, 2, index)      
+    end
+    weaveFuncs[GameDefs.OperateCmd.Middle_Chi] = function(card, public, index, provide)
+        local downcard = {card - 1, card, card + 1}
+        local removeCard = {card - 1, card + 1}
+
+        chiOperator(downcard, removeCard, 2, index)   
+    end
+    weaveFuncs[GameDefs.OperateCmd.Left_Chi] = function(card, public, index, provide)
+        local downcard = {card + 1, card, card + 2}
+        local removeCard = {card + 1, card + 2}
+        
+        chiOperator(downcard, removeCard, 2, index) 
+    end
+    --碰
+    weaveFuncs[GameDefs.OperateCmd.Peng] = function(card, public, index, provide)
+        local downcard = {card, card, card}
+        local dirct = self:getProvideDirct(index - 1, provide)
+        local uis, pos, dirction = self.main_layer.player_panel[index]:addPengWeave(downcard, dirct)
+
+        table.insert(self.cdDownCard[index], downcard)
+        table.insert(self.cdDownPengCard[index], card)
+        table.insert(self.cdDownPengCard[index], uis[dirction]) 
+    end
+    --杠
+    local gangNum = 0
+    local function gangOperator(card, public, index, provide)
+        local downcard = {card, card, card, card}
+        if public == 0 then
+            --暗杠
+            downcard[1], downcard[2], downcard[3] = 0, 0, 0
+            self.main_layer.player_panel[index]:addAnGangWeave(card)
+        elseif provide >= self.cbPlayerNum then
+            --碰杠
+            local dirct = self:getProvideDirct(index - 1, provide - self.cbPlayerNum)
+            local uis,  pos, dirction = self.main_layer.player_panel[index]:addPengWeave(downcard, dirct)
+            self.main_layer.player_panel[index]:addGangCard(uis[dirction])
+        else
+            --杠
+            local dirct = self:getProvideDirct(index - 1, provide)
+            self.main_layer.player_panel[index]:addGangWeave(downcard, 
+                            self:getProvideDirct(index - 1, provide))
+        end
+
+        table.insert(self.cdDownCard[index], downcard)
+        gangNum = gangNum + 1
+    end
+    weaveFuncs[GameDefs.OperateCmd.Gang] = function(card, public, index, provide)
+        --补杠
+        gangOperator(card, public, index, provide)
+    end
+    weaveFuncs[GameDefs.OperateCmd.Kai_Gang] = function(card, public, index, provide)
+        --开杠
+        self.bIsKaiGanged[index] = true
+        self.main_layer.playerLogo_panel:updataPlayerTing(index - 1)
+
+        gangOperator(card, public, index, provide)
+        gangNum = gangNum - 1 --开杠顺序摸牌
+    end
+
+    local cbWeaveCount = {}                     --组合数目
+    for i=1,self.cbPlayerNum do
+        table.insert(cbWeaveCount, ba:readUByte())  
+    end    
+
+    local WeaveItemArray = {{}, {}, {}, {}}      --组合扑克
+    for j=1,self.cbPlayerNum do
+        for i=1,4 do
+            local cbWeaveKind = ba:readUByte() --组合类型
+            local cbCenterCard = ba:readUByte() --中心扑克
+            local cbPublicCard = ba:readUByte() --公开标志
+            local wProvideUser = ba:readShort() --供应用户
+            cclog("组合类型 "..tostring(cbWeaveKind)..";"..cbWeaveCount[j])
+            if cbWeaveCount[j] >= i then
+               --解析数据 
+               weaveFuncs[cbWeaveKind](cbCenterCard, cbPublicCard, j, wProvideUser)
+            end
+        end
+    end
+
+    function addCardPanel()
+        --杠牌，取后面
+        cbLeftCardCount = cbLeftCardCount + gangNum
+
+        self.main_layer:addPlayerStaticPanel(self.wChair, self.cbCardData[self.wChair + 1], cbCardCount)
+                    :getGameCardAnima(self.cbGameCardCount - cbLeftCardCount)
+
+        for i=1,gangNum do
+            self.main_layer:setCardDirct(1)
+            self.main_layer:getGameCardAnima(1)
+        end
+    end
+    local function addCardTip(func)
+        if wOutCardUser >= 0 and wOutCardUser ~= wCurrentUser then
+            self.main_layer.player_panel[wOutCardUser + 1]:addStaticPassedWithTip(cbActionCard, func)
+        else
+            func()
+        end
+    end
+
+    if self.wChair == wCurrentUser then
+        --自己摸到新牌
+        local handcard = self.cbCardData[self.wChair + 1]
+        local card = handcard[#handcard]
+        table.remove(handcard)
+
+        cbLeftCardCount = cbLeftCardCount + 1
+        addCardPanel()
+        self.main_layer:playTimerAnima(wCurrentUser)
+        
+        self.cbSendCard = cbActionCard   
+        addCardTip(function()
+            self.main_layer.player_panel[wCurrentUser + 1]:getCardAnima(card,
+                function() self:onSelfSendCard(cbActionMask, card) end)
+        end)        
+    else
+        if cbActionMask > 0 then
+            --自己吃碰杠
+            self.cbOperateCard = cbActionCard
+            addCardPanel()
+            addCardTip(function()
+                    self:onOperateNotify(cbActionMask, self.wChair)
+                    self.main_layer:playTimerAnima(wOutCardUser) end)
+        elseif wCurrentUser >= 0 then
+            --玩家摸牌
+            cbLeftCardCount = cbLeftCardCount + 1
+            cbCardCount[wCurrentUser + 1] = cbCardCount[wCurrentUser + 1] - 1
+            addCardPanel()
+            addCardTip(function()
+                self.main_layer.player_panel[wCurrentUser + 1]:getCardAnima() 
+                self.main_layer:playTimerAnima(wCurrentUser)
+                end)
+        else
+            --玩家吃碰杠
+            addCardPanel()
+            addCardTip(function() self.main_layer:playTimerAnima(wOutCardUser) end)            
+        end
+    end
+    
+    self:setIfGetSocketData(false)
+    self.main_layer:gameStart(self.wChair, function()
+        cclog(self.bIsQiShouHu..";"..wKaiGangUser..";"..bIsChoseHaiDi)
+        if self.bIsQiShouHu ~= 0 then
+            --游戏尚未开始、起手胡
+            self:onOpenShouHuMessage(wShouHuUser)
+        elseif wKaiGangUser ~= GameDefs.INVALID_CHAIR then
+            --开杠检测
+            if bkaiGang then
+                self:showKaiGangCards(wKaiGangUser, cbBuGangCardData, function()
+                    --显示开杠
+                    self:showKaiGang(wKaiGangUser, cbKaiGangCard, cbBuGangCardData, cbBuGANGActionMask)
+                end)
+            else
+                self:showKaiGangCards(wKaiGangUser, cbBuGangCardData)
+            end
+        elseif bIsChoseHaiDi ~= 0 then
+            --要海底
+            self:onOpenHaiDiMessage()
+
+            --wUserChairID = ba:readShort()     --要海底椅子号
+            --cbHaiDiCard = ba:readUByte()      --海底扑克  
+            --cbHaiDiActionMask = ba:readUByte()     --动作掩码             
+        end
+
+        --开杠之后无法操作
+        if self.bIsKaiGanged[self.wChair + 1] then
+            self.main_layer.player_panel[self.wChair + 1]:setCardEnabled(false)
+        end
+        self:setIfGetSocketData(true)
+    end)  
+end
+
+function GameLogic:onUserExit(chair, bself)
+    self.user_list[chair] = 0
+
+    if not self.main_layer.playerLogo_panel then
+        return
+    end
+
+    --离开
+    if bself then
+        self.main_layer.playerLogo_panel:clearAllPlayer()
+        self.main_layer:playGameRealyAnima()
+    else
+        self.main_layer.playerLogo_panel:clearPlayerByInfo(chair)
+        self.main_layer:playGameRealyAnima(false, chair)
+    end
+end
+
+function GameLogic:onLeaveTable()
+    --离开
+    if not self.bGameEnd then
+        --单局未结束，提示玩家房间已解散
+        self.main_layer:delayExitGame()
+    end
+end
+
+function GameLogic:onUserStatus(info, myinfo)
+    if not self.main_layer or not myinfo then
+        return
+    end
+
+    local chair = info._chairID
+    local status = info._status
+    self.user_list[chair] = require("HallUtils").tableDup(info)
+
+    --进入
+    self.main_layer.playerLogo_panel:addPlayerLogo(info)
+    if status == 4 and not self:isPlayingGame() then 
+        if chair == self.myChair then 
+            self.bGameEndState = 0 
+        end
+        
+        self.main_layer:playGameRealyAnima(true, chair)
+    end
+
+    --断线，等待续玩
+    self.main_layer.playerLogo_panel:updataPlayerOffLine(chair, status == 6)
+    if status == 5 then
+        self:checkPlayersIsSameIP()
+    end
+end
+
+function GameLogic:onUserEnterRoom(pMyInfo)
+    self.user_list                     = {}
+
+    local tableID = pMyInfo:getUserTableID()
+
+    if tableID >= 0 then
+        --自己坐桌，初始化玩家界面
+        local user = GameLibSink:getTableUserList(tableID)
+        for i,v in ipairs(user) do
+            v._score = v:getScore()
+            self:onUserStatus(v, pMyInfo)
+        end
+    end
+
+end
+
+function GameLogic:onGameMessage(chair, cbCmdID, data, nLen)
+    if self.messageBack_funcs[cbCmdID] then
+        self.messageBack_funcs[cbCmdID](chair, data, nLen)
+    end
+end
+
+--wSiceCount  WORD    骰子点数
+--wBankerUser WORD    庄家用户
+--wCurrentUser    WORD    当前用户
+--cbUserAction    BYTE    用户动作
+--cbCardData  BYTE[14]    扑克列表
+--bTrustee    Bool[2] 是否托管
+function GameLogic:onGameStartMessage(chair, data, nLen)
+    if (nLen < (2 + 2 + 2 + 1 + 4 + 14 + 2)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    self:initGameData()
+
+    for i=1,2 do
+        table.insert(self.cbSiceData, ba:readUByte())    
+    end
+    self.wBankerUser = ba:readShort()
+    local wCurrentUser = ba:readShort()
+    --起手胡牌权限
+    self.bIsQiShouHu = 1
+    self.cbQiShouHuRight = ba:readInt()
+
+    self.wLastChair = self.wBankerUser
+    self.bBanker = self.wBankerUser == self.wChair  
+    for i=1,14 do
+        table.insert(self.cbCardData[self.wChair + 1], ba:readUByte())    
+    end
+    if self:cardNotAble(self.cbCardData[self.wChair + 1][14]) then
+        --无效值
+        table.remove(self.cbCardData[self.wChair + 1])
+    end
+    self.bSender = self.bBanker    --需等待游戏开始，等待起手胡
+    self.bPublicCard = false
+
+    for i=1,self.cbPlayerNum do
+        table.insert(self.bTrustee, ba:readUByte())    
+    end
+
+    --显示牌墙
+    self:setIfGetSocketData(false)
+    local sameIPs = self:checkPlayersIsSameIP()
+    self.main_layer:addPlayerPanel(chair, self.wBankerUser, sameIPs, function()
+        self:setIfGetSocketData(true)               
+    end)
+
+    --刷新游戏次数
+    FriendGameLogic.game_abled = true
+    FriendGameLogic.game_used = FriendGameLogic.game_used + 1
+    self.main_layer:updataFriendGameUI()
+
+    --重置玩家分数
+    self:checkPlayersScore()
+end
+
+function GameLogic:onOpenShouHuMessage(chair)
+    chair = chair or self.wChair
+    if self.wChair == chair and self.cbQiShouHuRight > 0 then
+        --显示起手胡操作
+        self.main_layer.player_panel[self.wChair + 1]:addOperatorBtn("guo", function()
+            self:sendShouHu(0)
+        end)
+
+        local masks = GameDefs.ShouHuType --缺一门、板板胡、六六顺、大四喜
+        local operators = {}
+        for i,v in ipairs(masks) do
+            if Bit:_and(v, self.cbQiShouHuRight) ~= 0 then
+                table.insert(operators, v)
+            end
+        end 
+
+        --新增六六顺、四喜二选一逻辑
+        local checkSame = nil
+        if Bit:_and(0x0C000000, self.cbQiShouHuRight) == 0x0C000000 then
+            local nCount = self:getSameCountCardNum(self.cbCardData[self.wChair + 1], 3)
+            checkSame = nCount < 3
+        end
+
+        self.main_layer.player_panel[self.wChair + 1]:addCircleBtn("csmj/btn_operator_bbh1", "yellow", function()
+            self.main_layer.player_panel[self.wChair + 1]:addShouhuBtn(operators, 
+                function(huRight)
+                    self:sendShouHu(huRight)
+                    self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+                end, checkSame)
+        end)      
+    end
+end
+
+function GameLogic:onShouHuMessage(chair, data, nLen)
+    if (nLen < (2 + 4 + 14)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local wCurrentUser = ba:readShort()     --当前用户
+    local cbQiShouHuRight = ba:readInt()    --用户起手胡类型
+
+    local cbCardData = {}   --扑克列表
+    local cardCount = 13 
+    if wCurrentUser == self.wBankerUser then cardCount = 14 end
+    for i=1,cardCount do
+        local cardData = ba:readUByte()
+        if not self:cardNotAble(cardData) then table.insert(cbCardData, cardData) end    
+    end
+
+    --打骰抓鸟
+    local cbSiceData = {}
+    for i=1,2 do
+        local sice = ba:readUByte()
+        if sice > 0 then
+            table.insert(cbSiceData, sice)
+        end
+    end
+
+    --摊牌
+    local panel = self.main_layer.player_panel[wCurrentUser + 1]
+    --panel:initPublicHandPais(cbCardData)
+
+    --提示牌
+    local relChair = self:getRelativeChair(wCurrentUser)
+    self.main_layer.player_panel[self.wChair + 1]:addShouHuCard(relChair, cbCardData)
+
+    --延时5秒后，手牌立起
+    local array = CCArray:create()
+    array:addObject(CCDelayTime:create(5))
+    array:addObject(CCCallFunc:create(function() 
+        self.main_layer.player_panel[self.wChair + 1]:clearShouHuCard(relChair)
+    end))
+    panel:runAction(CCSequence:create(array))
+
+    self.bPublicCard = true
+
+    --播放胡牌动画
+    local animImg, operateCodes = {}, {}
+    for i,v in ipairs(GameDefs.ShouHuType) do
+        if Bit:_and(v, cbQiShouHuRight) ~= 0 then
+            table.insert(animImg, string.format("csmj/huAnim%x.png", v)) 
+            table.insert(operateCodes, v)
+        end
+    end
+
+    self:setIfGetSocketData(false)
+    local index = 1
+    local function palyAnima()
+        if index > #animImg then
+            if #cbSiceData == 2 then  
+                require("HallUtils").showWebTip(self:GetUserNameByChair(wCurrentUser).."起手胡打骰")              
+                self.main_layer:playBirdDice(cbSiceData, function()
+                    self:setIfGetSocketData(true)
+                end)
+            else
+                self:setIfGetSocketData(true)
+            end
+        else
+            self.main_layer.playerLogo_panel:playOperatorVoice(wCurrentUser, 0x200, operateCodes[index])
+            self.main_layer:playHuTypeAnima(animImg[index], wCurrentUser, palyAnima)
+            index = index + 1
+        end
+    end
+
+    palyAnima()
+
+    --胡牌语言
+    local check, voiceType = require("Lobby/Set/SetLogic").getGameCheckByIndex(3)
+    --方言只有一种音效
+    if check ~= 1 then voiceType = 1 end    
+    self.main_layer.playerLogo_panel:playOperatorVoice(wCurrentUser, 0x100, voiceType)
+end
+
+--检查是否存在起手胡明牌
+function GameLogic:checkPublicCard()
+    if self.bPublicCard then
+        --明牌还原
+        for i=1,self.cbPlayerNum do
+            if i - 1 ~= self.wChair then 
+                local panel = self.main_layer.player_panel[i]  
+                panel:stopAllActions() 
+
+                if i - 1 == self.wBankerUser then
+                    --庄家增加一张牌
+                    panel:initHandPais(14)
+                    panel:updataHorizontalPos()
+                else
+                    panel:initHandPais(13)
+                end
+            end
+        end
+        self.main_layer.player_panel[self.wChair + 1]:clearShouHuCard()
+
+        self.bPublicCard = false 
+        self.main_layer:clearDiceAnima()
+    end
+
+    self.bIsQiShouHu = 0
+end
+
+--显示海底牌
+function GameLogic:showHaiDiCard(cbCardData, backfunc)
+    self.gang_cards = {cbCardData}
+
+    self.main_layer:getGameCardAnima(1)
+
+    local panle = self.main_layer.player_panel[self.wChair + 1]
+
+    --设置背景
+    local cardbg = loadSprite("common/popBg.png", true)
+    local bgsz = CCSizeMake(400, 290)
+    cardbg:setPreferredSize(bgsz)
+    cardbg:setPosition(ccp(AppConfig.DESIGN_SIZE.width / 2, AppConfig.DESIGN_SIZE.height / 2 + 25))
+    panle:addChild(cardbg, panle.tipcard_zIndex)
+
+    --设置标题
+    local title =  loadSprite("csmj/img_haidi_title.png")
+    title:setPosition(ccp(bgsz.width / 2, bgsz.height - 75))
+    cardbg:addChild(title)    
+
+    --设置牌
+    local mjSp = require("czmj/Game/SpriteGameCard").createHand(cbCardData)
+    mjSp:setPosition(ccp(bgsz.width / 2 - 40, 45))
+    cardbg:addChild(mjSp)   
+
+    self:setIfGetSocketData(false)
+    require("Lobby/Common/AnimationUtil").spriteScaleShowAction(cardbg)
+
+    --延时1秒显示
+    local array = CCArray:create()
+    array:addObject(CCDelayTime:create(1.5))
+    array:addObject(CCCallFunc:create(function()  
+        self:setIfGetSocketData(true)
+        if backfunc then backfunc() end
+    end))
+    cardbg:runAction(CCSequence:create(array))      
+end
+
+--显示开杠补牌
+function GameLogic:showKaiGangCards(wKaiGangUser, cbCardData, backfunc, cbSiceData)
+    local count = #cbCardData
+
+    local function getKaiCards(wallNum)
+        if count > 0 then
+            self.gang_cards = {}
+            table.insert(self.gang_cards, wKaiGangUser)
+
+            local panle = self.main_layer.player_panel[wKaiGangUser + 1]
+            local pos = self.main_layer.tip_poses[wKaiGangUser + 1]
+
+            --设置背景
+            local cardbg = loadSprite("mjdesk/chiBg.png", true)
+            cardbg:setPreferredSize(CCSizeMake(36 + 64 * count, 125))
+            cardbg:setPosition(ccp(pos.x + 40, pos.y + 50))
+            panle:addChild(cardbg, panle.tipcard_zIndex)
+
+            for j=1,count do
+                local mjSp = require("csmj/Game/SpriteGameCard").createHand(cbCardData[j])
+                local pos = ccp(mjSp.base_size.width * (j - 1) * 0.8 + 18 + 2 * (j - 1), 18)
+                mjSp:setPosition(pos)
+                mjSp:setScale(0.8)
+                cardbg:addChild(mjSp, j, j)
+                table.insert(self.gang_cards, cbCardData[j])
+            end
+         
+            panle.gang_cardBg = cardbg --保留牌变量 
+            require("Lobby/Common/AnimationUtil").spriteScaleShowAction(cardbg) 
+            
+            local array = CCArray:create()
+            array:addObject(CCDelayTime:create(1.5))
+            array:addObject(CCCallFunc:create(function() 
+                if backfunc then backfunc() end
+            end))
+
+            array:addObject(CCDelayTime:create(1))
+            array:addObject(CCCallFunc:create(function()  
+                self:setIfGetSocketData(true)
+            end))
+            panle.gang_cardBg:runAction(CCSequence:create(array))                       
+        else
+            self:setIfGetSocketData(true)
+            if wallNum then
+                require("HallUtils").showWebTip(self:GetUserNameByChair(wCurrentUser).."开杠牌墙不足"..wallNum.."墩")
+            end
+        end
+    end
+
+    --起手胡补牌无人对牌操作时，需要延时显示
+    self:setIfGetSocketData(false)
+    self.main_layer:setCardDirct()
+    if cbSiceData then
+        --打骰
+        if count > 0 then
+            require("HallUtils").showWebTip(self:GetUserNameByChair(wCurrentUser).."开杠打骰")
+        end
+        self.main_layer:playBirdDice(cbSiceData, function()
+            local sices = cbSiceData[1]+cbSiceData[2]
+            getKaiCards(sices)
+            
+            --抓牌动画
+            if count > 0 then
+                if count > 1 then
+                    self.main_layer:getPairCardAnima(sices)
+                else
+                    --从开始摸牌
+                    self.main_layer:getGameCardAnima(1)
+                end
+            end
+        end)        
+    else
+        getKaiCards()
+        self.main_layer:getGameCardAnima(count)
+    end
+end
+
+--检查开杠补牌操作返回
+function GameLogic:checkKaiGangCards(card, wUser)
+    local count = #self.gang_cards
+    cclog("检查开杠补牌操作返回 "..#self.gang_cards..";"..card)
+    if count < 2 then return end
+
+    --隐藏
+    self.main_layer:hideArrowAnima()
+
+    local kaiUser = self.gang_cards[1]
+    local panle = self.main_layer.player_panel[kaiUser + 1]
+    if panle.gang_cardBg then
+        panle.gang_cardBg:removeFromParentAndCleanup(true)
+        panle.gang_cardBg = nil
+    end
+
+    --将开杠补牌倒下去
+    local downcard = nil
+    for i=2, count do
+        local cardData = self.gang_cards[i]
+        if cardData == card then
+            --只操作一个牌
+            card = 0
+            downcard = cardData
+        else
+            --添加倒下去的牌
+            panle:addStaticPassedWithTip(cardData, function()end)
+        end
+    end
+
+    if downcard then 
+        if wUser and wUser == kaiUser then
+            --自己操作自己的牌
+            self.main_layer.player_panel[kaiUser + 1]:getStaticCard(downcard,
+                function() self:onSelfSendCard(0, downcard) end)            
+        else
+           panle:addStaticPassedWithTip(downcard, function()end) 
+        end
+    end
+    panle.down_lastpos = nil --设置上一次打出去的位置为空，防止打牌位置错误
+
+    self.gang_cards = {}
+end
+
+function GameLogic:onBankerStartMessage(chair, data, nLen)
+    if (nLen < 1) then
+        return
+    end
+    --require("HallUtils").showWebTip("游戏正式开始")
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local cbActionMask = ba:readByte()     --动作掩码
+
+    if chair ~= self.wChair then
+        local cbCardData = {}   --扑克列表
+        for i=1,14 do
+            local cardData = ba:readUByte()
+            if cardData > 0 then table.insert(cbCardData, cardData) end    
+        end
+
+        self.main_layer.player_panel[chair + 1]:initPublicHandPais(cbCardData)
+    end
+
+    self.bIsQiShouHu = 0
+    self.main_layer:clearDiceAnima()
+
+    cc2file("onHandOperateNotify onBankerStartMessage")
+    self:onHandOperateNotify(cbActionMask)    
+end
+
+
+function GameLogic:checkPlayersScore()
+    --校准游戏开始分数，重置为0
+    if FriendGameLogic.game_type == 0 and FriendGameLogic.game_used == 0 then
+        for i=1,self.cbPlayerNum do
+            self.main_layer.playerLogo_panel:updataPlayerGold(i - 1, 0)
+        end
+    end
+end
+
+--初始化游戏本地配置信息
+function GameLogic:resetGameConfig()
+    --相同ip
+    CCUserDefault:sharedUserDefault():setStringForKey("same_ip14", "")
+end
+
+--检查是否相同ip
+function GameLogic:checkPlayersIsSameIP()
+    local sameIPRecorder = { count=0 }
+
+    --同桌好友信息
+    local info = self:GetMyInfo()
+    if not info or info == 0 then return end
+
+    local userList = require("HallUtils").tableDup(self.user_list)
+    for i, j in pairs(userList) do
+        for k, v in pairs(userList) do
+            if v and j and v~=0 and j~=0 then
+                if k ~= i and v._userIP == j._userIP and (not sameIPRecorder[v._chairID]) then
+                    sameIPRecorder[v._chairID] = {name = v._name, ip = v._userIP}
+                    sameIPRecorder.count = sameIPRecorder.count + 1
+                end
+            end
+        end
+    end
+    
+    if sameIPRecorder.count > 0 then
+        --保存相同Ip到本地
+        local sameips = require("cjson").encode(sameIPRecorder)
+        CCUserDefault:sharedUserDefault():setStringForKey("same_ip14", sameips) 
+
+        return sameIPRecorder
+    end    
+
+    return nil
+end
+
+--wOutCardUser    WORD    出牌用户
+--cbOutCardData   BYTE    出牌扑克
+function GameLogic:onOutCardMessage(chair, data, nLen)
+    if (nLen < (2 + 1)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local wOutCardUser = ba:readShort()
+    local cbOutCardData = ba:readUByte()
+    if self.bIsKaiGanged[wOutCardUser + 1] then
+        local panel = self.main_layer.player_panel[wOutCardUser + 1]
+
+        --开杠之后自动打牌、延时0.5秒展现
+        self:setIfGetSocketData(false)
+        local array = CCArray:create()
+        array:addObject(CCDelayTime:create(0.5))
+        array:addObject(CCCallFunc:create(function()  
+           if self.wChair == wOutCardUser then
+                --设置出牌 
+                self:onSelfOutCard(cbOutCardData)
+            end              
+            self:onPlayerOutCard(wOutCardUser, cbOutCardData)
+
+            self:setIfGetSocketData(true)
+        end)) 
+        panel:runAction(CCSequence:create(array))
+    elseif self.wChair ~= wOutCardUser then
+        self:onPlayerOutCard(wOutCardUser, cbOutCardData)
+    end
+
+    self.wLastChair = wOutCardUser
+end
+
+function GameLogic:onPlayerOutCard(wOutCardUser, cbOutCardData)
+    for i=1,self.cbPlayerNum do
+        self.main_layer.player_panel[i]:addCardArrowAnima(false, ccp(-100, -100))
+    end
+
+    self.main_layer.playerLogo_panel:playCardVoice(wOutCardUser, cbOutCardData)
+    self.main_layer.playerLogo_panel:updataPlayerOperator(wOutCardUser, false)
+
+    cclog("GameLogic:onOutCardMessage "..wOutCardUser..";"..self.wChair..";"..cbOutCardData)
+    --出牌动画
+    self.main_layer.player_panel[wOutCardUser + 1]:sendCardAnima(cbOutCardData)
+end
+
+--自己打牌处理
+function GameLogic:onSelfOutCard(card)
+    self.bSender = false
+
+    local panel = self.main_layer.player_panel[self.wChair + 1]
+    --防止空值
+    panel.card_index = panel.card_index or #self.cbCardData[self.wChair + 1]
+    cclog("自己打牌处理 "..#self.cbCardData[self.wChair + 1]..#panel.card_uis)
+
+    local index = panel.card_uis[panel.card_index].carddata_index
+    if index and self.cbCardData[self.wChair + 1][index] == card then
+        --卡牌存在
+        table.remove(self.cbCardData[self.wChair + 1], index)
+    else
+        --查找值为card的坐标
+        local cardIndex = self:getMineCardIndex(card)
+        if cardIndex then
+            panel.card_index = cardIndex
+            table.remove(self.cbCardData[self.wChair + 1], cardIndex)
+        end
+    end
+        
+end
+
+--cbCardData  BYTE    扑克数据
+--cbActionMask    BYTE    动作掩码
+--wCurrentUser    WORD    当前用户
+function GameLogic:onSendCardMessage(chair, data, nLen)
+    if (nLen < (2 + 1)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local cbCardData = ba:readUByte()
+    local cbActionMask = ba:readUByte()
+    local wOutCardUser = ba:readShort()
+ 
+    self.main_layer:playTimerAnima(wOutCardUser)    
+
+    --抓牌动画
+    self.cbSendCard = cbCardData
+    self.main_layer.player_panel[wOutCardUser + 1]:getCardAnima(cbCardData,
+        function() self:onSelfSendCard(cbActionMask, cbCardData) end, self.bIsKaiGanged[wOutCardUser + 1])
+    
+end
+
+--自己抓牌处理
+function GameLogic:onSelfSendCard(mark, card)
+    table.insert(self.cbCardData[self.wChair + 1], card)
+    self.bSender = true
+    cc2file("onSelfSendCard onHandOperateNotify")
+    self:onHandOperateNotify(mark)
+end
+
+--wResumeUser WORD    还原用户
+--cbActionMask    BYTE    动作掩码
+--cbActionCard    BYTE    动作扑克
+function GameLogic:onOperateNotifyMessage(chair, data, nLen)
+    if (nLen < (2 + 1 + 1)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local wResumeUser = ba:readShort()
+    local cbActionMask = ba:readUByte()
+    self.cbOperateCard = ba:readUByte()
+
+    self.main_layer.player_panel[self.wChair + 1]:startOperatorTimer()
+    --是否为自己操作
+    if not self.bSender then
+        self:onOperateNotify(cbActionMask)
+    else
+        cc2file("onOperateNotifyMessage onHandOperateNotify")
+        self:onHandOperateNotify(cbActionMask)
+    end
+end
+
+function GameLogic:onOperateNotify(cbActionMask)
+    if cbActionMask > 0 then
+
+        -- 震动
+        local SetLogic = require("Lobby/Set/SetLogic")
+        SetLogic.playGameShake(100)
+        SetLogic.playGameEffect(AppConfig.SoundFilePathName.."operatorcard_effect"..AppConfig.SoundFileExtName)
+        
+
+        --判断是否能过
+        if self:mineIsGuo() then
+            self.main_layer.player_panel[self.wChair + 1]:addOperatorBtn("guo", function()
+                self:sendOperateCard(GameDefs.OperateCmd.No)
+                self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+                self.cbOperateCard = nil
+            end)
+        end
+
+        --吃牌
+        self:onCheckChiNotify(cbActionMask)
+
+        --杠牌、碰牌
+        self:onCheckPengNotify(cbActionMask)
+
+        --[[听牌
+        if Bit:_and(GameDefs.OperateCmd.Ting, cbActionMask) ~= 0 then
+            self.main_layer.player_panel[self.wChair + 1]:addOperatorBtn("ting", function()
+               self:sendTingCard()
+            end)
+        end]]
+
+        --吃胡
+        self:onCheckHuNotify(cbActionMask, false)
+
+        self.cbOperateCode = cbActionMask                
+    end
+end
+
+function GameLogic:onHandOperateNotify(cbActionMask)
+    self.cbOperateCard = nil
+    if cbActionMask > 0 then
+        -- 震动
+        local SetLogic = require("Lobby/Set/SetLogic")
+        SetLogic.playGameShake(100)
+        SetLogic.playGameEffect(AppConfig.SoundFilePathName.."operatorcard_effect"..AppConfig.SoundFileExtName)
+
+        if self:mineIsGuo() then
+            self.main_layer.player_panel[self.wChair + 1]:addOperatorBtn("guo", function()
+                self.cbOperateCard = 0
+                self:sendOperateCard(GameDefs.OperateCmd.No)
+                self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+                self.cbOperateCard = nil
+            end)
+        end
+
+        if Bit:_and(GameDefs.OperateCmd.Gang, cbActionMask) ~= 0 
+            or Bit:_and(GameDefs.OperateCmd.Kai_Gang, cbActionMask) ~= 0 then
+            --手牌数据
+            local count, gangs = #self.cbCardData[self.wChair + 1], {}
+            local cards = require("HallUtils").tableDup(self.cbCardData[self.wChair + 1])
+            table.sort(cards)
+            
+            for i=1,count do
+                --手牌杠
+                if  not self:isSpecialCard(cards[i]) and i < count - 2 and cards[i] == cards[i + 3] 
+                    and  cards[i] == cards[i + 2] then
+                    table.insert(gangs, cards[i])
+                    i = i + 3
+                end
+
+                for j,v in ipairs(self.cdDownPengCard[self.wChair + 1]) do
+                    if j % 2 ~= 0 and v == cards[i] then
+                        --由碰转杠
+                        table.insert(gangs, v)
+                    end
+                end
+            end
+
+            cclog("开杠数据 "..cbActionMask)        
+            if Bit:_and(GameDefs.OperateCmd.Kai_Gang, cbActionMask) ~= 0 then 
+                --开杠
+                self.main_layer.player_panel[self.wChair + 1]:addGangBtn(gangs, "kai/btn1", function(gangCard)
+                    self.cbOperateCard = gangCard
+                    self:sendOperateCard(GameDefs.OperateCmd.Kai_Gang)
+                end)               
+            end 
+
+            if Bit:_and(GameDefs.OperateCmd.Gang, cbActionMask) ~= 0 then 
+                --杠牌
+                self.main_layer.player_panel[self.wChair + 1]:addGangBtn(gangs, "gang/btn1", function(gangCard)
+                    self.cbOperateCard = gangCard
+                    self:sendOperateCard(GameDefs.OperateCmd.Gang)
+                end)                
+            end            
+        end
+
+        --吃胡
+        self:onCheckHuNotify(cbActionMask, true)
+        self.cbOperateCode = cbActionMask              
+    end
+end
+
+--吃牌
+function GameLogic:onCheckChiNotify(cbActionMask)
+    if Bit:_and(0x07, cbActionMask) ~= 0 then
+        --吃牌
+        local bChi = {false, false, false}
+        for i=0,2 do
+            if Bit:_and(cbActionMask, math.pow(2,i)) ~= 0 then
+                bChi[i + 1] = true
+            end
+        end
+
+        self.main_layer.player_panel[self.wChair + 1]:addChiBtn(bChi, self.cbOperateCard)            
+    end
+end
+
+--杠牌、碰牌
+function GameLogic:onCheckPengNotify(cbActionMask)
+    if Bit:_and(GameDefs.OperateCmd.Peng, cbActionMask) ~= 0 then
+        --碰牌
+        self.main_layer.player_panel[self.wChair + 1]:addCircleBtn("peng/btn1", "yellow", function()
+           self:sendOperateCard(GameDefs.OperateCmd.Peng)
+           self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+        end)         
+    end 
+
+    if Bit:_and(GameDefs.OperateCmd.Gang, cbActionMask) ~= 0 
+        or Bit:_and(GameDefs.OperateCmd.Kai_Gang, cbActionMask) ~= 0 then    
+        if Bit:_and(GameDefs.OperateCmd.Kai_Gang, cbActionMask) ~= 0 then 
+            --开杠       
+            self.main_layer.player_panel[self.wChair + 1]:addGangBtn(
+                {self.cbOperateCard}, "kai/btn1", function()
+               self:sendOperateCard(GameDefs.OperateCmd.Kai_Gang)
+            end)
+        end
+
+        if Bit:_and(GameDefs.OperateCmd.Gang, cbActionMask) ~= 0 then        
+            --杠牌
+            self.main_layer.player_panel[self.wChair + 1]:addGangBtn(
+                    {self.cbOperateCard}, "gang/btn1", function()
+               self:sendOperateCard(GameDefs.OperateCmd.Gang)
+            end)
+        end        
+    end       
+end
+
+--胡牌
+function GameLogic:onCheckHuNotify(cbActionMask, isSelf)
+    if Bit:_and(GameDefs.OperateCmd.Chi_Hu, cbActionMask) ~= 0 then
+        local img = "hu/btn1"
+        if isSelf then
+            img = "zm/btn1"
+            self.main_layer.player_panel[self.wChair + 1]:addCircleBtn(img, "red", function()
+                if not self:cardNotAble(self.cbSendCard) then
+                    self.cbOperateCard = self.cbSendCard
+                else
+                    self.cbOperateCard = self.cbCardData[self.wChair + 1][#self.cbCardData[self.wChair + 1]]
+                end
+                
+                self:sendOperateCard(GameDefs.OperateCmd.Chi_Hu)
+                self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+                self.bIsHu = false
+            end)
+            return
+        end
+
+        self.main_layer.player_panel[self.wChair + 1]:addCircleBtn(img, "red", function()
+           self:sendOperateCard(GameDefs.OperateCmd.Chi_Hu)
+           self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+           self.bIsHu = false
+        end)
+
+        self.bIsHu = true
+        return true
+    end
+
+    return false
+end
+
+--wOperateUser    WORD    操作用户
+--wProvideUser    WORD    供应用户
+--cbActionMask    BYTE    动作掩码
+--cbActionCard    BYTE    动作扑克
+function GameLogic:onOperateResultMessage(chair, data, nLen)
+    if (nLen < (2 + 2 + 1 + 1 + 4)) then
+        return
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local wOperateUser = ba:readShort()
+    local wProvideUser = ba:readShort()
+    local cbActionMask = ba:readUByte()
+    local cbActionCard = ba:readUByte()
+    local nHuRight = ba:readInt()
+
+    self.bSender = false
+    if self.wChair == wOperateUser then
+        --杠牌等待摸到手牌才能操作
+        self.bSender = cbActionMask ~= GameDefs.OperateCmd.Gang
+    end
+
+    if not self.bOperated then
+        --其他人操作
+        self:onPlayerOperateResultMessage(wOperateUser, wProvideUser, cbActionMask, cbActionCard, nHuRight)
+    end
+    self.bOperated = false
+end
+
+function GameLogic:onPlayerOperateResultMessage(wOperateUser, wProvideUser, cbActionMask, cbActionCard, nHuRight)
+    if cbActionMask == GameDefs.OperateCmd.Chi_Hu 
+        and wOperateUser ~= wProvideUser and self.bIsHu then
+        --通炮胡不删掉操作
+    else
+        self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+    end
+
+    --不是胡牌，做开杠补牌检查
+    if cbActionMask ~= GameDefs.OperateCmd.Chi_Hu then self:checkKaiGangCards(cbActionCard, wOperateUser) end
+
+    --去掉打出的牌
+    cclog("GameLogic:onOperateResultMessage "..cbActionCard..";"..cbActionMask)
+    self.main_layer:playTimerAnima(wOperateUser)
+
+    if self.operatorBack_funcs[cbActionMask] then
+        self.operatorBack_funcs[cbActionMask](wOperateUser, cbActionCard, wProvideUser, nHuRight)
+    end
+end
+
+--开杠补牌    
+function GameLogic:onKaiGangCardMessage(chair, data, nLen)
+    if (nLen < 2 + 2 + 2) then        
+        return 
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local cbCardData = {} --扑克数据
+    for i=1,2 do
+        local card = ba:readUByte()
+        if card > 0 then table.insert(cbCardData, card) end
+    end
+
+    local cbActionMask, bkaiGang = {} --玩家对补牌能做的动作掩码
+    for i=1,2 do
+        local mask = ba:readUByte()
+        if cbCardData[i] then 
+            table.insert(cbActionMask, mask)
+            if mask > 0 then bkaiGang = true end
+        end
+    end
+    local wKaiGangUser = ba:readShort()     --开杠用户   
+    local cbKaiGangCard = ba:readUByte() --杠的牌
+
+    local cbSiceData = {} --骰子数据
+    for i=1,2 do
+        local sice = ba:readUByte()
+        if sice > 0 then table.insert(cbSiceData, sice) end
+    end
+    
+
+    --显示开杠
+    if bkaiGang then
+        self:showKaiGangCards(wKaiGangUser, cbCardData, function()
+            self:showKaiGang(wKaiGangUser, cbKaiGangCard, cbCardData, cbActionMask)
+        end, cbSiceData)
+    else
+        self:showKaiGangCards(wKaiGangUser, cbCardData, nil, cbSiceData)
+    end
+
+    self.wLastChair = wKaiGangUser
+end
+
+function GameLogic:showKaiGang(wKaiGangUser, cbKaiGangCard, cbCardData, cbActionMask)
+    local masks = {0x07, 0x08, 0x80, 0x10, 0x40} --吃、碰、开杠、杠、胡
+    local operators = {}
+    for i,v in ipairs(cbActionMask) do
+        operators[i] = {}
+        for j,w in ipairs(masks) do
+            table.insert(operators[i], Bit:_and(w, v))
+        end 
+
+        --玩家是否具有胡的状态，防止返回去掉操作界面
+        if not self.bIsHu then self.bIsHu = (Bit:_and(0x40, v)~=0) end
+    end
+
+    self.main_layer.player_panel[self.wChair + 1]:addKaiGang(
+        self:GetUserNameByChair(wKaiGangUser), cbKaiGangCard, 
+        cbCardData, operators, function(mark, card)
+            self.cbOperateCode = mark
+            self.cbOperateCard = card
+            self:sendOperateCard(mark)
+            self.bIsHu = false
+        end)
+end
+
+--是否要海底
+function GameLogic:onOpenHaiDiMessage(chair, data, nLen)
+    self.main_layer.player_panel[self.wChair + 1]:addOperatorBtn("guo", function()
+        self:sendOpenHaiDi(0)
+    end)
+
+    self.main_layer.player_panel[self.wChair + 1]:addCircleBtn("csmj/btn_operator_lhd1", "yellow", function()
+        self:sendOpenHaiDi(1)
+        self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+    end)    
+end
+
+--发送海底牌
+function GameLogic:onHaiDiMessage(chair, data, nLen)
+    if (nLen < 2 + 1 + 1) then        
+        return 
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local wUserChairID = ba:readShort()     --要海底椅子号
+    local cbHaiDiCard = ba:readUByte()      --海底扑克  
+    local cbActionMask = ba:readUByte()     --动作掩码 
+
+    self.main_layer.playerLogo_panel:playOperatorVoice(wUserChairID, 0x400, 1)
+    self:showHaiDiCard(cbHaiDiCard, function()
+        --是否为自己操作
+        self.cbOperateCard = cbHaiDiCard
+        self:onOperateNotify(cbActionMask)
+    end)
+end
+
+function GameLogic:onPiaoStatusMessage(chair, data, nLen)
+    if (nLen < 4) then        
+        return 
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local pchair = ba:readUShort()
+    local bPiao = ba:readUByte()
+    local bScore = ba:readUByte()
+    self.bPiaoType = ba:readUByte()
+
+    if bScore > 0 then
+        table.insert(self.bIsPiao, {pchair, bScore})
+        self.main_layer:addPiaoMark()
+    end
+
+    if self.wChair == pchair then
+        if bPiao == 1 then
+            self.main_layer:addPiaoPanel(5)   
+        elseif self:GetMeStatus() < 4 then
+            self.main_layer:waitForPiao(0)
+        end 
+    end    
+end
+
+--lGameTax    LONG    游戏税收
+--wProvideUser    WORD    供应用户
+--cbProvideCard   BYTE    供应扑克
+--cbWinUser   WORD    胡牌用户
+--cbBankerUser   WORD    庄家用户
+--cbCardCount BYTE[4] 玩家扑克数目
+--cbCardData  BYTE[4][14] 玩家扑克数据
+--UserScoreList   Struct[4]   游戏积分
+--UserScore->nTotoalScore int 玩家总积分
+--UserScore-> nHuScore    int 胡牌积分
+--UserScore-> nGangScore  int 杠牌积分
+--UserScore-> nBirdScore  int 抓鸟积分
+function GameLogic:onGameEndMessage(chair, data, nLen) --135 73
+    if (nLen < 70) then        
+        return 
+    end
+    self.bGameEnd = true
+    
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    for i=1,6 do
+        local card = ba:readUByte()
+        cclog("抓中的鸟 "..card)
+        if not self:cardNotAble(card) then
+            table.insert(self.cbBird, card)
+        end
+    end
+    --抓中的鸟
+    for i=1,6 do
+        local card = ba:readUByte()
+        cclog("抓中的鸟 "..card)
+        table.insert(self.cbValidBird, card)  
+    end
+    
+    local lGameTax = ba:readInt()
+
+    local endInfo = {}
+    endInfo.wProvideUser = ba:readShort()
+    endInfo.cbProvideCards = {}
+    for i=1,self.cbPlayerNum do
+        local hucard = {}
+        for j=1,2 do
+            local card = ba:readUByte()
+            if card > 0 then table.insert(hucard, card) end
+        end
+        table.insert(endInfo.cbProvideCards, hucard)  
+    end
+    endInfo.cbProvideCard = endInfo.cbProvideCards[1]
+
+    endInfo.cbIsWinUser = {}       --是否为胡牌用户
+    for i=1,self.cbPlayerNum do
+        local bwin = ba:readUByte()
+        table.insert(endInfo.cbIsWinUser, bwin)  
+    end    
+    local cbBankerUser = ba:readUShort()    --庄家用户
+
+    local cbCardCount = {}                  --玩家扑克数目
+    for i=1,self.cbPlayerNum do        
+        table.insert(cbCardCount, ba:readUByte())  
+    end    
+    endInfo.cbCardData = {}             --玩家扑克数目
+    for j=1,self.cbPlayerNum do
+        table.insert(endInfo.cbCardData, {})
+        for i=1,14 do
+            local card = ba:readUByte()
+            if cbCardCount[j] >= i then
+                table.insert(endInfo.cbCardData[j], card)  
+            end
+        end       
+    end
+
+    endInfo.UserScoreList, endInfo.gameScores = {}, {} --游戏积分       
+    for i=1,self.cbPlayerNum do
+        local score = {nTotoalScore = ba:readInt(), nHuScore = ba:readInt(), nShouhuScore = ba:readInt(), 
+                nBirdScore = ba:readInt(), nPiaoScore = ba:readInt()}
+        table.insert(endInfo.UserScoreList, score)
+
+        table.insert(endInfo.gameScores, score.nTotoalScore - score.nBirdScore)
+    end
+
+    endInfo.bHaiDiHu = false  --是否为海底胡
+    endInfo.nHuRight = {}
+    for i=1,self.cbPlayerNum do
+        local nRight = ba:readInt()
+        table.insert(endInfo.nHuRight, nRight)
+
+        if Bit:_and(GameDefs.HuType.HaiDiHu_Hu, nRight) ~= 0 
+            or Bit:_and(GameDefs.HuType.HaiDiPao_hu, nRight) ~= 0 then
+            endInfo.bHaiDiHu = true
+        end
+    end
+
+    endInfo.nShouHuBird = {}
+    for i=1,self.cbPlayerNum do
+        local birds = {}
+        for i=1,2 do
+            local card = ba:readUByte()
+            if not self:cardNotAble(card) then
+                table.insert(birds, card)
+            end
+        end 
+        table.insert(endInfo.nShouHuBird, birds)  
+    end
+
+    --玩家信息
+    local TempUser = {}
+    TempUser.nUserID={}
+    for i=1,self.cbPlayerNum do
+        table.insert(TempUser.nUserID, ba:readInt())
+    end
+
+    TempUser.cbSex={}
+    for i=1,self.cbPlayerNum do
+        table.insert(TempUser.cbSex, ba:readUByte())
+    end
+
+    TempUser.szUserName={}
+    for i=1,self.cbPlayerNum do
+        table.insert(TempUser.szUserName, getUtf8(ba:readStringSubZero(32)))
+    end
+
+    local userInfos = {}
+    for i=1,self.cbPlayerNum do
+        local info = {_name = TempUser.szUserName[i], _userDBID = TempUser.nUserID[i], 
+                    _sex = TempUser.cbSex[i], _faceID = 1, m_cbFaceChagneIndex = 0, 
+                    _userIP = "127.0.0.1", _score = 0}
+        table.insert(userInfos, info)
+    end
+
+    endInfo.bPeiStates = {false, false, false, false}
+    for i=1,self.cbPlayerNum do
+        local userChair = ba:readShort()
+        if userChair ~= GameDefs.INVALID_CHAIR then
+            endInfo.bPeiStates[userChair + 1] = true
+        end
+    end
+
+------------------------------------------------------------------------------------------------
+    self.main_layer.player_panel[self.wChair + 1]:clearOperatorBtn()
+    self:playGameEndAnim(endInfo, userInfos, cbBankerUser)
+
+    self.bIsPiao = {}
+end
+
+function GameLogic:playGameEndAnim(endInfo, userInfos, cbBankerUser) 
+    --设置玩家头像
+    local exitPlyer = {}
+    if userInfos then
+        for i,v in ipairs(userInfos) do
+            local index = i - 1
+            if not self.main_layer.playerLogo_panel.logo_table[i] then
+                local chair = self:getRelativeChair(index)
+                self.main_layer.playerLogo_panel:addCommonPlayer(v, index, chair, v._score)      
+                table.insert(exitPlyer, index)      
+            end
+        end
+    end
+
+    self:setIfGetSocketData(false)
+    local function showBack()
+        --清空不存在玩家头像
+        for i,v in ipairs(exitPlyer) do
+            self:onUserExit(v, false)
+        end
+
+        self:setIfGetSocketData(true)
+    end
+
+    local birdStates = {} --是否为有效抓鸟
+    local cbCardData, wProvideUser, cbIsWinUser = endInfo.cbCardData, endInfo.wProvideUser, endInfo.cbIsWinUser
+    local UserScoreList, gameScores = endInfo.UserScoreList, endInfo.gameScores
+    local cbWinUser, cbWinChairs = GameDefs.INVALID_CHAIR, {}
+    local ctype
+
+    local function showGameResult()            
+        require("Lobby/Set/SetLogic").playGameEffect(AppConfig.SoundFilePathName.."gamend"..ctype..AppConfig.SoundFileExtName)
+        self.main_layer:gameEnd()
+        self.main_layer.result_panel:show(showBack)                        
+    end
+
+    --初始化结算界面
+    local function initGameResult(resultType)
+        --双杠上花处理
+        local cbResultCards = {}
+        for i,v in ipairs(cbCardData) do
+            local Cards = {}
+            for j,w in ipairs(v) do
+                table.insert(Cards, w)
+            end
+
+            if #endInfo.cbProvideCards[i] > 1 then
+                table.insert(Cards, endInfo.cbProvideCards[i][2])
+            end
+            table.sort(Cards)
+
+            table.insert(cbResultCards, Cards)
+        end
+
+        self.main_layer:addResultPanel(ctype)
+        self.main_layer.result_panel:addBirdMark(self.cbBird, birdStates, endInfo.bHaiDiHu)
+        self.main_layer.result_panel:addResultInfo(resultType,
+            self.cbPlayerNum, endInfo.bPeiStates, UserScoreList, endInfo.nShouHuBird, self.cdDownCard, cbResultCards, 
+            endInfo.cbProvideCards, cbBankerUser, cbIsWinUser, wProvideUser, self.wChair, endInfo.nHuRight)
+    end
+
+    --摊开手牌
+    local function openPlayerCard()
+        for j=1,self.cbPlayerNum do
+            --显示手牌
+            if j - 1 ~= self.wChair then
+                self.main_layer.player_panel[j]:initPublicHandPais(cbCardData[j])
+            end        
+        end
+    end
+
+    --取消牌局操作
+    self.main_layer:stopGameOperator()
+    cclog("取消牌局操作 "..wProvideUser)
+    if wProvideUser == GameDefs.INVALID_CHAIR then
+        ctype = 3 --流局结束
+        initGameResult(3)
+        openPlayerCard()
+        showGameResult()
+    else
+        --自摸、胡牌 
+        for i,v in ipairs(cbIsWinUser) do
+            if v ~= 0 then
+                cbWinUser = i - 1
+                table.insert(cbWinChairs, cbWinUser)
+            end
+
+            if i == self.wChair + 1 then
+                if v == 0 then
+                    ctype = 2   --失败
+                else
+                    ctype = 1   --胜利
+                end
+            end
+        end
+
+        local function animBack()
+            openPlayerCard()
+            self.main_layer:addGoldResult(gameScores, function()
+                if #self.cbBird > 0 then
+                    if not endInfo.bHaiDiHu then
+                        --摸牌抓鸟
+                        self.main_layer:getGameCardAnima(#self.cbBird)
+                    end
+
+                    self.main_layer:addBirdPanel(self.bGet159Bird, self.cbBird, self.cbValidBird, birdStates, function()
+                        showGameResult()
+                    end)                    
+                else
+                    require("HallUtils").showWebTip("本局游戏由于剩余牌数为空无法抓鸟")
+                    showGameResult()
+                end 
+            end, function() end)
+        end 
+
+        --获取扎鸟状态
+        if not self.bGet159Bird then
+            --扎二鸟
+            if cbWinUser == wProvideUser then
+                --自摸
+                for i,v in ipairs(self.cbValidBird) do
+                    --所有的鸟有效
+                    table.insert(birdStates, true)
+                end            
+                initGameResult(2)   
+            else
+                --点炮
+                for i,v in ipairs(self.cbValidBird) do
+                    --点炮玩家、获胜玩家有效鸟
+                    local able = false
+                    if endInfo.UserScoreList[v + 1].nHuScore > 0 or wProvideUser == v then able = true end                
+                    table.insert(birdStates, able)
+                end            
+                initGameResult(1)      
+            end
+        else
+            --扎159鸟
+            local index = 1
+            for i,v in ipairs(self.cbBird) do
+                if index <= #self.cbValidBird and self.cbValidBird[index] == v then            
+                    table.insert(birdStates, true)
+                    index = index + 1
+                else
+                    table.insert(birdStates, false)
+                end
+            end
+
+            if cbWinUser == wProvideUser then
+                --自摸         
+                initGameResult(2)   
+            else
+                --点炮           
+                initGameResult(1)      
+            end                        
+        end
+        
+        --等待
+        local array = CCArray:create()
+        array:addObject(CCDelayTime:create(0.1 + self.cbHuRightCount * 0.9))
+        array:addObject(CCCallFunc:create(animBack))
+        self.main_layer:runAction(CCSequence:create(array))            
+    end 
+end
+
+function GameLogic:onFriendTableEndMessage(infoList)
+    self.bGameEnd = true
+    self.bFriendEnd = true
+    self.main_layer:addFriendResultPanel(infoList)
+
+    --离开游戏
+    FriendGameLogic.onFriendGameOver()
+
+    if require("LobbyControl").gameSink ~= nil then
+        require("LobbyControl").gameSink = nil
+        GameLibSink.game_lib:leaveGameRoom()
+        GameLibSink.game_lib:release()
+        GameLibSink.game_lib = nil
+    end  
+
+    GameLogic.message_data = {}
+    self:clearSecesTimerScript()    
+end
+
+function GameLogic:playHuAnima(chair, card, provide, huRight)
+    --播放胡牌动画
+    local animImg, operateCodes = {},{}
+    for k,v in pairs(GameDefs.HuType) do
+        if Bit:_and(v, huRight) ~= 0 then
+            table.insert(animImg, string.format("csmj/huAnim%x.png", v)) 
+            table.insert(operateCodes, v)
+        end
+    end
+
+    if #animImg > self.cbHuRightCount then self.cbHuRightCount = #animImg end
+    
+
+    local index = 1
+    local function animBack()
+        if index <= #animImg then
+            self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x200, operateCodes[index])
+            self.main_layer:playHuTypeAnima(animImg[index], chair, animBack)
+            index = index + 1
+        end
+    end
+    
+    local check, voiceType = require("Lobby/Set/SetLogic").getGameCheckByIndex(3)
+    --方言只有一种音效
+    if check ~= 1 then voiceType = 1 end
+
+    if chair == provide then
+        --自摸语言
+        if huRight > 0 then
+            self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x44, voiceType)
+        else
+            self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x42)
+        end
+
+        self.main_layer:playOperatorAnima("zm", chair, animBack)          
+    else
+        if #self.gang_cards < 1 then
+            --不是开杠胡、海底胡
+            self:getLastPlayerPanle():removeCardAnima() 
+        end
+
+        --点炮
+        self.main_layer:playOperatorAnima("dianpao", provide)            
+         --胡牌语言
+        self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x40, voiceType)
+        self.main_layer:playOperatorAnima("hu", chair, animBack)          
+    end
+end
+
+--庄家是否为自己
+function GameLogic:mineIsBanker()
+    return self.bBanker
+end
+
+--获取在线玩家、总玩家
+function GameLogic:getPlayeCount()
+    local count = 0
+    for i=1,self.cbPlayerNum do
+        if self.user_list[i - 1] and self.user_list[i - 1]~=0 then
+            count = count + 1
+        end
+    end
+
+    return count, self.cbPlayerNum
+end
+
+function GameLogic:getUserByChair(chair)
+    return self.user_list[chair]
+end
+
+function GameLogic:getProvideDirct(obtain, provide)
+    local obtainChair = self:getRelativeChair(obtain)
+    local provideChair = self:getRelativeChair(provide)
+    local chair = (provideChair - obtainChair + 4) % 4
+
+    return chair    
+end
+
+function GameLogic:getAbsolutelyChair(pos)
+    local chair = (pos - 1 + self.wChair) % 4
+
+    if self.cbPlayerNum == 3 then
+        if self.wChair == 0 then
+            --东方
+            local chairs = {0, 1, 3, 2}
+            return chairs[pos]            
+        elseif self.wChair == 2 then
+            --西方
+            local chairs = {2, 0, 3, 1}
+            return chairs[pos]             
+        end
+    end
+
+    return chair    
+end
+
+function GameLogic:getRelativeChair(playerchair)
+    cclog("getRelativeChair "..tostring(playerchair))
+    if self.cbPlayerNum == 3 then
+        if self.wChair == 0 then
+            --东方
+            local chairs = {1, 2, 4}
+            return chairs[playerchair + 1]                       
+        elseif self.wChair == 2 then
+            --西方
+            local chairs = {2, 4, 1}
+            return chairs[playerchair + 1]             
+        end
+    end
+
+    local pos = (playerchair + 4 - self.wChair) % 4
+    return pos + 1    
+end
+
+--相对位置三人椅子转换
+function GameLogic:getThreeRelativeChair(chair)
+    if self.wChair == 0 then
+        return (chair + 1) % 3
+    elseif self.wChair == 2 then
+        return (chair + 2) % 3
+    end
+
+    return chair
+end
+
+
+function GameLogic:getMyPanel()
+    local myChair = self.wChair
+    if self.main_layer and self.main_layer.player_panel then
+        return self.main_layer.player_panel[myChair + 1]
+    end
+end
+
+function GameLogic:getMyDownCard()
+    local myChair = self.wChair
+    if self.cdDownCard then
+        return self.cdDownCard[myChair + 1]
+    end
+end
+
+--判断是否为有效牌值
+function GameLogic:cardNotAble(card)
+    if not card or card == 0 then
+        return true
+    end
+
+    return false
+end
+
+function GameLogic:setCardIndex(chair, card) 
+    local cout = #self.cbCardData[chair + 1]
+    for i = cout, 1, -1 do
+        cclog("setCardIndex "..self.cbCardData[chair + 1][i]..";"..card)
+        if self.cbCardData[chair + 1][i] == card then
+            self.main_layer.player_panel[chair + 1]:setCardIndex(i)
+            return
+        end
+    end
+
+end
+
+ --删除手牌
+function GameLogic:removeMineCards(removeCard)
+    return self:removePlayerCards(self.wChair, removeCard)
+end
+
+ --删除椅子手牌
+function GameLogic:removeCardsByChair(cardDatas, removeCard, chair)
+    local cards = cardDatas[chair + 1]
+    table.sort(cards)
+    table.sort(removeCard)
+
+    local indexTable = {}
+    local j = #removeCard
+    for i=#cards, 1, -1 do 
+        if cards[i] == removeCard[j] then 
+            j = j - 1
+            table.insert(indexTable, i)
+            table.remove(cards, i) 
+
+            if j < 1 then
+                break
+            end
+        end 
+    end
+
+    return indexTable, cardDatas
+end
+
+function GameLogic:removePlayerCards(chair, removeCard)
+    local cards = self.cbCardData[chair + 1]
+
+    --查找
+    local indexTable = {}
+    for i,v in ipairs(removeCard) do
+        for j=#cards, 1, -1 do 
+            if cards[j] == v then 
+                table.insert(indexTable, j)
+                cards[j] = 0 --设置为无效值
+                break
+            end 
+        end
+    end
+
+    --删除
+    for j=#cards, 1, -1 do 
+        if cards[j] == 0 then 
+            table.remove(cards, j)
+        end 
+    end
+
+    --排序:从大到小
+    table.sort(indexTable, function(a,b) return a>b end)
+
+    return indexTable, cards
+end
+
+--替换手牌
+function GameLogic:replaceMineCards(cards, repcard)
+    local replaceIndexs = {}    --替换数据下标
+    local handcard = self.cbCardData[self.wChair + 1]
+
+    for i,v in ipairs(cards) do
+        if self:cardNotAble(v) then
+            break
+        end
+        
+        for j=#handcard, 1, -1 do 
+            if handcard[j] == v then 
+                handcard[j] = repcard[i]
+                table.insert(replaceIndexs, j)
+            end 
+        end
+    end
+
+    return replaceIndexs
+end
+
+--获取上家玩家UI
+function GameLogic:getLastPlayerPanle()
+    cclog("getLastPlayerPanle "..self.wLastChair)
+    return self.main_layer.player_panel[self.wLastChair + 1]
+end
+
+--整理手牌
+function GameLogic:sortMineCards()
+    local t = self.cbCardData[self.wChair + 1]
+    -- 从小到大排序, 并强制癞子在左侧
+    table.sort(t, function(a, b)
+        if self:isSpecialCard(a) then
+            if self:isSpecialCard(b) then
+                return false
+            else
+                return true
+            end
+        else
+            if self:isSpecialCard(b) then
+                return false
+            else
+                return a < b
+            end
+        end
+    end)
+    return t
+end
+
+function GameLogic:mineIsGuo()
+    for i,v in ipairs(self.cbCardData[self.wChair + 1]) do
+        if v ~= 0x35 then
+            return true
+        end
+    end
+
+    return false
+end
+
+--获取手牌
+function GameLogic:getMineCards(chair)
+    chair = chair or self.wChair
+    return self.cbCardData[chair + 1]
+end
+
+--获取手牌坐标
+function GameLogic:getMineCardIndex(card)
+    local cout = #self.cbCardData[self.wChair + 1]
+    for i = cout, 1, -1 do
+        if self.cbCardData[self.wChair + 1][i] == card then
+            return i
+        end
+    end
+    return nil
+end
+
+--获取手牌个数
+function GameLogic:getMineCardCount(card)
+    local cout, inum = #self.cbCardData[self.wChair + 1], 0
+    for i = cout, 1, -1 do
+        if self.cbCardData[self.wChair + 1][i] == card then
+            inum = inum + 1
+        end
+    end
+    return inum
+end
+
+--获取手牌根据坐标
+function GameLogic:getMineCardFromIndex(index)
+    local cout = #self.cbCardData[self.wChair + 1]
+    if index>=1 and index<=cout then
+        return self.cbCardData[self.wChair + 1][index]
+    end
+
+    return nil
+end
+
+--获取相同手牌的个数
+function GameLogic:getSameCountCardNum(cards, nSame)
+    local indexs = {}
+    for i,v in ipairs(cards) do
+        if not indexs[v] then
+            indexs[v] = 0
+        end
+
+        indexs[v] = indexs[v] + 1
+    end
+
+    local nCount = 0
+    for k,v in pairs(indexs) do
+        if v >= nSame then
+            nCount = nCount + 1
+        end
+    end
+
+    return nCount
+end
+
+--自己是否可以打牌
+function GameLogic:mineIsSender()
+    return self.bSender
+end
+
+function GameLogic:GetMyInfo()
+    return self.user_list[self.wChair]
+end
+
+function GameLogic:GetMeStatus()
+    if self.user_list[self.wChair] and self.user_list[self.wChair] ~= 0 then
+        return self.user_list[self.wChair]._status
+    end
+
+    return 0
+end
+
+function GameLogic:GetMeDBID()
+    if self.user_list[self.wChair] and self.user_list[self.wChair] ~= 0 then
+        return self.user_list[self.wChair]._userDBID
+    end
+
+    return 0
+end
+
+function GameLogic:GetUserName(userID)
+    for k,v in pairs(self.user_list) do
+        if v ~= 0 and v._userDBID ==  userID then
+            return v._name
+        end
+    end
+
+    return "玩家"
+end
+
+function GameLogic:GetUserNameByChair(chair)
+    for k,v in pairs(self.user_list) do
+        if v ~= 0 and v._chairID ==  chair then
+            return v._name
+        end
+    end
+
+    return "玩家"
+end
+
+--替换到登录主界面
+function GameLogic:replaceMainScence(pMyInfo)
+    pMyInfo = pMyInfo or GameLibSink:getMyInfo()
+
+    GameLibSink.game_lib:startCheckPing()
+    FriendGameLogic.enterGameRoomSuccess()
+    
+    local LayerGame = require(GameDefs.CommonInfo.Code_Path.."Game/LayerGame")
+    if self.main_layer then
+        --断线重回
+        if self.bGameEndState > 0 then
+            --重置玩家头像
+            self:onUserExit(0, true)            
+        else
+            --游戏界面重置
+            self.main_layer:removeFromParentAndCleanup(true)
+            self:initGameData()
+
+            local scence = CCDirector:sharedDirector():getRunningScene()
+            self.main_layer = LayerGame.create(self.cbPlayerNum)
+            self.main_layer:initGameUI()
+
+            self.main_layer:setTimerDirct(self.wChair)
+
+            scence:addChild(self.main_layer)
+        end
+    else
+        self:initGameData()
+        self.wChair = pMyInfo:getUserChair()
+
+        local scence, layer = LayerGame.createScene(self.cbPlayerNum)
+        LayerGame.checkLocation = false --初始化定位变量
+
+        CCDirector:sharedDirector():replaceScene(scence)
+        layer:initGameUI()
+
+        layer:setTimerDirct(self.wChair)
+
+        require("LobbyControl").gameLogic = self
+        require("LobbyControl").removeHallCache()
+
+        --设置当前操作UI
+        self.main_layer = layer        
+    end
+
+    self:onUserEnterRoom(pMyInfo)
+
+    GameLibSink:onEnterGameView()    
+end
+
+--设置广播回调
+function GameLogic:registGameBack()
+    self.socketBack_funcs[SOCKET_TYPE_SCENE] = function(sockData)
+        self:onSceneChanged(sockData[1], sockData[2])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_GAME] = function(sockData)
+        self:onGameMessage(sockData[1], sockData[2], sockData[3], sockData[4])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_USEREXIT] = function(sockData)
+        self:onUserExit(sockData[1], sockData[2])
+    end    
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDRULE] = function(sockData)
+        self:onFriendRuleMessage(sockData[1], sockData[2], sockData[3])
+    end 
+
+    self.socketBack_funcs[SOCKET_TYPE_LEAVETABLE] = function(sockData)
+        self:onLeaveTable()
+    end 
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDABLED] = function(sockData)
+        self:onFriendTabledAbled()
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDEND] = function(sockData)
+        self:onFriendTableEndMessage(sockData[1])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_USERSTATUS] = function(sockData)
+        self:onUserStatus(sockData[1], sockData[2])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_REPLACE] = function(sockData)
+        self:replaceMainScence()
+    end
+
+    --游戏开始
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Game_Start] = function(chair, data, nLen)
+        self:onGameStartMessage(chair, data, nLen)
+    end
+
+
+    --通知玩家起手胡
+    self.messageBack_funcs[GameDefs.CmdInfo.S_IS_SHOU_HU] = function(chair, data, nLen)   
+        self:onOpenShouHuMessage()
+    end
+
+    --起手胡广播
+    self.messageBack_funcs[GameDefs.CmdInfo.S_QI_SHOU_HU] = function(chair, data, nLen)   
+        self:onShouHuMessage(chair, data, nLen)
+    end
+
+    --起手胡选择结束，庄家开始（操作或出牌提示）
+    self.messageBack_funcs[GameDefs.CmdInfo.S_BANKER_START] = function(chair, data, nLen)   
+        self:onBankerStartMessage(chair, data, nLen)
+    end
+
+    --玩家出牌
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Out_Card] = function(chair, data, nLen)
+        self:checkPublicCard()  --检查起手胡摊牌
+        self:onOutCardMessage(chair, data, nLen)
+    end
+
+    --玩家摸牌
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Send_Card] = function(chair, data, nLen)
+        cclog("开杠补牌检查")
+        self:checkKaiGangCards(0)   --开杠补牌检查
+        self:onSendCardMessage(chair, data, nLen)
+    end
+
+    --玩家操作提示  
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Operate_Notify] = function(chair, data, nLen)
+        self:onOperateNotifyMessage(chair, data, nLen)
+    end
+
+    --玩家操作结果  
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Operate_Result] = function(chair, data, nLen)
+        self:checkPublicCard()  --检查起手胡摊牌
+
+        self:onOperateResultMessage(chair, data, nLen)
+    end
+
+    --开杠补牌  
+    self.messageBack_funcs[GameDefs.CmdInfo.S_KAIGANG_BUCARD] = function(chair, data, nLen)
+        self:onKaiGangCardMessage(chair, data, nLen)
+    end
+
+    --是否要海底牌
+    self.messageBack_funcs[GameDefs.CmdInfo.S_IS_OPEN_HAIDI] = function(chair, data, nLen)
+        self:onOpenHaiDiMessage(chair, data, nLen)
+    end
+
+    --发送海底牌
+    self.messageBack_funcs[GameDefs.CmdInfo.S_HAIDI_CARD] = function(chair, data, nLen)
+        self:onHaiDiMessage(chair, data, nLen)
+    end
+
+    --飘通知
+    self.messageBack_funcs[GameDefs.CmdInfo.S_ChoosePiao] = function(chair, data, nLen)
+        self:onChoosePiaoMessage(chair, data, nLen)
+    end
+
+    --飘广播
+    self.messageBack_funcs[GameDefs.CmdInfo.S_UserPiaoStatus] = function(chair, data, nLen)   
+        self:onPiaoStatusMessage(chair, data, nLen)
+    end
+
+    --游戏结束  
+    self.messageBack_funcs[GameDefs.CmdInfo.S_Game_End] = function(chair, data, nLen)
+        self.bGameEndState = 1
+
+        self:onGameEndMessage(chair, data, nLen)
+    end
+
+    self:registOperatorBack()
+
+    self:OnReadyGame()
+end
+
+--设置操作牌广播回调
+function GameLogic:registOperatorBack()
+    --吃牌操作
+    local function chiOperator(downcard, removeCard, dirct, chair)
+        self.main_layer:playOperatorAnima("chi", chair)
+        self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x4)  
+        table.insert(self.cdDownCard[chair + 1], downcard)
+
+        local panel = self.main_layer.player_panel[chair + 1]
+        local panelTag = panel:getTag() --相对位置
+        if panelTag == 1 or panelTag == 4 then
+            --修正吃牌顺序
+            downcard[1], downcard[3] = downcard[3], downcard[1]
+        end
+        panel:onChiPengAnima(downcard, removeCard, dirct)
+
+        return removeCard
+    end
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Right_Chi] = function(chair, card, provide)
+        local downcard = {card - 2, card, card - 1}
+        local removeCard = {card - 2, card - 1}   
+
+        return chiOperator(downcard, removeCard, 2, chair)      
+    end
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Middle_Chi] = function(chair, card, provide)
+        local downcard = {card - 1, card, card + 1}
+        local removeCard = {card - 1, card + 1}
+
+        return chiOperator(downcard, removeCard, 2, chair)   
+    end
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Left_Chi] = function(chair, card, provide)
+        local downcard = {card + 1, card, card + 2}
+        local removeCard = {card + 1, card + 2}
+        
+        return chiOperator(downcard, removeCard, 2, chair) 
+    end
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Peng] = function(chair, card, provide)
+        local downcard = {card, card, card}
+        local removeCard = {card, card}
+
+        self.main_layer:playOperatorAnima("peng", chair)
+        self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x8)
+        
+        table.insert(self.cdDownCard[chair + 1], downcard)
+        local item = self.main_layer.player_panel[chair + 1]:onChiPengAnima(downcard, removeCard, 
+                                                            self:getProvideDirct(chair, provide))
+
+        table.insert(self.cdDownPengCard[chair + 1], card)
+        table.insert(self.cdDownPengCard[chair + 1], item) 
+
+        return removeCard
+    end
+
+
+    local function gangOperator(img, chair, card, provide)
+        local downcard = {card, card, card, card}
+        local removeCard = {card, card, card}
+
+        self.main_layer:setCardDirct(1)
+        self.main_layer:playOperatorAnima(img, chair)
+        local ctype = 2
+
+        if provide == chair then
+            --暗杠
+            removeCard = {card, card, card, card}
+            downcard = {0, 0, 0, card}
+            table.insert(self.cdDownCard[chair + 1], downcard)
+            self.main_layer.player_panel[chair + 1]:onAnGangAnima(removeCard, removeCard)
+            ctype = 1
+        elseif provide >= self.cbPlayerNum then
+            --碰杠
+            for i,v in ipairs(self.cdDownPengCard[chair + 1]) do
+                if i % 2 ~= 0 and v == card then
+                    --删除碰
+                    for i,v in ipairs(self.cdDownCard[chair + 1]) do
+                        if v[1] == card then
+                            table.remove(self.cdDownCard[chair + 1], i)
+                            break
+                        end
+                    end
+                    table.insert(self.cdDownCard[chair + 1], downcard)
+                    
+                    --由碰转杠
+                    self.main_layer.player_panel[chair + 1]:onPengGangAnima({card}, self.cdDownPengCard[chair + 1][i + 1])
+                end
+            end            
+        else
+            table.insert(self.cdDownCard[chair + 1], downcard)
+            self.main_layer.player_panel[chair + 1]:onGangAnima(downcard, removeCard, 
+                                                            self:getProvideDirct(chair, provide))
+        end
+
+        if "kai" == img then
+            self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x10, ctype)
+        else
+            self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x80, ctype)
+        end
+
+        return removeCard
+    end
+    self.operatorBack_funcs[GameDefs.OperateCmd.Gang] = function(chair, card, provide)
+        return gangOperator("gang", chair, card, provide)
+    end
+    self.operatorBack_funcs[GameDefs.OperateCmd.Kai_Gang] = function(chair, card, provide)
+        self.bIsKaiGanged[chair + 1] = true
+        self.main_layer.playerLogo_panel:updataPlayerTing(chair)
+
+        if chair == self.wChair then 
+            --开杠之后无法操作
+            self.bSender = false
+            self.main_layer.player_panel[self.wChair + 1]:setCardEnabled(false) 
+        end
+        
+        return gangOperator("kai", chair, card, provide)
+    end
+
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Ting] = function(chair)
+        self.main_layer.playerLogo_panel:playOperatorVoice(chair, 0x20)
+    end
+
+
+    self.operatorBack_funcs[GameDefs.OperateCmd.Chi_Hu] = function(chair, card, provide, huRight)
+        self:playHuAnima(chair, card, provide, huRight)
+    end
+
+end
+
+-- 判定玩家震动
+function GameLogic:shake(t, special)
+    if self.bSender or special then
+        require("Lobby/Set/SetLogic").playGameShake(t)
+    end
+end
+
+return GameLogic

@@ -1,0 +1,73 @@
+CCFileUtils:getInstance():addSearchPath("src")
+CCFileUtils:getInstance():addSearchPath("res")
+
+local GAME_RULE_LAYER       =           1999                            
+
+local GameRuleLayer = class("GameRuleLayer")
+--结算layer对象创建
+function GameRuleLayer.create()
+    local layer = GameRuleLayer.new()
+
+    local gameEndLayer =   layer:CreateGameEndLayer()
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    if nil==gameEndLayer then cclog("gameEndLayer nil") end
+    gameEndLayer:setTag(GAME_RULE_LAYER)
+    gameEndLayer:setVisible(true)
+    scene:addChild(gameEndLayer,110)
+
+    return layer
+end
+--结算layer属性   初始化值
+function GameRuleLayer:ctor()
+    --主场景属性、常量定义
+    self.layer = CCLayer:create()
+    self.layer:setTouchEnabled(true)
+    self.nodePanel = nil
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+    self.origin = CCDirector:sharedDirector():getVisibleOrigin()
+    self.Button_close = nil
+    self.isVisible = false
+end
+--显示隐藏层设置
+function GameRuleLayer:SetLayerVisible(isVisible)
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    local gameEndLayer =   scene:getChildByTag(GAME_RULE_LAYER)
+    if nil==gameEndLayer then cclog("gameEndLayer nil") end
+    gameEndLayer:setVisible(isVisible)
+end
+--关闭
+function GameRuleLayer:OnCloseFunc(event)
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    local gameEndLayer =   scene:getChildByTag(GAME_RULE_LAYER)
+    if nil==gameEndLayer then cclog("gameEndLayer nil") end
+    gameEndLayer:setVisible(false)
+end
+--主层NODE节点   初始化    Tools为自定义获取全局节点类
+function GameRuleLayer:InitNode()
+    --Button按钮节点
+    self.Button_Close = CCuiloader:seekNodeByName(self.nodePanel,"Button_Close")                            --返回按钮
+
+end
+--注册回调函数
+function GameRuleLayer:RegisterClickEvent()
+    self.Button_Close:onButtonClicked(handler(self, self.OnCloseFunc))
+end
+--结算layer创建
+function GameRuleLayer:CreateGameEndLayer()
+
+    --获取结算界面画布
+    self.nodePanel = CCuiloader:load("ccbResources/paohuziRes/GameRuleLayer.json")
+    self.layer:addChild(self.nodePanel)
+    --获取节点元素
+    self:InitNode()
+    --节点回调事件注册
+    self:RegisterClickEvent()
+
+    return self.layer
+
+end
+
+return GameRuleLayer

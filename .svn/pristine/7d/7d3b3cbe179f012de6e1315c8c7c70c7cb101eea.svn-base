@@ -1,0 +1,1353 @@
+require("CocosExtern")
+local Common = require("pdk/Game/Common")
+
+local ShareFuns = {}
+
+--拷贝(checked)
+function ShareFuns.Copy(CardArrayIn)
+    local CardArrayOut = {}
+    for i = 1,#CardArrayIn do
+        table.insert(CardArrayOut,CardArrayIn[i])
+    end
+    return CardArrayOut
+end
+
+--添加(checked)
+function ShareFuns.Append(CardArrayIn,AppendCardArray)
+	for i=1,#AppendCardArray do
+		table.insert(CardArrayIn,AppendCardArray[i])
+	end
+	return CardArrayIn
+end
+
+--反转(checked)
+function ShareFuns.Reverse(cardArray)
+	local size = #cardArray
+	if size == 0 then
+		return
+	end
+
+	local newCardArray ={}
+	for i=1,size do
+		newCardArray[i] = cardArray[size - i + 1]
+	end
+
+	return newCardArray
+end
+
+
+--有没有A(checked)
+function ShareFuns.isHasA(cardArray)
+	for i = 1,#cardArray do
+		if ShareFuns.CardValue(cardArray[i]) == Common.CARDVALUE_A then
+			return i
+		end
+	end
+
+	return -1
+end
+
+--有没有2(checked)
+function ShareFuns.isHas2(cardArray)
+	for i = 1,#cardArray do
+		if ShareFuns.CardValue(cardArray[i]) == Common.CARDVALUE_2 then
+			return i
+		end
+	end
+
+	return -1   
+end
+
+--有没有黑桃三(checked)
+function ShareFuns.isHasHeitao3(cardArray)
+	for i = 1,#cardArray do
+		if ShareFuns.CardValue(cardArray[i]) == Common.CARDVALUE_3 and ShareFuns.CardType(cardArray[i]) == Common.CARDTYPE_SPADE then
+			return i
+		end
+	end
+
+	return -1   
+end
+
+
+--牌值是否连续递增(checked)
+function ShareFuns.IsSeqByVal(cardArray)
+	local firstval = ShareFuns.CardValue(cardArray[1])	
+	for i = 2, #cardArray do
+		if firstval ~= ShareFuns.CardValue(cardArray[i]) + i - 1 then
+			return false
+		end
+	end
+	return true
+end
+
+--取出cardArrayIn中所有同值数量等于nCompare的牌并从cardArrayIn中删除
+function ShareFuns.GetSameVal(cardArrayIn,nCompare)
+  cardArrayIn = ShareFuns.SortCards(cardArrayIn)
+  local cardArrayOut = {}	
+	local TempArray = {}
+
+	if  #cardArrayIn < nCompare then
+		return false,cardArrayIn, cardArrayOut
+	end
+
+	local i = 1
+	local cbNums = 1
+	while true do
+        
+		if i > #cardArrayIn then 
+			break
+		end
+        
+        TempArray = {}
+
+		table.insert(TempArray,cardArrayIn[i])
+		cbNums = 1
+		
+		for j = i + 1, #cardArrayIn do 
+
+			if ShareFuns.CardValue(cardArrayIn[i]) == ShareFuns.CardValue(cardArrayIn[j]) then				
+				table.insert(TempArray,cardArrayIn[j])
+				cbNums = cbNums + 1
+
+				if cbNums == nCompare then
+					for k = 1,#TempArray do
+						table.insert(cardArrayOut,TempArray[k])
+					end
+					break
+				end
+			else
+				cbNums = 1
+				break
+			end				
+			
+			if cbNums == nCompare then
+				for k = 1,#TempArray do
+					table.insert(cardArrayOut,TempArray[k])
+				end
+			end
+		end
+		i = i + cbNums
+	end
+
+	if  #cardArrayOut > 0 then
+		-- 从in中去掉所有的
+		for i = 1,#cardArrayOut do
+			local iEquIdx = -1
+			for j = 1,#cardArrayIn do			
+				if cardArrayOut[i] == cardArrayIn[j] then
+					iEquIdx = j
+					break
+				end
+			end
+
+			if  iEquIdx ~= -1 then
+				table.remove(cardArrayIn, iEquIdx)
+			end
+		end
+
+		return true, cardArrayIn, cardArrayOut
+	end
+	
+	return false,cardArrayIn, cardArrayOut
+end
+
+
+--逆时针椅子号
+function ShareFuns.AntiClockWise(chair)
+	return (chair+Common.PLAYER_COUNT-1)%Common.PLAYER_COUNT
+end
+
+--顺时针椅子号
+function ShareFuns.ClockWise(chair)
+	return (chair+1)%Common.PLAYER_COUNT
+end
+
+
+--获取牌值(checked)
+function ShareFuns.CardValue(CardIndex)
+	if not(CardIndex >= 0 and CardIndex <= 51) then
+		return Common.CARDVALUE_INVALID
+	end
+
+	local valueIndex = CardIndex % 13
+	local value = valueIndex - 1
+	if valueIndex == 0 then
+		value = Common.CARDVALUE_A
+    elseif valueIndex == 1 then
+        value = Common.CARDVALUE_2
+	end
+
+	return value
+end
+
+--获取花色(checked)
+function ShareFuns.CardType(CardIndex)
+	local cType = math.floor(CardIndex/13)
+	return cType
+end
+
+-- 按花色排序, 同花色按从大到小(checked)
+function ShareFuns.SortCardsByCardType(cardArray)
+    if #cardArray < 2 then return cardArray end
+	local tempCardArray = ShareFuns.Copy(cardArray)
+    table.sort(tempCardArray, function(a, b)
+        if ShareFuns.CardType(a) == ShareFuns.CardType(b) then
+            return ShareFuns.CardValue(a) > ShareFuns.CardValue(b)
+        else
+            return ShareFuns.CardType(a) > ShareFuns.CardType(b)
+        end
+    end)
+	return tempCardArray
+end
+
+-- 简单插入排序 从大到小, 同值按花色从大到小(checked)
+function ShareFuns.SortCards(cardArray)
+    if #cardArray < 2 then return cardArray end
+	local tempCardArray = ShareFuns.Copy(cardArray)
+    table.sort(tempCardArray, function(a, b)
+        if ShareFuns.CardValue(a) == ShareFuns.CardValue(b) then
+            return ShareFuns.CardType(a) > ShareFuns.CardType(b)
+        else
+            return ShareFuns.CardValue(a) > ShareFuns.CardValue(b)
+        end
+    end)
+	return tempCardArray
+end
+
+-- 简单插入排序 从小到大, 同值按花色从大到小(checked)
+function ShareFuns.SortCardsByMin(cardArray)
+    if #cardArray < 2 then return cardArray end
+	local tempCardArray = ShareFuns.Copy(cardArray)
+    table.sort(tempCardArray, function(a, b)
+        if ShareFuns.CardValue(a) == ShareFuns.CardValue(b) then
+            return ShareFuns.CardType(a) > ShareFuns.CardType(b)
+        else
+            return ShareFuns.CardValue(a) < ShareFuns.CardValue(b)
+        end
+    end)
+	return tempCardArray
+end
+
+-- 去掉重复的值(checked)
+function ShareFuns.GetOnlyInArray(cardArrayIn)
+	local cardArrayInTemp = ShareFuns.Copy(cardArrayIn)
+	local cardArratOut = {}
+	for i = 1,#cardArrayInTemp do
+		if cardArrayInTemp[i] ~= -1 then
+			for j = i + 1,#cardArrayInTemp do
+				if j > #cardArrayInTemp then
+					break
+				end
+
+				if ShareFuns.CardValue(cardArrayInTemp[i]) == ShareFuns.CardValue(cardArrayInTemp[j]) then
+					cardArrayInTemp[j] = -1
+				end
+			end
+
+			table.insert(cardArratOut,cardArrayInTemp[i])
+		end
+	end
+
+	return cardArratOut
+end
+
+-- 去掉重复的对子(checked)
+function ShareFuns.RemoveSameDouble( cardArrayIn )
+	local cardArrayInTemp = ShareFuns.Copy(cardArrayIn)
+	for i = 1, #cardArrayInTemp - 2, 2 do
+	    if ShareFuns.CardValue(cardArrayInTemp[i]) == ShareFuns.CardValue(cardArrayInTemp[i+2]) then			
+			cardArrayInTemp[i+2] = -1
+			cardArrayInTemp[i+3] = -1
+		end
+	end
+	 
+	local ArrayOut = {}
+	for i = 1, #cardArrayInTemp, 1 do
+		if -1 ~= cardArrayInTemp[i] then
+			table.insert(ArrayOut,cardArrayInTemp[i])
+		end
+	end
+
+	return ArrayOut
+end
+
+-- 从一个数组删除一组数组(checked)
+function ShareFuns.RemoveAryFromAry(cardArrayIn,cardArrayRemove)
+	local cardArrayInTemp = ShareFuns.Copy(cardArrayIn)
+	local cardArrayRemoveTemp = ShareFuns.Copy(cardArrayRemove)
+
+	local cardArrayOut = {}
+	for i = 1,#cardArrayInTemp do
+		for j = 1,#cardArrayRemoveTemp do
+			if cardArrayRemoveTemp[j] == cardArrayInTemp[i] and cardArrayRemoveTemp[j] ~= -1 then
+				cardArrayRemoveTemp[j] = -1
+				cardArrayInTemp[i] = -1
+				break
+			end
+		end
+	end
+
+	for i=1,#cardArrayInTemp do
+		if cardArrayInTemp[i] ~= -1 then
+			table.insert(cardArrayOut,cardArrayInTemp[i])
+		end
+	end
+
+	return cardArrayOut
+
+end
+
+-- 是不是单张(checked)
+function ShareFuns.IsSingle(cardArray)
+	return (#cardArray == 1)
+end
+
+-- 是不是一对(checked)
+function ShareFuns.IsDouble(cardArray)
+	if #cardArray == 2 
+    and ShareFuns.CardValue(cardArray[1]) == ShareFuns.CardValue(cardArray[2]) then
+        return true
+	end
+
+	return false
+end
+
+-- 是不是三张(checked)
+function ShareFuns.IsThree(cardArray)
+	if #cardArray == 3 
+    and ShareFuns.CardValue(cardArray[1]) == ShareFuns.CardValue(cardArray[2]) 
+    and ShareFuns.CardValue(cardArray[2]) == ShareFuns.CardValue(cardArray[3]) then
+        return true
+	end
+
+	return false
+end
+
+-- 是不是三带一(checked)
+function ShareFuns.IsTriAndSingle(cardArray)
+    local outCardArray = {}
+    if #cardArray ~= 4 then
+        return false, outCardArray
+    end
+
+    local bRet,ArrayIn,ArrayOut = false,{},{}
+	ArrayIn = ShareFuns.Copy(cardArray)
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,3)
+
+    if not bRet then
+        return false,outCardArray
+    end
+
+    -- 如果单张和三张值相同，应是炸弹而不是三带一
+    if ShareFuns.CardValue(ArrayIn[1]) ~= ShareFuns.CardValue(ArrayOut[1]) then
+        outCardArray = ShareFuns.Copy(ArrayIn)
+        outCardArray = ShareFuns.Append(outCardArray,ArrayOut)
+        return true,outCardArray
+    end
+
+    return false,outCardArray
+end
+
+-- 是不是三带二(checked)
+function ShareFuns.IsTriAndTwo(cardArray)
+    local outCardArray = {}
+    if #cardArray ~= 5 then
+        return false,outCardArray
+    end
+
+    local bRet,ArrayIn,ArrayOut = false,{},{}
+	ArrayIn = ShareFuns.Copy(cardArray)
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,3)
+
+    if not bRet then
+        return false,outCardArray
+    end
+
+    if ShareFuns.CardValue(ArrayIn[1]) ~= ShareFuns.CardValue(ArrayOut[1]) and ShareFuns.CardValue(ArrayIn[2]) ~= ShareFuns.CardValue(ArrayOut[1]) then
+        outCardArray = ShareFuns.Copy(ArrayIn)
+        outCardArray = ShareFuns.Append(ArrayOut,outCardArray)
+        return true,outCardArray
+    end
+
+    return false,outCardArray
+end
+
+-- 是不是单顺(checked)
+function ShareFuns.IsStraight(cardArray)
+	local pos = ShareFuns.isHas2(cardArray)
+	if pos > 0 then
+		return false
+	end
+
+	if #cardArray >= 5 then
+		local pos = ShareFuns.isHasA(cardArray)
+		if pos < 0 or (pos == 1 and ShareFuns.CardValue(cardArray[2]) == Common.CARDVALUE_K) then
+			local isSeqByVal = ShareFuns.IsSeqByVal(cardArray)
+			return isSeqByVal
+		end
+	end
+
+	return false
+end
+
+-- 是不是双顺/连对(checked)
+function ShareFuns.IsDoubleStraight(cardArray)
+	if	#cardArray < 4 or #cardArray % 2 ~= 0 or ShareFuns.isHas2(cardArray) > 0 then
+		return false
+	end
+
+	local singleArray = {}
+
+	--取对子中的单张组成单牌型
+	for i = 1,#cardArray - 1,2 do
+		if ShareFuns.CardValue(cardArray[i]) == ShareFuns.CardValue(cardArray[i + 1]) then
+			table.insert(singleArray,cardArray[i])
+		else
+			return false
+		end
+	end
+
+	--判断是否是单顺
+	local pos = ShareFuns.isHasA(singleArray)
+	if pos < 0 or (pos == 1 and ShareFuns.CardValue(singleArray[2]) == Common.CARDVALUE_K) then
+		local isSeqByVal = ShareFuns.IsSeqByVal(singleArray)
+		return isSeqByVal
+	end
+
+	return false
+end
+
+-- 是不是三顺(checked)
+function ShareFuns.IsTriStraight(cardArray)
+	if #cardArray < 6 or #cardArray%3 ~= 0 or ShareFuns.isHas2(cardArray) > 0 then
+		return false
+	end
+
+	local singleArray = {}
+
+	--都是三条
+	for i = 1, #cardArray - 2, 3 do
+		if ShareFuns.CardValue(cardArray[i]) == ShareFuns.CardValue(cardArray[i + 1]) 
+		   and ShareFuns.CardValue(cardArray[i]) == ShareFuns.CardValue(cardArray[i + 2]) then
+		   table.insert(singleArray,cardArray[i])
+		else
+			return false
+		end
+	end
+
+	local pos = ShareFuns.isHasA(singleArray)
+	if pos < 0 or (pos == 1 and ShareFuns.CardValue(singleArray[2]) == Common.CARDVALUE_K) then
+		local isSeqByVal = ShareFuns.IsSeqByVal(singleArray)
+		return isSeqByVal
+	end
+
+	return false
+end
+
+-- 获取连续三张的最大个数(checked)
+function ShareFuns.getTriSeqCount(cardArray)
+    -- 三张取单值
+	local ArrayTemp = {}
+    for i = 1, #cardArray - 2, 3 do
+        table.insert(ArrayTemp, cardArray[i])
+    end
+    ShareFuns.SortCards(ArrayTemp)
+    -- 值连续性比较
+    local maxSeqCount, seqCount = 0, 1
+    for i = 1, #ArrayTemp do
+        for j = i+1, #ArrayTemp do
+            if ShareFuns.CardValue(ArrayTemp[j-1]) ~= (ShareFuns.CardValue(ArrayTemp[j]) + 1) then
+                break
+            end
+            seqCount = seqCount + 1
+        end
+        if maxSeqCount < seqCount then maxSeqCount = seqCount end
+        seqCount = 1
+    end
+    
+    return maxSeqCount
+end
+
+-- 是不是飞机带翅膀(checked)
+function ShareFuns.IsPlane(cardArray)
+	local ArrayIn,ArrayOut,ArrayTemp = {},{},{}
+	ArrayIn = ShareFuns.Copy(cardArray)
+
+	local bRet = false
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,3)
+    local nThreeCount = math.floor(#ArrayOut/3)             -- 3张数量
+    local nTriSeqCount = ShareFuns.getTriSeqCount(ArrayOut) -- 三顺数量
+    
+    if nTriSeqCount >= 2 and #ArrayOut%3 == 0 then
+        -- 如果三张不是全顺则重新取三顺
+        if nThreeCount ~= nTriSeqCount then
+            bRet,ArrayOut = ShareFuns.GetTriStraight(ArrayOut,nTriSeqCount*3,-1)
+            ArrayTemp = ShareFuns.Copy(cardArray)
+            ArrayTemp = ShareFuns.RemoveAryFromAry(ArrayTemp,ArrayOut)
+        else
+            ArrayTemp = ShareFuns.Copy(ArrayIn)
+        end
+        -- 三顺中不能含2
+        if ShareFuns.isHas2(ArrayOut) < 0 then
+            -- 翅膀数量判定
+            for i = 2, nTriSeqCount do
+                if (nThreeCount - i) * 3 + #ArrayIn == i * 2 then
+                    cardArray = {}
+                    cardArray = ShareFuns.Copy(ArrayOut)
+                    cardArray = ShareFuns.Append(cardArray,ArrayTemp)
+                    return true,cardArray
+                end
+            end
+        end
+    end
+
+    return false,cardArray
+end
+
+-- 是不是飞机缺翅膀，最后一手牌出(checked)
+function ShareFuns.IsPlaneLost(cardArray)
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArray)
+
+	local bRet = false
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,3)
+    local nThreeCount = math.floor(#ArrayOut/3)
+    local nTriSeqCount = ShareFuns.getTriSeqCount(ArrayOut)
+
+    if nTriSeqCount >= 2 and #ArrayOut%3 == 0 and ShareFuns.isHas2(ArrayOut) < 0 then
+        for i = 2, nTriSeqCount do
+            if (nThreeCount - i) * 3 + #ArrayIn <= i * 2 then
+                cardArray = {}
+                cardArray = ShareFuns.Copy(ArrayOut)
+                cardArray = ShareFuns.Append(cardArray,ArrayIn)
+                return true,cardArray
+            end
+        end
+    end
+
+	return false,cardArray
+end
+
+-- 是不是炸弹(checked)
+function ShareFuns.IsBomb(cardArray)
+	if #cardArray == 4 then
+		local cardval = ShareFuns.CardValue(cardArray[1])
+		for i = 2,#cardArray do
+			if cardval ~= ShareFuns.CardValue(cardArray[i]) then
+				return false
+			end
+
+		end
+        return true
+	end
+
+	return false
+end
+
+-- 是不是四带一(checked)
+function ShareFuns.IsFourAndSingle(cardArray)
+    local bRet = false
+    local ArrayIn = {}
+    local ArrayOut = {}
+    if #cardArray == 5 then
+       ArrayIn = ShareFuns.Copy(cardArray)
+       bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 4 )
+       if bRet then
+           return true
+       end
+    end
+    
+    return false
+end
+
+-- 是不是四带二(checked)
+function ShareFuns.IsFourAndTwo(cardArray)
+	local bRet = false
+    local ArrayIn = {}
+    local ArrayOut = {}
+    if #cardArray == 6 then
+       ArrayIn = ShareFuns.Copy(cardArray)
+       bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 4 )
+       if bRet then
+           return true
+       end
+    end
+    
+    return false
+end
+
+-- 是不是四带三(checked)
+function ShareFuns.IsFourAndThree(cardArray)
+	local bRet = false
+    local ArrayIn = {}
+    local ArrayOut = {}
+    if #cardArray == 7 then
+       ArrayIn = ShareFuns.Copy(cardArray)
+       bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 4 )
+       if bRet then
+           return true
+       end
+    end
+    
+    return false
+end
+
+-- 获取出牌类型(checked)
+function ShareFuns.GetCardSuitType(cardArray)
+	local retSt = Common.SUIT_TYPE.suitInvalid
+	local tempArray = ShareFuns.Copy(cardArray)
+
+	if ShareFuns.IsSingle(tempArray) then
+		retSt = Common.SUIT_TYPE.suitSingle
+	elseif ShareFuns.IsDouble(tempArray) then
+		retSt = Common.SUIT_TYPE.suitDouble
+	elseif ShareFuns.IsThree(tempArray) then
+		retSt = Common.SUIT_TYPE.suitThree
+	elseif ShareFuns.IsStraight(tempArray) then
+		retSt = Common.SUIT_TYPE.suitStraight
+	elseif ShareFuns.IsDoubleStraight(tempArray) then
+		retSt = Common.SUIT_TYPE.suitDoubleStraight
+	elseif ShareFuns.IsTriStraight(tempArray) then
+		retSt = Common.SUIT_TYPE.suitTriStraight
+	elseif ShareFuns.IsBomb(tempArray) then
+		retSt = Common.SUIT_TYPE.suitBomb
+    elseif ShareFuns.IsFourAndSingle(tempArray) then
+		retSt = Common.SUIT_TYPE.suitFourAndSingle
+	elseif ShareFuns.IsFourAndTwo(tempArray) then
+		retSt = Common.SUIT_TYPE.suitFourAndTwo
+    elseif ShareFuns.IsFourAndThree(tempArray) then
+		retSt = Common.SUIT_TYPE.suitFourAndThree
+	else
+		local bRet = false
+		local outArray = {}
+		bRet,outArray = ShareFuns.IsTriAndSingle(tempArray)
+		if bRet == true then
+			retSt = Common.SUIT_TYPE.suitTriAndSingle
+			return retSt,outArray
+		end
+
+		bRet = false
+		outArray = {}
+		tempArray = ShareFuns.Copy(cardArray)
+		bRet,outArray = ShareFuns.IsTriAndTwo(tempArray)
+		if bRet == true then
+			retSt = Common.SUIT_TYPE.suitTriAndTwo
+			return retSt,outArray
+		end
+
+		bRet = false
+		outArray = {}
+		tempArray = ShareFuns.Copy(cardArray)
+		bRet,outArray = ShareFuns.IsPlane(tempArray)
+		if bRet then
+			retSt = Common.SUIT_TYPE.suitPlane
+			return retSt,outArray
+		end
+
+		bRet = false
+		outArray = {}
+		tempArray = ShareFuns.Copy(cardArray)
+		bRet,outArray = ShareFuns.IsPlaneLost(tempArray)
+		if bRet then
+			retSt = Common.SUIT_TYPE.suitPlaneLost
+			return retSt,outArray
+		end
+	end
+
+	return retSt,cardArray
+end
+
+-- 分解出牌型(checked)
+function ShareFuns.DisassembleToOutCard(cardArray)
+	local OutCard = {}
+	local st,cardArray = ShareFuns.GetCardSuitType(cardArray)
+	if st ~= Common.SUIT_TYPE.suitInvalid then
+		local OutCard = Common.newMyOutCard()	
+        OutCard.suitType = st
+        OutCard.suitLen = #cardArray
+        OutCard.cards = ShareFuns.Copy(cardArray)
+        return true,OutCard
+	end
+	return false,OutCard
+end
+
+-- 比较两手牌的大小(checked)
+function ShareFuns.CompareTwoCardSuit(prevOutcard,followOutCard)
+	if prevOutcard.suitType == followOutCard.suitType then--牌型相同
+		if prevOutcard.suitLen == followOutCard.suitLen then--张数相同
+            -- 如果跟牌是顺子则从小向大排序
+            local outCards = (followOutCard.suitType == Common.SUIT_TYPE.suitStraight) and ShareFuns.SortCardsByMin(ShareFuns.Copy(followOutCard.cards)) or followOutCard.cards
+			if ShareFuns.CardValue(prevOutcard.cards[1]) < ShareFuns.CardValue(outCards[1]) then --比较第一张
+				return true
+			else
+				return false
+			end
+		end
+	else--牌型不同
+		if followOutCard.suitType == Common.SUIT_TYPE.suitBomb then
+			return true
+		end
+	end
+	return false
+end
+
+-- 得到单张(checked)
+function ShareFuns.GetSingle(cardArrayIn,nCompare,nNotEqual)
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+    
+	--去掉所有重复的牌
+	for iLen = 4, 2, -1 do
+		bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, iLen )
+	end
+	local cardArrayOut = {}
+    
+	--剩下的是手中牌里的所有单张
+	if #ArrayIn > 0 then
+		--取最小一张大于cbCompaer的牌
+		for i = #ArrayIn, 1, -1 do
+			if ShareFuns.CardValue(ArrayIn[i]) > ShareFuns.CardValue(nCompare ) and ShareFuns.CardValue(ArrayIn[i]) ~= ShareFuns.CardValue(nNotEqual ) then
+				table.insert(cardArrayOut,ArrayIn[i])
+				return true,cardArrayOut
+			end
+		end
+	end
+
+	--拆牌 取最小的一张大于nCompare 的牌
+	for i = #cardArrayIn, 1, -1 do
+		if ShareFuns.CardValue(cardArrayIn[i]) > ShareFuns.CardValue(nCompare ) and ShareFuns.CardValue(cardArrayIn[i]) ~= ShareFuns.CardValue(nNotEqual ) then
+			table.insert(cardArrayOut,cardArrayIn[i])
+			return true,cardArrayOut
+		end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到一对(checked)
+function ShareFuns.GetDouble(cardArrayIn,nCompare )
+	local cardArrayOut = {}
+	if #cardArrayIn < 2 then
+		return false,cardArrayOut
+	end
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+    
+	--优先取已有的对子，先将三张以上的重复牌去掉
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+	for iLen = 4, 3, -1 do
+		bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, iLen )
+	end
+    -- 然后从剩下的牌中取对子
+	ArrayOut = {}
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 2 )
+	if bRet == true then
+		if nCompare == -1 then
+			table.insert(cardArrayOut,ArrayOut[#ArrayOut])
+			table.insert(cardArrayOut,ArrayOut[#ArrayOut - 1])
+			return true,cardArrayOut
+		end
+
+		for i = #ArrayOut, 2, -1 do
+			if ShareFuns.CardValue(ArrayOut[i]) > ShareFuns.CardValue(nCompare) then
+				table.insert(cardArrayOut,ArrayOut[i])
+				table.insert(cardArrayOut,ArrayOut[i - 1])
+				return true,cardArrayOut
+			end
+		end
+	end
+
+    -- 如果没有对子则从全部牌中再取一次
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+	ArrayOut = {}
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 2 )
+	if bRet == true then
+		if nCompare == -1 then
+			table.insert(cardArrayOut,ArrayOut[#ArrayOut])
+			table.insert(cardArrayOut,ArrayOut[#ArrayOut - 1])
+			return true,cardArrayOut
+		end
+
+		for i = #ArrayOut, 2, -1 do
+			if ShareFuns.CardValue(ArrayOut[i]) > ShareFuns.CardValue(nCompare ) then
+				table.insert(cardArrayOut,ArrayOut[i])
+				table.insert(cardArrayOut,ArrayOut[i - 1])
+				return true,cardArrayOut
+			end
+		end		
+	end
+	return false,cardArrayOut
+end
+
+-- 得到三带二(checked)
+function ShareFuns.GetTriAndDbl( cardArrayIn,nCompare  )
+	local cardArrayOut = {}
+	if #cardArrayIn < 5 then
+		return false,cardArrayOut
+	end
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+
+	-- 优先取三张，先将四张以上的重复牌去掉
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 4 )
+
+	ArrayOut = {}
+	local b1 = false
+
+	-- 取出三条
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 3 )
+	if bRet then
+		for i = #ArrayOut, 3, -1 do
+            -- 比较大小
+			if ShareFuns.CardValue(ArrayOut[i]) > ShareFuns.CardValue(nCompare ) then
+				table.insert(cardArrayOut,ArrayOut[i])
+				table.insert(cardArrayOut,ArrayOut[i - 1])
+				table.insert(cardArrayOut,ArrayOut[i - 2])
+				b1 = true
+				break
+			end
+		end
+	end
+
+    -- 如果有三条牌
+	if b1 then
+        -- 去除已取到的三条牌
+        ArrayIn = ShareFuns.Copy(cardArrayIn)
+        ArrayIn = ShareFuns.RemoveAryFromAry(ArrayIn, cardArrayOut)
+        
+		--从剩下的牌中取两张
+		local ArrayTmp, ArrayTwoSingle, ArraySingle = {},{},{}
+
+        ArrayTmp = ShareFuns.Copy(ArrayIn)
+		
+        local bRet = false
+        local ArrayInTemp,Array0utTemp = {},{}
+        
+        -- 优先取2单张，先去除所有重复牌
+        for i = 4, 2, -1 do
+            bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayTmp, i ) 
+        end
+        
+        -- 找到两个单牌
+        for i = #ArrayInTemp,1,-1 do
+            if ShareFuns.CardValue(ArrayInTemp[i]) ~= ShareFuns.CardValue(cardArrayOut[1]) then
+                table.insert(ArrayTwoSingle,ArrayInTemp[i])
+                if #ArrayTwoSingle == 2 then
+                    local cardArrayOutTemp = ShareFuns.Copy(cardArrayOut)
+                    cardArrayOutTemp = ShareFuns.Append(cardArrayOutTemp,ArrayTwoSingle)
+                    return true,cardArrayOutTemp
+                end
+            end
+        end
+        
+        -- 如果没有两个单牌，则取一对
+        ArrayTwoSingle = {}
+        ArrayTmp = ShareFuns.Copy(ArrayIn)
+        bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayTmp, 2 ) 
+
+        if #Array0utTemp >= 2 then
+            table.insert(ArrayTwoSingle,Array0utTemp[#Array0utTemp - 1])
+            table.insert(ArrayTwoSingle,Array0utTemp[#Array0utTemp])
+            local cardArrayOutTemp = ShareFuns.Copy(cardArrayOut)
+            cardArrayOutTemp = ShareFuns.Append(cardArrayOutTemp,ArrayTwoSingle)
+            return true,cardArrayOutTemp
+        end
+	end
+    
+	return false,cardArrayOut
+end
+
+-- 得到顺子(checked)
+function ShareFuns.GetStraight( cardArrayIn,nCardLen,nCompare  )
+	local cardArrayOut = {}
+	if #cardArrayIn < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local tempArray = {}
+	tempArray = ShareFuns.Copy(cardArrayIn)
+
+	--去掉重复的值
+	local tempArray1 = {}
+	tempArray1 = ShareFuns.GetOnlyInArray(tempArray)
+
+	--tempArray1 在这里面找顺子
+	if #tempArray1 < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local straightArray = {}
+	for j = #tempArray1,nCardLen,-1 do
+		straightArray = {}
+		for k = j - nCardLen + 1,j do
+			table.insert(straightArray,tempArray1[k])
+		end
+
+		if ShareFuns.IsStraight(straightArray) then
+			if ShareFuns.CardValue(straightArray[1]) > ShareFuns.CardValue(nCompare) then
+				return true,straightArray
+			end
+		end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到双顺(checked)
+function ShareFuns.GetDoubleStraight( cardArrayIn,nCardLen,nCompare  )
+	local cardArrayOut = {}
+	if #cardArrayIn < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+    
+	--三张以上的重复牌去掉
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+	for iLen = 4, 3, -1 do
+		bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, iLen )
+	end
+
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 2 )
+	if bRet then
+		--去掉重复的对子
+		ArrayOut = ShareFuns.RemoveSameDouble(ArrayOut)
+
+		if #ArrayOut >= nCardLen then
+			local straightArray = {}
+			for j = #ArrayOut,nCardLen,-1 do
+				straightArray = {}
+				for k = j - nCardLen + 1, j do
+					table.insert(straightArray,ArrayOut[k])
+				end
+
+				if ShareFuns.IsDoubleStraight(straightArray) then
+					if nCompare == -1 then --返回所有的
+						return true,straightArray
+					end
+
+					if ShareFuns.CardValue(straightArray[1]) > ShareFuns.CardValue(nCompare) then
+						return true,straightArray
+					end
+				end
+
+			end
+		end
+	end
+
+	ArrayOut = {}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 2 )
+	if bRet then
+		--去掉重复的对子
+		ArrayOut = ShareFuns.RemoveSameDouble(ArrayOut)
+
+		if #ArrayOut >= nCardLen then
+			local straightArray = {}
+			for j = #ArrayOut,nCardLen,-1 do
+				straightArray = {}
+				for k = j - nCardLen + 1,j do
+					table.insert(straightArray,ArrayOut[k])
+				end
+
+				if ShareFuns.IsDoubleStraight(straightArray) then
+					if nCompare == -1 then --返回所有的
+						return true,straightArray
+					end
+
+					if ShareFuns.CardValue(straightArray[1]) > ShareFuns.CardValue(nCompare) then
+						return true,straightArray
+					end
+				end
+
+			end
+		end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到三顺(checked)
+function ShareFuns.GetTriStraight( cardArrayIn,nCardLen,nCompare  )
+	local cardArrayOut = {}
+	if #cardArrayIn < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+
+	-- 四张以上的重复牌
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 4 )
+
+    -- 取得所有三张牌
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal( ArrayIn, 3 )
+	if bRet and #ArrayOut >= nCardLen then
+		local straightArray = {}
+		for j = #ArrayOut,nCardLen,-1 do
+			straightArray = {}
+			for k = j - nCardLen + 1, j do
+				table.insert(straightArray,ArrayOut[k])
+			end
+            table.print(straightArray)
+
+			if ShareFuns.IsTriStraight(straightArray) then
+				if nCompare == -1 then
+					return true,straightArray
+				end
+
+				if ShareFuns.CardValue(straightArray[1]) > ShareFuns.CardValue(nCompare) then
+					return true,straightArray
+				end
+			end
+		end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到飞机(checked)
+function ShareFuns.GetPlane( cardArrayIn,nCardLen,nCompare  )
+	local cardArrayOut = {}
+	if #cardArrayIn < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+
+	--取三顺
+	local nTriStraightNum = math.floor(nCardLen/5) * 3
+	bRet,ArrayOut = ShareFuns.GetTriStraight(ArrayIn,nTriStraightNum,nCompare )
+	if bRet then
+		ArrayIn = {}
+		ArrayIn = ShareFuns.Copy(cardArrayIn)
+		ArrayIn = ShareFuns.RemoveAryFromAry(ArrayIn, ArrayOut)
+
+		--翅膀个数
+		local nWingNum =  math.floor(nTriStraightNum/3) * 2
+        local singleArray = {}
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        local bRetTemp  = false
+        local Array0utTemp = {}
+
+        for i = 4,2,-1 do
+            bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, i ) 
+        end
+
+        local triStraightnum = math.floor(nCardLen/5)
+        local ArrayInSingleTemp = {}
+        for i = 1,#ArrayInTemp do
+            local isEqual = false
+            for j = 1,triStraightnum do
+                if ShareFuns.CardValue(ArrayOut[1 + (j-1)*3]) == ShareFuns.CardValue(ArrayInTemp[i]) then
+                    isEqual = true
+                    break
+                end
+            end
+
+            if isEqual == false then
+                table.insert(ArrayInSingleTemp,ArrayInTemp[i])
+            end
+        end
+        
+        ArrayInTemp = ShareFuns.Copy(ArrayInSingleTemp)
+        ArrayInTemp = ShareFuns.RemoveAryFromAry(ArrayInTemp,singleArray)
+        for i = #ArrayInTemp,1,-1 do
+            table.insert(singleArray,ArrayInTemp[i])
+            if #singleArray == nWingNum then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+
+        for i = #Array0utTemp,1,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == nWingNum then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+               return true,ArrayOut
+            end
+        end
+
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        ArrayInTemp = ShareFuns.RemoveAryFromAry(ArrayInTemp,singleArray)
+        for i = 4,3,-1 do
+            bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, i ) 
+        end
+
+        for i = #Array0utTemp,1 ,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == nWingNum then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        ArrayInTemp = ShareFuns.RemoveAryFromAry(ArrayInTemp,singleArray)
+        bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, 2 )
+        for i = #Array0utTemp,1 ,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == nWingNum then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+        -- end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到炸弹(checked)
+function ShareFuns.GetBomb( cardArrayIn, nCompare, bGetFourBomb)
+	local cardArrayOut = {}
+	if #cardArrayIn < 4 then
+		return false,cardArrayOut
+	end
+
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+
+	bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,4)
+	if bRet and #ArrayOut >= 4 then
+		local bombArray = {}
+		for j = #ArrayOut,4,-1 do
+			bombArray = {}
+			for k = j - 3,j do
+				table.insert(bombArray,ArrayOut[k])
+			end
+
+			if ShareFuns.IsBomb(bombArray) then
+				if nCompare == -1 then
+					return true,bombArray
+				end
+
+				if ShareFuns.CardValue(bombArray[1]) > ShareFuns.CardValue(nCompare)  then
+					return true,bombArray
+				end
+			end
+		end
+	end
+
+	return false,cardArrayOut
+end
+
+-- 得到四带三(checked)
+function ShareFuns.GetFourAndThree( cardArrayIn,nCardLen,nCompare)
+	local cardArrayOut = {}
+	if #cardArrayIn < nCardLen then
+		return false,cardArrayOut
+	end
+
+	local bRet = false
+	local ArrayIn,ArrayOut = {},{}
+	ArrayIn = ShareFuns.Copy(cardArrayIn)
+
+	--取四张
+	bRet,ArrayOut = ShareFuns.GetBomb(ArrayIn,nCompare,true)
+	if bRet and #ArrayOut == 4 then
+		ArrayIn = {}
+		ArrayIn = ShareFuns.Copy(cardArrayIn)
+		ArrayIn = ShareFuns.RemoveAryFromAry(ArrayIn,ArrayOut)
+
+		--简单实现取单张
+        local singleArray = {}
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        local bRetTemp  = false
+        local Array0utTemp = {}
+
+        for i = 4,2,-1 do
+            bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, i ) 
+        end
+
+        for i = #ArrayInTemp,1,-1 do
+            table.insert(singleArray,ArrayInTemp[i])
+            if #singleArray == 3 then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+
+        for i = #Array0utTemp,1,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == 3 then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+
+
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        ArrayInTemp = ShareFuns.RemoveAryFromAry(ArrayInTemp,singleArray)
+        for i = 4,3,-1 do
+            bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, i ) 
+        end
+
+        for i = #Array0utTemp,1 ,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == 3 then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+
+        local ArrayInTemp = ShareFuns.Copy(ArrayIn)
+        ArrayInTemp = ShareFuns.RemoveAryFromAry(ArrayInTemp,singleArray)
+        bRet,ArrayInTemp,Array0utTemp = ShareFuns.GetSameVal( ArrayInTemp, 2 )
+        for i = #Array0utTemp,1 ,-1 do
+            table.insert(singleArray,Array0utTemp[i])
+            if #singleArray == 3 then
+                ArrayOut = ShareFuns.Copy(ArrayOut)
+                ArrayOut = ShareFuns.Append(ArrayOut,singleArray)
+                return true,ArrayOut
+            end
+        end
+	end
+	return false,cardArrayOut
+end
+
+-- 提示出牌(checked)
+function ShareFuns.TipOutCard(lastOutCard,cardArrayHold)
+	local cardArrayOut = {}
+    local lastSt = lastOutCard.suitType
+    if lastSt == Common.SUIT_TYPE.suitInvalid or lastSt == Common.suitPass then
+    	return false,cardArrayOut
+    end
+
+    cardArrayHold = ShareFuns.SortCards(cardArrayHold)
+    local arrayInHold = {}
+    arrayInHold = ShareFuns.Copy(cardArrayHold)
+
+    local bRet = false
+    if lastSt == Common.SUIT_TYPE.suitSingle then
+    	bRet,cardArrayOut = ShareFuns.GetSingle(arrayInHold,lastOutCard.cards[1],-1)
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitDouble then
+    	bRet,cardArrayOut = ShareFuns.GetDouble(arrayInHold,lastOutCard.cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitTriAndTwo then
+    	bRet,cardArrayOut = ShareFuns.GetTriAndDbl(arrayInHold,lastOutCard.cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitStraight then
+        local cards = ShareFuns.SortCards(lastOutCard.cards)
+    	bRet,cardArrayOut = ShareFuns.GetStraight(arrayInHold,lastOutCard.suitLen,cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitDoubleStraight then
+        local cards = ShareFuns.SortCards(lastOutCard.cards)
+    	bRet,cardArrayOut = ShareFuns.GetDoubleStraight(arrayInHold,lastOutCard.suitLen,cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitTriStraight then
+        local cards = ShareFuns.SortCards(lastOutCard.cards)
+    	bRet,cardArrayOut = ShareFuns.GetTriStraight(arrayInHold,lastOutCard.suitLen,cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitPlane then
+    	bRet,cardArrayOut = ShareFuns.GetPlane(arrayInHold,lastOutCard.suitLen,lastOutCard.cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitBomb then
+    	bRet,cardArrayOut = ShareFuns.GetBomb(arrayInHold,lastOutCard.cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    elseif lastSt == Common.SUIT_TYPE.suitFourAndThree then
+    	bRet,cardArrayOut = ShareFuns.GetFourAndThree(arrayInHold,lastOutCard.suitLen,lastOutCard.cards[1])
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    end
+
+    -- 如果没有合适的牌型则取出炸弹
+    if lastSt ~= Common.SUIT_TYPE.suitBomb then
+		bRet,cardArrayOut = ShareFuns.GetBomb(arrayInHold,-1)
+    	if bRet then
+    		return true,cardArrayOut
+    	end
+    end
+
+    return false,cardArrayOut
+end
+
+-- 获取首次出牌(checked)
+function ShareFuns.GetFirstCards(cardArrayHold)
+    local bRet,ArrayIn,ArrayOut,cardArrayOut = false,{},{},{}
+    ArrayIn = ShareFuns.Copy(cardArrayHold)
+    
+    -- 先取单张
+    for i = 4, 2 ,-1 do
+        bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,i)
+    end
+
+    if #ArrayIn > 0 then
+        table.insert(cardArrayOut,ArrayIn[#ArrayIn])
+        return cardArrayOut
+    end
+
+    -- 再取对子
+    ArrayIn = ShareFuns.Copy(cardArrayHold)
+    for i = 4, 3 ,-1 do
+        bRet,ArrayIn,ArrayOut = ShareFuns.GetSameVal(ArrayIn,i)
+    end
+
+    if #ArrayIn > 0 then
+         table.insert(cardArrayOut,ArrayIn[#ArrayIn])
+         table.insert(cardArrayOut,ArrayIn[#ArrayIn-1])
+         return cardArrayOut
+    end
+
+    -- 再取三带二
+    ArrayIn = ShareFuns.Copy(cardArrayHold)
+    bRet,cardArrayOut = ShareFuns.GetTriAndDbl(ArrayIn,-1)
+    if bRet then
+        return cardArrayOut
+    end
+
+    -- 再取双顺
+    ArrayIn = ShareFuns.Copy(cardArrayHold)
+    bRet,cardArrayOut = ShareFuns.GetDoubleStraight(ArrayIn,4,-1)
+    if bRet then
+        return cardArrayOut
+    end
+
+    -- 返回最小一张牌
+    return cardArrayHold[#cardArrayHold]
+end
+
+-- 下家报单的牌型判定(checked)
+function ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, arrayOut)
+    if #nextHandCards == 1 and #arrayOut == 1 then
+        if ShareFuns.CardValue(arrayOut[1]) ~= ShareFuns.CardValue(myHandCards[1]) then
+            return true
+        end
+    end
+    return false
+end
+
+return ShareFuns

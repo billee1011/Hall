@@ -1,0 +1,410 @@
+CCFileUtils:getInstance():addSearchPath("src")
+CCFileUtils:getInstance():addSearchPath("res")
+--------------类说明-------------
+----此类只当做动作的数据持久层处理
+
+local WIK_NULL                    = 0x00000000                          --没有类型
+local WIK_LEFT                    = 0x00000001                          --左吃类型
+local WIK_CENTER                  = 0x00000002                          --中吃类型
+local WIK_RIGHT                   = 0x00000004                          --右吃类型
+local WIK_PENG                    = 0x00000008                          --碰牌类型
+local WIK_MING_GANG               = 0x00000010                          --杠牌类型
+local WIK_AN_GANG                 = 0x00000020                          --暗杠类型
+local WIK_FANG_GANG               = 0x00000040                          --放杠类型
+local WIK_LISTEN                  = 0x00000080                          --吃牌类型
+local WIK_CHI_HU                  = 0x00000100                          --吃胡类型
+local WIK_REPLACE                 = 0x00000200                          --花牌替换
+local WIK_ZHONG_FA_BAI            = 0x00000400                          --中发白类型
+
+local GameActionKind = 
+{
+    GAK_NULL = 0;                                           --空
+    GAK_Sice = 1;                                               --掷色子
+    GAK_StartSendCard = 2;                                      --开局发牌
+    GAK_OutCard = 3;                                            --出牌
+    GAK_ThrowCard = 4;                                         --甩牌
+    GAK_ContinueThrow = 5;                                      --继续甩牌
+    GAK_ThrowCardEnd = 6;                                       --甩牌结束
+    GAK_SendCard = 7;                                           --发牌
+    GAK_OperateNotify = 8;                                      --提示操作
+    GAK_OperateResult = 9;                                      --操作结果
+    GAK_UserChiHu = 10;                                          --用户吃胡
+    GAK_GameEnd = 11;                                            --结束
+};
+
+--扑克逻辑类定义
+local GameUserAction = class("GameUserAction")
+--扑克逻辑类对象实例化
+function GameUserAction.create()
+    local gameUserAction = GameUserAction.new()
+    return gameUserAction
+end
+----扑克逻辑类对象属性   初始化值
+--@param
+--@return
+function GameUserAction:ctor()
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+    --游戏玩家动作
+    self.action_kind = GameActionKind.GAK_NULL;
+    self.dispose_status = false;
+    --掷色子
+    self.GameUserActionSice = {
+        sice_count = 0                          --骰子点数
+    }
+    --开局发牌
+    self.GameUserActionStartSendCard = {
+        send_card_user = INVALID_CHAIR;         --发牌用户
+        heap_card_id = INVALID_BYTE;            --发牌位置
+        heap_card_index = 0;                    --堆牌位置
+        card_count = 0;                         --发牌数
+        card_data = {0,0,0,0,0,0,0,0,0,0,0,0,0,0};                  --发牌数据
+        last_send_card = false;                 --是否最后一张牌
+    }
+    --出牌
+    self.GameUserActionOutCard = {
+        out_card_user = INVALID_CHAIR;          --出牌用户
+        out_card_data = 0;                      --出牌扑克
+    }
+    --甩牌
+    self.GameUserActionThrowCard = {
+        throw_card_user = INVALID_CHAIR;           --甩牌用户
+        throw_card_count = 0;                   --甩牌扑克
+        throw_card_data = {0,0,0,0,0,0,0,0,0};  --甩牌数目
+    }
+    --继续甩牌
+    self.GameUserActionContinueThrow = {
+        current_user = INVALID_CHAIR;        --当前用户
+    }
+    --甩牌结束
+    self.GameUserActionThrowCardEnd = {
+        current_user = INVALID_CHAIR;           --当前用户
+    }
+    --发牌
+    self.GameUserActionSendCard = {
+        send_card_user = INVALID_CHAIR;         --发牌用户
+        operate_code = WIK_NULL;                --操作码
+        send_card_data = 0;                     --发牌数据
+        tail_send_card = false;                 --是否从尾部发牌
+        open_card_data = 0;                     --翻开卡片
+    }
+    --提示操作
+    self.GameUserActionOperateNotify = {
+        operate_code = WIK_NULL;                --操作码
+        operate_card = 0;                       --操作牌数据
+    }
+    --操作结果
+    self.GameUserActionOperateResult = {
+        operate_user = INVALID_CHAIR;           --操作用户
+        provide_user = INVALID_CHAIR;           --供应用户
+        operate_code = WIK_NULL;                --操作码
+        action_mask  = 0;                       --操作代码
+        operate_card = {0,0,0,0};               --操作牌数据
+    }
+    --胡牌
+    self.GameUserActionUserChiHu = {
+        chi_hu_user = INVALID_CHAIR;            --操作用户
+        provide_user= INVALID_CHAIR;            --供应用户
+        chi_hu_card = 0;                        --操作牌数据
+        lChiHuScore = {0,0,0,0};                --吃胡分数
+    }
+    --游戏结束
+    self.GameUserActionGameEnd = {
+        lGameTax = 0;                           --游戏税收
+        cbChiHuCard = 0;                        --吃胡扑克
+        wProvideUser = INVALID_CHAIR;           --点炮用户
+        lGameScore = {0,0,0,0};                 --游戏积分
+
+        wFanShu = {0,0,0,0};                    --胡牌番数
+        wChiHuKind = {0,0,0,0};                 --胡牌类型
+        cbCardCount = {0,0,0,0};                --扑克数目
+        cbCardData = {};                        --扑克数据
+
+        cbOutCardCount = {0,0,0,0};             --出牌数目
+        cbOutCardData = {};              --出牌数据
+        dwChiHuRight = {};               --胡牌类型
+        lGangScore = {0,0,0,0};                 --杠牌分
+        lChiHuScore = {0,0,0,0};                --胡牌得分
+        lZhuaNiaoScore = {0,0,0,0};             --抓鸟得分
+
+        cbZhuaNiaoAnimationCount = 0;           --动画数目
+        cbZhuaNiaoCount = 0;                    --抓鸟数
+        cbZhuaNiaoCard = {0,0,0,0};             --抓鸟牌
+        cbMingGang = {0,0,0,0};                 --明杠数
+        cbAnGang = {0,0,0,0};                   --暗杠数
+        cbFangGang = {0,0,0,0};                 --放杠数
+    }
+end
+----初始化用户动作数据
+--@param
+--@return
+function GameUserAction:InitGameUserActionDatas(game_action_kind)
+    self.action_kind = game_action_kind
+    self.dispose_status = false;
+    local actionTime = 0
+    if game_action_kind==GameActionKind.GAK_NULL then return 0 end
+    
+    if game_action_kind==GameActionKind.GAK_Sice then                   ----掷色子
+        self.GameUserActionSice = {
+            sice_count = 0                          --骰子点数
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_StartSendCard then      ----开局发牌
+        self.GameUserActionStartSendCard = {
+            send_card_user = INVALID_CHAIR;         --发牌用户
+            heap_card_id = INVALID_BYTE;            --发牌位置
+            heap_card_index = 0;                    --堆牌位置
+            card_count = 0;                         --发牌数
+            card_data = {0,0,0,0,0,0,0,0,0,0,0,0,0,0};                  --发牌数据
+            last_send_card = false;                 --是否最后一张牌
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_OutCard then            ----出牌
+        --数据初始化
+        self.GameUserActionOutCard = {
+            out_card_user = INVALID_CHAIR;          --出牌用户
+            out_card_data = 0;                      --出牌扑克
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_ThrowCard then          ----甩牌
+        self.GameUserActionThrowCard = {
+            throw_card_user = INVALID_CHAIR;           --甩牌用户
+            throw_card_count = 0;                   --甩牌扑克
+            throw_card_data = {0,0,0,0,0,0,0,0,0};  --甩牌数目
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_ContinueThrow then      ----继续甩牌
+        self.GameUserActionContinueThrow = {
+            current_user = INVALID_CHAIR;        --当前用户
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_ThrowCardEnd then       ----甩牌结束
+        self.GameUserActionThrowCardEnd = {
+            current_user = INVALID_CHAIR;           --当前用户
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_SendCard then           ----发牌
+        self.GameUserActionSendCard = {
+            send_card_user = INVALID_CHAIR;         --发牌用户
+            operate_code = WIK_NULL;                --操作码
+            send_card_data = 0;                     --发牌数据
+            tail_send_card = false;                 --是否从尾部发牌
+            open_card_data = 0;                     --翻开卡片
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_OperateNotify then      ----提示操作
+        self.GameUserActionOperateNotify = {
+            operate_code = WIK_NULL;                --操作码
+            operate_card = 0;                       --操作牌数据
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_OperateResult then      ----操作结果
+        self.GameUserActionOperateResult = {
+            operate_user = INVALID_CHAIR;           --操作用户
+            provide_user = INVALID_CHAIR;           --供应用户
+            operate_code = WIK_NULL;                --操作码
+            action_mask  = 0;                       --操作代码
+            operate_card = {0,0,0,0};               --操作牌数据
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_UserChiHu then          ----用户吃胡
+        self.GameUserActionUserChiHu = {
+            chi_hu_user = INVALID_CHAIR;            --操作用户
+            provide_user= INVALID_CHAIR;            --供应用户
+            chi_hu_card = 0;                        --操作牌数据
+            lChiHuScore = {0,0,0,0};                --吃胡分数
+        }
+        actionTime = 0
+    elseif game_action_kind==GameActionKind.GAK_GameEnd then            ----结束
+        self.GameUserActionGameEnd = {
+            lGameTax = 0;                           --游戏税收
+            cbChiHuCard = 0;                        --吃胡扑克
+            wProvideUser = INVALID_CHAIR;           --点炮用户
+            lGameScore = {0,0,0,0};                 --游戏积分
+            
+            wFanShu = {0,0,0,0};                    --胡牌番数
+            wChiHuKind = {0,0,0,0};                 --胡牌类型
+            cbCardCount = {0,0,0,0};                --扑克数目
+            cbCardData = {};                        --扑克数据
+            
+            cbOutCardCount = {0,0,0,0};             --出牌数目
+            cbOutCardData = {};              --出牌数据
+            dwChiHuRight = {};               --胡牌类型
+            lGangScore = {0,0,0,0};                 --杠牌分
+            lChiHuScore = {0,0,0,0};                --胡牌得分
+            lZhuaNiaoScore = {0,0,0,0};             --抓鸟得分
+            
+            cbZhuaNiaoAnimationCount = 0;           --动画数目
+            cbZhuaNiaoCount = 0;                    --抓鸟数
+            cbZhuaNiaoCard = {0,0,0,0};             --抓鸟牌
+            cbMingGang = {0,0,0,0};                 --明杠数
+            cbAnGang = {0,0,0,0};                   --暗杠数
+            cbFangGang = {0,0,0,0};                 --放杠数
+        }
+        actionTime = 0
+    end
+    return actionTime
+end
+----掷色子
+--@param
+--@return
+function GameUserAction:SetGameUserActionSice(sice_count)
+    self.action_kind = GameActionKind.GAK_Sice;
+    self.dispose_status = false;
+    
+    self.GameUserActionSice.sice_count = sice_count
+end
+----开局发牌
+--@param
+--@return
+function GameUserAction:SetGameUserActionStartSendCard(card_count,card_data)
+    self.action_kind = GameActionKind.GAK_StartSendCard;
+    self.dispose_status = false;
+
+    self.GameUserActionStartSendCard.card_count = card_count;
+    SPARROWCZ_CopyMemory(self.GameUserActionStartSendCard.card_data, card_data , card_count)
+end
+------开局发牌
+----@param
+----@return
+--function GameUserAction:GameUserActionStartSendCard(send_card_user,heap_card_id,heap_card_index,card_count,card_data,last_send_card)
+--    self.action_kind = GameActionKind.GAK_StartSendCard;
+--    self.dispose_status = false;
+--    
+--    self.GameUserActionStartSendCard.send_card_user = send_card_user;
+--    self.GameUserActionStartSendCard.heap_card_id = heap_card_id;
+--    self.GameUserActionStartSendCard.heap_card_index = heap_card_index;
+--    self.GameUserActionStartSendCard.card_count = card_count;
+--    SPARROWCZ_CopyMemory(self.GameUserActionStartSendCard.card_data, card_data , card_count)
+--    self.GameUserActionStartSendCard.last_send_card = last_send_card;
+--end
+----出牌
+--@param
+--@return
+function GameUserAction:SetGameUserActionOutCard(out_card_user,out_card_data)
+    self.action_kind = GameActionKind.GAK_OutCard;
+    self.dispose_status = false;
+    
+    self.GameUserActionOutCard.out_card_user = out_card_user
+    self.GameUserActionOutCard.out_card_data = out_card_data
+end
+----甩牌
+--@param
+--@return
+function GameUserAction:SetGameUserActionThrowCard(throw_card_user,throw_card_data,throw_card_count)
+    self.action_kind = GameActionKind.GAK_ThrowCard;
+    self.dispose_status = false;
+    
+    self.GameUserActionThrowCard.throw_card_user = throw_card_user
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionThrowCard.throw_card_data, throw_card_data , throw_card_count)
+    self.GameUserActionThrowCard.throw_card_count = throw_card_count
+end
+----继续甩牌
+--@param
+--@return
+function GameUserAction:SetGameUserActionContinueThrow(current_user)
+    self.action_kind = GameActionKind.GAK_ContinueThrow;
+    self.dispose_status = false;
+    
+    self.GameUserActionContinueThrow.current_user = current_user
+end
+----甩牌结束
+--@param
+--@return
+function GameUserAction:SetGameUserActionThrowCardEnd(current_user)
+    self.action_kind = GameActionKind.GAK_ThrowCardEnd;
+    self.dispose_status = false;
+    
+    self.GameUserActionThrowCardEnd.current_user = current_user
+end
+----发牌
+--@param
+--@return
+function GameUserAction:SetGameUserActionSendCard(send_card_user,operate_code,send_card_data,tail_send_card,open_card_data)
+    self.action_kind = GameActionKind.GAK_SendCard;
+    self.dispose_status = false;
+    
+    self.GameUserActionSendCard.send_card_user = send_card_user
+    self.GameUserActionSendCard.operate_code = operate_code
+    self.GameUserActionSendCard.send_card_data = send_card_data
+    self.GameUserActionSendCard.tail_send_card = tail_send_card
+    self.GameUserActionSendCard.open_card_data = open_card_data
+end
+----提示操作
+--@param
+--@return
+function GameUserAction:SetGameUserActionOperateNotify(operate_code,operate_card)
+    self.action_kind = GameActionKind.GAK_OperateNotify;
+    self.dispose_status = false;
+    
+    self.GameUserActionOperateNotify.operate_code = operate_code
+    self.GameUserActionOperateNotify.operate_card = operate_card
+end
+----操作结果
+--@param
+--@return
+function GameUserAction:SetGameUserActionOperateResult(operate_user,provide_user,operate_code,action_mask,operate_card)
+    self.action_kind = GameActionKind.GAK_OperateResult;
+    self.dispose_status = false;
+    
+    self.GameUserActionOperateResult.operate_user = operate_user
+    self.GameUserActionOperateResult.provide_user = provide_user
+    self.GameUserActionOperateResult.operate_code = operate_code
+    self.GameUserActionOperateResult.action_mask = action_mask
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionOperateResult.operate_card, operate_card , 4)
+end
+----吃胡
+--@param
+--@return
+function GameUserAction:SetGameUserActionUserChiHu(chi_hu_user,provide_user,chi_hu_card,lChiHuScore)
+    self.action_kind = GameActionKind.GAK_UserChiHu;
+    self.dispose_status = false;
+    
+    self.GameUserActionUserChiHu.chi_hu_user = chi_hu_user
+    self.GameUserActionUserChiHu.provide_user = provide_user
+    self.GameUserActionUserChiHu.chi_hu_card = chi_hu_card
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionUserChiHu.lChiHuScore, lChiHuScore , GAME_PLAYER_SPARROWCZ)
+end
+----游戏结束
+--@param
+--@return
+function GameUserAction:SetGameUserActionGameEnd(lGameTax,cbChiHuCard,wProvideUser,lGameScore,wFanShu,wChiHuKind,cbCardCount,cbCardData,cbOutCardCount,cbOutCardData,
+    dwChiHuRight,lGangScore,lChiHuScore,lZhuaNiaoScore,cbZhuaNiaoAnimationCount,cbZhuaNiaoCount,cbZhuaNiaoCard,cbMingGang,cbAnGang,cbFangGang)
+    self.action_kind = GameActionKind.GAK_GameEnd;
+    self.dispose_status = false;
+    
+    self.GameUserActionGameEnd.lGameTax = lGameTax;                                                                     --游戏税收
+    self.GameUserActionGameEnd.cbChiHuCard = cbChiHuCard;                                                               --吃胡扑克
+    self.GameUserActionGameEnd.wProvideUser = wProvideUser;                                                             --点炮用户
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.lGameScore, lGameScore , GAME_PLAYER_SPARROWCZ)                   --游戏积分
+    
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.wFanShu, wFanShu , GAME_PLAYER_SPARROWCZ)                         --胡牌番数
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.wChiHuKind, wChiHuKind , GAME_PLAYER_SPARROWCZ)                   --胡牌类型
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbCardCount, cbCardCount , GAME_PLAYER_SPARROWCZ)                 --扑克数目
+    for i = 1, GAME_PLAYER_SPARROWCZ do
+        self.GameUserActionGameEnd.cbCardData[i] = {}
+        SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbCardData[i],cbCardData[i-1],MAX_COUNT_SPARROWCZ)            --扑克数据
+    end
+    
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbOutCardCount, cbOutCardCount , GAME_PLAYER_SPARROWCZ)           --出牌数目
+    for i = 1, GAME_PLAYER_SPARROWCZ do
+        self.GameUserActionGameEnd.cbOutCardData[i] = {}
+        SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbOutCardData[i],cbOutCardData[i-1],MAX_COUNT_SPARROWCZ)      --出牌数据
+    end
+    for i = 1, GAME_PLAYER_SPARROWCZ do
+        self.GameUserActionGameEnd.dwChiHuRight[i] = {}
+        SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.dwChiHuRight[i],dwChiHuRight[i-1],MAX_RIGHT_COUNT_SPARROWCZ)  --胡牌类型
+    end
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.lGangScore, lGangScore , GAME_PLAYER_SPARROWCZ)                   --杠牌分
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.lChiHuScore, lChiHuScore , GAME_PLAYER_SPARROWCZ)                 --胡牌得分
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.lZhuaNiaoScore, lZhuaNiaoScore , GAME_PLAYER_SPARROWCZ)           --抓鸟得分
+
+    self.GameUserActionGameEnd.cbZhuaNiaoAnimationCount = cbZhuaNiaoAnimationCount;                                     --动画数目
+    self.GameUserActionGameEnd.cbZhuaNiaoCount = cbZhuaNiaoCount;                                                       --抓鸟数
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbZhuaNiaoCard, cbZhuaNiaoCard , GAME_PLAYER_SPARROWCZ)           --抓鸟牌
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbMingGang, cbMingGang , GAME_PLAYER_SPARROWCZ)                   --明杠数
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbAnGang, cbAnGang , GAME_PLAYER_SPARROWCZ)                       --暗杠数
+    SPARROWCZ_CopyMemoryEx(self.GameUserActionGameEnd.cbFangGang, cbFangGang , GAME_PLAYER_SPARROWCZ)                   --放杠数
+    
+end
+
+return GameUserAction

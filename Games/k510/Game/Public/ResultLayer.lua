@@ -1,0 +1,542 @@
+require("CocosExtern")
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+local Resources =require("k510/Resources")
+local InviteInfo = require("k510/Game/Common").InviteInfo
+
+local ResultLayer = class("ResultLayer",function()
+    return CCLayer:create()
+end)
+
+
+function ResultLayer.create()
+    local layer = ResultLayer.new()
+    layer:init()
+	return layer
+end
+
+function ResultLayer:init()
+    self.winSize = CCSizeMake(require("k510/GameDefs").CommonInfo.View_Width, require("k510/GameDefs").CommonInfo.View_Height)
+
+    local function onTouch(eventType ,x ,y)
+        if eventType=="began" then
+            self._StartPos = ccp(x,y)
+            return true
+        elseif eventType=="ended" then
+            self:onEnded(x,y)
+        end
+    end
+
+    self:registerScriptTouchHandler(onTouch,false,kCCMenuHandlerPriority ,true)
+    self:setTouchEnabled(true)
+
+    --三个Layer
+    self.winLayer = CCLayer:create()
+    self:addChild(self.winLayer)
+    --背景
+    local bg = loadSprite("czpdk/resultbg1.png")
+    bg:setPosition(ccp(self.winSize.width/2,self.winSize.height/2-12))
+    self.winLayer:addChild(bg)
+
+    --准备
+    local function readyBtnCallBack()
+        local GameLogic = require("k510/Game/GameLogic")
+        local layer = GameLogic.StaySceneLayer
+        -- 如果是终局则显示总结算
+        if require("k510/Game/GameLogic").gameEnded then
+            self:setEndGameInfo(layer.gameendlistinfo)
+        -- 如果不是则进行下一步操作
+        else
+            -- 如果规则下发下来了
+            local f = require("Lobby/FriendGame/FriendGameLogic")
+            if f.my_rule and f.my_rule[7] then
+                -- 隐藏飘分
+                for i = 1, require("k510/Game/Common").PLAYER_COUNT do
+                    layer._PlayerVec[i]:setPiaoVisible(false)
+                end
+                -- 更新GameLogic
+                GameLogic:refreshGameLogic()
+                -- 牌局不允许飘就自动准备
+                if f.my_rule[7][2] == 0 then
+                    layer:ControlBtn(layer.menuItemShowTag.HideALL)
+                    GameLogic:sendStartMsg("单局结算关闭")
+                -- 否则显示飘菜单
+                else
+                    layer:ControlBtn(layer.menuItemShowTag["ShowReady"..f.my_rule[7][2]])
+                end
+                self:hide()
+            else
+                ccerr("没有下发的规则数据")
+            end
+        end
+    end 
+
+    self.winReadyBtn = CCButton.createWithFrame("czpdk/controlbtn2.png",false,readyBtnCallBack)
+    bg:addChild(self.winReadyBtn)
+    self.winReadyBtn:setPosition(ccp(bg:getContentSize().width/2,65))
+
+    btntext = loadSprite("czpdk/startgame.png")
+    btntext:setPosition(ccp(0,0))
+    self.winReadyBtn:addChild(btntext)
+
+    self.winLayerLabel = {}
+    for i = 1,3 do
+        local labelInfo = {}
+        --姓名
+        local name = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+        name:setAnchorPoint(0.0,0.5)
+        bg:addChild(name)
+        name:setPosition(ccp(25, 260 - (i-1)*60))
+        name:setColor(ccc3(235,242,226))
+        labelInfo.nameLabel = name
+
+        --剩牌
+        local offCards = CCLabelTTF:create("3","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        offCards:setAnchorPoint(0.5,0.5)
+        bg:addChild(offCards)
+        offCards:setPosition(ccp(260, 260 - (i-1)*60))
+        offCards:setColor(ccc3(235,242,226))
+        labelInfo.offCardseLabel = offCards
+       
+        -- 关门标识
+        local closeTag = loadSprite("czpdk/closed.png")
+        closeTag:setPosition(ccp(320, 268 - (i-1)*60))
+        closeTag:setVisible(false)
+        bg:addChild(closeTag)
+        labelInfo.closeTag = closeTag
+
+
+        --炸弹
+        local bomb = CCLabelTTF:create("3","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        bomb:setAnchorPoint(0.5,0.5)
+        bg:addChild(bomb)
+        bomb:setPosition(ccp(425, 260 - (i-1)*60))
+        bomb:setColor(ccc3(235,242,226))
+        labelInfo.bombLabel = bomb
+
+
+        --飘分
+        local piao = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        piao:setAnchorPoint(0.5,0.5)
+        bg:addChild(piao)
+        piao:setPosition(ccp(580, 260 - (i-1)*60))
+        piao:setColor(ccc3(235,242,226))
+        labelInfo.piaoLabel = piao
+
+        --积分
+        local score = CCLabelTTF:create("3","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        score:setAnchorPoint(0.5,0.5)
+        bg:addChild(score)
+        score:setPosition(ccp(728, 260 - (i-1)*60))
+        score:setColor(ccc3(235,242,226))
+        labelInfo.scoreLabel = score
+
+        table.insert(self.winLayerLabel,labelInfo)
+    end
+
+    self.loseLayer = CCLayer:create()
+    self:addChild(self.loseLayer)
+    
+    --背景
+    bg = loadSprite("czpdk/resultbg2.png")
+    bg:setPosition(ccp(self.winSize.width/2,self.winSize.height/2-56))
+    self.loseLayer:addChild(bg)
+    --标题
+    local title = loadSprite("czpdk/losetitle.png")
+    title:setPosition(ccp(bg:getContentSize().width/2,bg:getContentSize().height/2 + 226))
+    bg:addChild(title)
+
+    self.loseReadyBtn = CCButton.createWithFrame("czpdk/controlbtn2.png",false,readyBtnCallBack)
+    bg:addChild(self.loseReadyBtn)
+    self.loseReadyBtn:setPosition(ccp(bg:getContentSize().width/2,65))
+
+    btntext = loadSprite("czpdk/startgame.png")
+    btntext:setPosition(ccp(0,0))
+    self.loseReadyBtn:addChild(btntext)
+
+    self.loseLayerLabel = {}
+    for i = 1,3 do
+        local labelInfo = {}
+        --姓名
+        local name = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+        name:setAnchorPoint(0.0,0.5)
+        bg:addChild(name)
+        name:setPosition(ccp(86- 65, 268 - (i-1)*60))
+        name:setColor(ccc3(235,242,226))
+        labelInfo.nameLabel = name
+
+        --剩牌
+        local offCards = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        offCards:setAnchorPoint(0.5,0.5)
+        bg:addChild(offCards)
+        offCards:setPosition(ccp(260, 268 - (i-1)*60))
+        offCards:setColor(ccc3(235,242,226))
+        labelInfo.offCardseLabel = offCards
+
+        -- 关门标识
+        local closeTag = loadSprite("czpdk/closed.png")
+        closeTag:setPosition(ccp(320, 268 - (i-1)*60))
+        closeTag:setVisible(true)
+        bg:addChild(closeTag)
+        labelInfo.closeTag = closeTag
+
+
+        --炸弹
+        local bomb = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        bomb:setAnchorPoint(0.5,0.5)
+        bg:addChild(bomb)
+        bomb:setPosition(ccp(425, 268 - (i-1)*60))
+        bomb:setColor(ccc3(235,242,226))
+        labelInfo.bombLabel = bomb
+
+
+        --飘分
+        local piao = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        piao:setAnchorPoint(0.5,0.5)
+        bg:addChild(piao)
+        piao:setPosition(ccp(580, 268 - (i-1)*60))
+        piao:setColor(ccc3(235,242,226))
+        labelInfo.piaoLabel = piao
+
+        --积分
+        local score = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
+        score:setAnchorPoint(0.5,0.5)
+        bg:addChild(score)
+        score:setPosition(ccp(728, 268 - (i-1)*60))
+        score:setColor(ccc3(235,242,226))
+        labelInfo.scoreLabel = score
+
+        table.insert(self.loseLayerLabel,labelInfo)
+    end
+
+    --总结算
+    self.endResultLayer = CCLayerColor:create(AppConfig.COLOR.ColorLayer_Bg)
+    self:addChild(self.endResultLayer)
+
+    --标题
+    local titleframe = loadSprite("czpdk/total_result_title.png")
+    titleframe:setPosition(ccp(self.winSize.width/2,self.winSize.height-80))
+    self.endResultLayer:addChild(titleframe)
+
+    local border = loadSprite("czpdk/total_result_border.png", true)
+    border:setPreferredSize(CCSizeMake(self.winSize.width, 510))
+    border:setPosition(ccp(self.winSize.width/2,self.winSize.height/2-10))
+    self.endResultLayer:addChild(border)
+
+    self.endResultLabel = {}
+    for i = 1,3 do
+        local labelInfo = {}
+        local bg = loadSprite("czpdk/resultbg3.png")
+        bg:setPosition(ccp(self.winSize.width/2 + (i - 2)*406,self.winSize.height/2 - 15))
+        self.endResultLayer:addChild(bg)
+
+        --头像
+        local headframe = loadSprite("czpdk/userinfoframebg.png")
+  	    bg:addChild(headframe)
+  	    headframe:setPosition(ccp(90, 392))
+        labelInfo.head = headframe
+
+        --桌主
+        local zhuozhu = loadSprite("czpdk/zhuozhusp.png")
+        zhuozhu:setAnchorPoint(ccp(0.0,1.0))
+  	    headframe:addChild(zhuozhu,999)
+  	    zhuozhu:setPosition(ccp(0, headframe:getContentSize().height))
+        zhuozhu:setVisible(false)
+        labelInfo.zhuozhu = zhuozhu
+
+        --姓名
+        local name = CCLabelTTF:create("","",26,CCSizeMake(430,43),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+        name:setAnchorPoint(0.0,0.5)
+        bg:addChild(name)
+        name:setPosition(ccp(160,430))
+        labelInfo.nameLabel = name
+
+        --Id
+        local id = CCLabelTTF:create("","",26,CCSizeMake(225,43),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+        id:setAnchorPoint(0.0,0.5)
+        bg:addChild(id)
+        id:setPosition(ccp(160,395))
+        labelInfo.idLabel = id
+
+        --IP
+        local ip = CCLabelTTF:create("","",26,CCSizeMake(225,43),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+        ip:setAnchorPoint(0.0,0.5)
+        bg:addChild(ip)
+        ip:setPosition(ccp(160,360))
+        labelInfo.ipLabel = ip
+        
+        local sameIP = loadSprite("czpdk/sameIP.png")
+        bg:addChild(sameIP)
+  	    sameIP:setPosition(ccp(380,392))
+        sameIP:setVisible(false)
+        labelInfo.sameIP = sameIP
+
+        --单局最高得分
+        local highscore = CCLabelTTF:create("","",32)
+        highscore:setAnchorPoint(1,0.5)
+        bg:addChild(highscore)
+        highscore:setPosition(ccp(380, 292))
+        labelInfo.highscoreLabel = highscore
+
+        --炸弹数
+        local bomb = CCLabelTTF:create("","",32)
+        bomb:setAnchorPoint(1,0.5)
+        bg:addChild(bomb)
+        bomb:setPosition(ccp(380, 232))
+        labelInfo.bombLabel = bomb
+        
+        --飘分
+        local piao = CCLabelTTF:create("","",32)
+        piao:setAnchorPoint(1,0.5)
+        bg:addChild(piao)
+        piao:setPosition(ccp(380, 172))
+        labelInfo.piaoLabel = piao
+
+        --胜负局数
+        local winnum = CCLabelTTF:create("","",32)
+        winnum:setAnchorPoint(1,0.5)
+        bg:addChild(winnum)
+        winnum:setPosition(ccp(380, 112))
+        labelInfo.winLabel = winnum
+
+        --总积分
+        local totalscore = CCLabelAtlas:create("0", AppConfig.ImgFilePath.."num_roomrecorder.png",32,34,string.byte('+'))
+        totalscore:setAnchorPoint(0.0,0.5)
+        bg:addChild(totalscore)
+        totalscore:setPosition(ccp(250, 54))
+        labelInfo.totalscoreLabel = totalscore
+
+        table.insert(self.endResultLabel,labelInfo)
+    end
+
+    local function shareBtnCallBack()
+        self.shareBtn:setVisible(false)
+        self.exitBtn:setVisible(false)
+        self.recreateBtn:setVisible(false)
+        self.ruleLabel:setVisible(true)
+        shareScreenToWx(1, 75, InviteInfo.Game_Name, "好友卓总战绩", function() end)
+        self.shareBtn:setVisible(true)
+        self.exitBtn:setVisible(true)
+        self.recreateBtn:setVisible(true)
+        self.ruleLabel:setVisible(false)
+    end 
+
+    -- 分享按钮
+    self.shareBtn = CCButton.createWithFrame("czpdk/controlbtn2.png",false,shareBtnCallBack)
+    self.endResultLayer:addChild(self.shareBtn)
+    self.shareBtn:setPosition(ccp(self.winSize.width/2,50))
+
+    btntext = loadSprite("czpdk/sharegame.png")
+    btntext:setPosition(ccp(0,4))
+    self.shareBtn:addChild(btntext)
+
+
+    -- 返回大厅按钮
+    local function exitBtnCallBack()
+        AudioEngine.stopMusic(true)
+        require("LobbyControl").backToHall()
+    end
+
+    self.exitBtn = CCButton.createWithFrame("czpdk/controlbtn1.png",false,exitBtnCallBack)
+    self.endResultLayer:addChild(self.exitBtn)
+    self.exitBtn:setPosition(ccp(self.winSize.width/2-400,50))
+    
+    btntext = loadSprite("czpdk/returnlobby.png")
+    btntext:setPosition(ccp(0,4))
+    self.exitBtn:addChild(btntext)
+
+    -- 继续创建按钮
+    local function recreateBtnCallBack()
+        AudioEngine.stopMusic(true)
+        require("LobbyControl").backToHall(true)
+    end
+
+    self.recreateBtn = CCButton.createWithFrame("czpdk/controlbtn1.png",false,recreateBtnCallBack)
+    self.endResultLayer:addChild(self.recreateBtn)
+    self.recreateBtn:setPosition(ccp(self.winSize.width/2+400,50))
+    
+    btntext = loadSprite("czpdk/recreate.png")
+    btntext:setPosition(ccp(0,4))
+    self.recreateBtn:addChild(btntext)
+    
+
+    self.winLayer:setVisible(false)
+    self.loseLayer:setVisible(false)
+    self.endResultLayer:setVisible(false)
+    
+    --赌博提示
+    self.tipGambling = CCLabelTTF:create("游戏仅供娱乐，禁止赌博", "Arial", 24)     
+    self.tipGambling:setAnchorPoint(ccp(0, 0.5))
+    self.tipGambling:setPosition(ccp(40, self.winSize.height-100))
+    self.tipGambling:setVisible(false)
+    self:addChild(self.tipGambling)
+    
+    --日期提示
+    self.tipDate = CCLabelTTF:create("", "Arial", 24)     
+    self.tipDate:setAnchorPoint(ccp(1, 0.5))
+    self.tipDate:setPosition(ccp(self.winSize.width-40, self.winSize.height-100))
+    self.tipDate:setVisible(false)
+    self:addChild(self.tipDate)
+    
+    --规则说明
+    self.ruleLabel = CCLabelTTF:create("", "Arial", 24)
+    self.ruleLabel:setHorizontalAlignment(kCCTextAlignmentLeft)
+    self.ruleLabel:setAnchorPoint(ccp(0, 0.5))
+    self.ruleLabel:setPosition(ccp(40, 50))
+    self.ruleLabel:setVisible(false)
+    self:addChild(self.ruleLabel)
+    
+end
+
+function ResultLayer:onEnded(x,y)
+    local enPos = ccp(x,y)
+    local delta = 5.0
+    if math.abs (enPos.x - self._StartPos.x) > delta or math.abs (enPos.y - self._StartPos.y) > delta then
+        --not click
+		self._StartPos = ccp(-1,-1)
+		return
+    end
+end
+
+
+function ResultLayer:setOneGameInfo(myDBID)
+    cclog("ResultLayer:setOneGameInfo myDBID:%s", tostring(myDBID))
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+    local GameLogic = require("k510/Game/GameLogic")
+    local layer = GameLogic.StaySceneLayer
+    -- 如果有单局结算数据则显示单局结算
+    if GameLogic.m_SetScores then
+        local infoLabel = {}
+        self.tipGambling:setVisible(false)
+        self.tipDate:setVisible(false)
+        self.ruleLabel:setVisible(false)
+        -- 失败判定
+        for k, v in ipairs(GameLogic.m_SetScores) do
+            if myDBID == v.nUserDBID then
+                -- 胜利
+                if v.cbLeftCardNum == 0 then
+                    self.winLayer:setVisible(true)
+                    self.loseLayer:setVisible(false)
+                    infoLabel = self.winLayerLabel
+                -- 失败
+                else
+                    self.winLayer:setVisible(false)
+                    self.loseLayer:setVisible(true)
+                    infoLabel = self.loseLayerLabel
+                end
+                break
+            end
+        end
+        -- 刷新所有玩家数据
+        for k, v in ipairs(GameLogic.m_SetScores) do
+            infoLabel[k].nameLabel:setString(getUtf8(v.szUserName))
+            infoLabel[k].offCardseLabel:setString(string.format("%d",v.cbLeftCardNum))
+            infoLabel[k].scoreLabel:setString(string.format("%d",v.nSetScore))
+            infoLabel[k].closeTag:setVisible(v.cbLeftCardNum == FriendGameLogic.my_rule[2][2])
+        end
+        self:show()
+    elseif GameLogic.gameEnded then
+        self:setEndGameInfo(layer.gameendlistinfo)
+    else
+        ccerr("没有结算数据 gameEnded: %s", tostring(GameLogic.gameEnded))
+    end
+end
+
+function ResultLayer:setEndGameInfo(args)
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+    local InviteInfo = require("k510/Game/Common").InviteInfo
+    local GameLogic = require("k510/Game/GameLogic")
+    local now = os.date("*t")
+        
+    -- 同IP检测
+    local allIPRecorder, sameIPRecorder = {}, {}
+    local userList = GameLogic.userlist
+    for i, j in pairs(userList) do
+        allIPRecorder[j._userDBID] = j._userIP
+        for k, v in pairs(userList) do
+            if k ~= i and v._userIP == j._userIP and (not sameIPRecorder[v._userDBID]) then
+                sameIPRecorder[v._userDBID] = v._userIP
+            end
+        end
+    end
+    
+    for i = 1,3 do
+        local userinfo = userList[i]
+        local id = args[i].UserID
+        if id == GameLogic.openTableUserid then
+            self.endResultLabel[i].zhuozhu:setVisible(true)
+        else
+            self.endResultLabel[i].zhuozhu:setVisible(false)
+        end
+
+        self.endResultLabel[i].nameLabel:setString(args[i].UserNickName)
+        self.endResultLabel[i].idLabel:setString(string.format("ID:%d",id))
+        
+        if sameIPRecorder[id] then
+            self.endResultLabel[i].ipLabel:setString(string.format("IP:%s", sameIPRecorder[id]))
+            self.endResultLabel[i].sameIP:setVisible(true)
+        else
+            self.endResultLabel[i].ipLabel:setString(string.format("IP:%s", allIPRecorder[id]))
+            self.endResultLabel[i].sameIP:setVisible(false)
+        end
+ 
+        local headSp
+        local faceSize = CCSizeMake(90,90)
+        if userinfo then
+            headSp = require("FFSelftools/CCUserFace").create(id, faceSize, userinfo:getSex())
+        else
+            headSp = require("FFSelftools/CCUserFace").createDefault(_,faceSize)
+        end
+        headSp:setPosition(ccp(self.endResultLabel[i].head:getContentSize().width/2, self.endResultLabel[i].head:getContentSize().height/2))
+        self.endResultLabel[i].head:addChild(headSp)
+         
+        -- 其它数据
+        local endResultInfo = require("cjson").decode(args[i].RuleScoreInfo)
+        if not endResultInfo then
+            AudioEngine.stopMusic(true)
+            require("LobbyControl").backToHall()
+            return
+        end
+        self.endResultLabel[i].totalscoreLabel:setString(string.format("%d",endResultInfo.TS))
+        self.endResultLabel[i].highscoreLabel:setString(string.format("%d",endResultInfo.SS))
+        self.endResultLabel[i].bombLabel:setString(string.format("%d",endResultInfo.BB))
+        self.endResultLabel[i].piaoLabel:setString(string.format("%d",endResultInfo.PS))
+        self.endResultLabel[i].winLabel:setString(string.format("%d胜%d负",endResultInfo.WN,endResultInfo.LN))
+    end
+    
+    -- 更新日期、房间号、规则等标签
+    local msg = require("k510/LayerDeskRule").getRuleMsg()
+    self.tipDate:setString(string.format("%d-%02d-%02d %02d:%02d",now.year,now.month,now.day,now.hour,now.min))
+    self.ruleLabel:setString(msg)
+    cclog(msg)
+    
+    self.tipGambling:setVisible(true)
+    self.tipDate:setVisible(true)
+    
+    self.winLayer:setVisible(false)
+    self.loseLayer:setVisible(false)
+    self.endResultLayer:setVisible(true)
+    self:show()
+end
+
+function ResultLayer:show()
+	self:setVisible(true)
+    self:setTouchEnabled(true)
+    self.winReadyBtn:setTouchEnabled(true)
+    self.loseReadyBtn:setTouchEnabled(true)
+    self.shareBtn:setTouchEnabled(true)
+    self.exitBtn:setTouchEnabled(true)
+    self.recreateBtn:setTouchEnabled(true)
+end
+
+function ResultLayer:hide()
+	self:setVisible(false)
+    self.winReadyBtn:setTouchEnabled(false)
+    self.loseReadyBtn:setTouchEnabled(false)
+    self.shareBtn:setTouchEnabled(false)
+    self.exitBtn:setTouchEnabled(false)
+    self.recreateBtn:setTouchEnabled(false)
+    self:setTouchEnabled(false)
+end
+
+return ResultLayer

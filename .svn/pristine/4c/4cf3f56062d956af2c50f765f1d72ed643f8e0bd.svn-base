@@ -1,0 +1,57 @@
+--
+CCFileUtils:getInstance():addSearchPath("src")
+CCFileUtils:getInstance():addSearchPath("res")
+
+--工具类定义
+local Tools = class("Tools")
+--工具类对象实例化
+function Tools.create()
+    local tools = Tools.new()
+    return tools
+end
+--工具类对象属性   初始化值
+function Tools:ctor()
+    self.visibleSize = CCDirector:sharedDirector():getOpenGLView():getFrameSize()
+end
+
+--获取画布全局节点      说明：3.3脚本(lua/js)引擎本身无获取全局节点方法，此处采用深度遍历及递归来遍历所有节点，获取全局节点
+function Tools:seekNodeByName(root, name)
+    if(null==root) then
+        return null
+    end
+    if(root:getName()== name) then
+        return root
+    end
+    local arrayRootChildren = root:getChildren()
+    for i, v in ipairs(arrayRootChildren) do
+        if(v) then
+            local res = self:seekNodeByName(v,name);
+            if(res~=null) then
+                return res;
+            end
+        end
+    end
+    return null;
+end
+--分辨率适配  参数一：画布
+function Tools:sreenScale(uiPanel)
+--    local children = nil
+--    local num = nil
+--    children = uiPanel:getChildren()
+--    num = uiPanel:getChildrenCount()
+--    for i=1,num do
+--        if display.height==720 then
+--            break
+--        end
+--        children[i]:setPositionY(display.height/720*children[i]:getPositionY())
+--    end
+
+    -- print("屏幕宽："..self.visibleSize.width);
+    -- print("屏幕高："..self.visibleSize.height);
+    -- local scaleX = self.visibleSize.width/1280;
+    -- local scaleY = self.visibleSize.height/720;
+    -- uiPanel:setScaleX(scaleX);
+    -- uiPanel:setScaleY(scaleY);
+end
+
+return Tools

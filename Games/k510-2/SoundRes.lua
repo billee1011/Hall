@@ -1,0 +1,185 @@
+
+require("AudioEngine")
+local SetLogic = require("Lobby/Set/SetLogic")
+local Resources = require("bull/Resources")
+local SoundRes = {}
+
+SoundRes.__index = SoundRes
+
+
+--背景音乐
+SoundRes.MUSIC_DESK = "bull/music/bg.mp3" --牌桌
+--当任意玩家思考出牌时间在剩余3秒时依然没有出牌时播放
+SoundRes.SOUND_CLOCKTIME = "bull/music/hurry.mp3" 
+SoundRes.SOUND_ENTERTABLE="bull/music/enter.mp3" --进桌音效
+SoundRes.SOUND_EXITTABLE="bull/music/exit.mp3" --退桌音效
+SoundRes.SOUND_DIDI="bull/music/didi.mp3"
+SoundRes.SOUND_MASTER="bull/music/master.mp3"
+SoundRes.SOUND_STARTGAME="bull/music/startgame.mp3"  --开始发牌时播放
+SoundRes.SOUND_WIN="bull/music/win.mp3"
+SoundRes.SOUND_LOSE="bull/music/lose.mp3"
+SoundRes.SOUND_SELECTMAJIANG="bull/music/selectmahjong.mp3"  --选牌时播放
+SoundRes.SOUND_COINCHANGE="bull/music/coinChange.mp3"  --金币改变
+--牌型
+SoundRes.SOUND_NIUTYPE="bull/music/type/%s/niu%d.mp3"
+--SoundRes.MUSIC_ROOM = "bull/bullResources/sound/common/roombg.mp3" --大厅
+
+--//common
+
+
+SoundRes.SOUND_MOVE="bull/bullResources/sound/common/move.mp3"  --当任意玩家开局后拿牌时，牌移动时播放
+--SoundRes.SOUND_SENDMAHJONG="bull/bullResources/sound/common/sendmahjong.mp3"  --当任意玩家开出牌后播放
+--当剩余3秒时玩家没有出牌，则每秒播放一次，当玩家出牌后则不再播放
+SoundRes.SOUND_TIME="bull/bullResources/sound/common/time.mp3"
+SoundRes.SOUND_CANCELMANAGE="bull/bullResources/sound/common/cancelmanage.mp3"  --点击取消托管按钮时
+SoundRes.SOUND_MANAGE="bull/bullResources/sound/common/manage.mp3"  --点击托管按钮时
+--SoundRes.SOUND_DICE="bull/bullResources/sound/common/dice.mp3"  --掷骰子时
+--SoundRes.SOUND_CLEAN="bull/bullResources/sound/common/cleancard.mp3"  --理牌时播放
+--SoundRes.SOUND_GETCARD="bull/bullResources/sound/common/getcard.mp3"  --摸到一张牌
+--SoundRes.SOUND_LAIZI="bull/bullResources/sound/common/laizi.mp3"  --癞子
+SoundRes.SOUND_EFFECTWORD="bull/bullResources/sound/common/effectword.mp3"  --动画音效
+
+--选择了不能出的牌时播放，如手上有北风，牌桌已经有人出了北风时，
+--我方没有选择北风出牌时播放，或出了不能出的散牌时播放
+--SoundRes.SOUND_ERROR="bull/bullResources/sound/common/error.mp3"
+--SoundRes.SOUND_CANCEL="bull/bullResources/sound/common/cancel.mp3" --点击取消按钮时
+SoundRes.SOUND_PASS="bull/bullResources/sound/common/pass.mp3" --点击过按钮时
+SoundRes.SOUND_MSG="bull/bullResources/sound/common/msg.mp3" --警告提示弹窗出现时播放
+--SoundRes.SOUND_CONGRATU="bull/bullResources/sound/common/congratulation.mp3" --游金、双游、三游提示弹窗出现时播放
+SoundRes.SOUND_WARNNING="bull/bullResources/sound/common/warnning.mp3" --臭庄提示弹窗出现时播放
+SoundRes.SOUND_SHOOTINGLOST="bull/bullResources/sound/common/shootinglost.mp3" --玩家放炮时播放
+SoundRes.SOUND_SHOOTINGWIN="bull/bullResources/sound/common/shootingwin.mp3" --玩家点炮和时播放
+SoundRes.SOUND_THREELOST="bull/bullResources/sound/common/threelost.mp3" --杀三时播放
+SoundRes.SOUND_SMELLVILLAGE="bull/bullResources/sound/common/smellvillage.mp3" --臭庄时播放
+SoundRes.SOUND_ZIMOLOST="bull/bullResources/sound/common/zimolost.mp3" --自摸输时播放
+SoundRes.SOUND_ZIMOWIN="bull/bullResources/sound/common/zimowin.mp3" --自摸赢时播放
+SoundRes.SOUND_SHUFFLING="bull/bullResources/sound/common/shuffling.mp3" --码牌过程
+
+
+
+
+
+
+local MINNAN="localtion"
+local PUTONG="putong"
+local FOLDER_NAME=PUTONG
+
+SoundRes.SOUND_ZHUANGJIA="bull/bullResources/sound/common/zhuangjia.mp3"  --庄家
+
+
+SoundRes.SOUND_JIDANG = "bull/bullResources/sound/eggEffect/jiDang.mp3"  --金蛋
+SoundRes.SOUND_MEIGUI = "bull/bullResources/sound/eggEffect/meiGui.mp3"  --玫瑰
+SoundRes.SOUND_CHUIZI = "bull/bullResources/sound/eggEffect/chuiZi.mp3"  --锤子
+SoundRes.SOUND_BAOZAI = "bull/bullResources/sound/eggEffect/baoZai.mp3"  --扔爆炸
+SoundRes.SOUND_BEIZI = "bull/bullResources/sound/eggEffect/beiZi.mp3"  --干杯
+
+--//聊天
+SoundRes.SOUND_CAHT="bull/bullResources/sound/putong/chat/%s/%s"
+
+--//表情声音
+SoundRes.SOUND_CAHT_FACE=
+{
+    Resources.Resources_Head_Url.."sound/face/face_1_xiao.mp3",
+    Resources.Resources_Head_Url.."sound/face/face_2_hehe.mp3",
+    Resources.Resources_Head_Url.."sound/face/face_3_biaoyang.mp3",
+    Resources.Resources_Head_Url.."sound/face/face_4_qiushen.mp3",
+    Resources.Resources_Head_Url.."sound/face/face_5_shengqi.mp3",
+    Resources.Resources_Head_Url.."sound/face/face_6_ku.mp3"
+}
+
+function SoundRes.setIsLuange()
+    local sGlobalMsg = require("bull/public/GlobalMsg"):instance()
+    if (sGlobalMsg:isLuangeOpen() ==true ) then
+        require("bull/Resources").QUICK_SEND_CHATS = require("bull/Resources").QUICK_SEND_CHATS_LOCALTION
+        SoundRes.SOUND_CAHT="bull/bullResources/sound/localtion/chat/%s/%s"
+        FOLDER_NAME=PUTONG
+    else
+        require("bull/Resources").QUICK_SEND_CHATS = require("bull/Resources").QUICK_SEND_CHATS_PUTONG
+        SoundRes.SOUND_CAHT="bull/bullResources/sound/putong/chat/%s/%s"
+        FOLDER_NAME=PUTONG
+    end
+
+    SoundRes.SOUND_EAT="bull/bullResources/sound/"..FOLDER_NAME.."/%s/eat/%s.mp3"  --吃0,1,2
+    SoundRes.SOUND_PENG="bull/bullResources/sound/"..FOLDER_NAME.."/%s/peng/%s.mp3"  --碰0,1,2,3
+    SoundRes.SOUND_GANG="bull/bullResources/sound/"..FOLDER_NAME.."/%s/gang/0.mp3"  --杠
+    SoundRes.SOUND_HE="bull/bullResources/sound/"..FOLDER_NAME.."/%s/he/%s.mp3"  --和0,1
+    SoundRes.SOUND_ZIMO="bull/bullResources/sound/"..FOLDER_NAME.."/%s/zimo/0.mp3"  --自摸
+    SoundRes.SOUND_YOUJIN="bull/bullResources/sound/"..FOLDER_NAME.."/%s/youjin/0.mp3"  --游金
+    SoundRes.SOUND_SHUANGYOU="bull/bullResources/sound/"..FOLDER_NAME.."/%s/shuangyou/0.mp3"  --双游
+    SoundRes.SOUND_SHANYOU="bull/bullResources/sound/"..FOLDER_NAME.."/%s/sanyou/0.mp3"  --三游
+    SoundRes.SOUND_SHANJINDAO="bull/bullResources/sound/"..FOLDER_NAME.."/%s/sanjindao/0.mp3"  --三金倒
+    SoundRes.SOUND_8HUA="bull/bullResources/sound/"..FOLDER_NAME.."/%s/8flower/0.mp3"  --8花
+    SoundRes.SOUND_BUHUA="bull/bullResources/sound/"..FOLDER_NAME.."/%s/qiangjin/0.mp3"  --补花
+    SoundRes.SOUND_HUPAINOTszmj="bull/bullResources/sound/"..FOLDER_NAME.."/%s/withoutwin.mp3"  --胡牌无红中
+    SoundRes.SOUND_MAIMAQUANZHONG="bull/bullResources/sound/"..FOLDER_NAME.."/%s/allget.mp3"  --买码全中
+    
+    --//牌
+    SoundRes.SOUND_CARD="bull/bullResources/sound/"..FOLDER_NAME.."/%s/tile/%s.mp3"
+
+end
+
+SoundRes.setIsLuange()
+
+function SoundRes.playMusic(musicPath)
+ --[[   local sGlobalMsg = require("bull/public/GlobalMsg"):instance()
+    if (AudioEngine.isMusicPlaying() == true) then
+        AudioEngine.stopMusic(true)
+    end]]
+   -- if (sGlobalMsg:isMusicOpen() == true) then
+        --volumn = sGlobalMsg:getMusicVol() / 50.0
+        --AudioEngine.setMusicVolume(volumn) 
+      --  AudioEngine.playMusic(musicPath, true)
+	  
+	  SetLogic.playGameGroundMusic(musicPath)
+   -- end
+end
+
+function SoundRes.playGlobalBoyOrGirlEffect(pszFilePath, nBoyEffect, bLoop)
+    bLoop = bLoop or false
+   -- local sGlobalMsg = require("bull/public/GlobalMsg"):instance()
+  --  if (sGlobalMsg:isEffectOpen() == true) then
+        --local _effectsVol = sGlobalMsg:getEffectVol()
+        --AudioEngine.setEffectsVolume(_effectsVol / 150.0)
+        local arr = nil
+        if(nBoyEffect == 1) then
+            arr = "man"
+        else
+            arr = "woman"
+        end
+
+        local str = string.format(pszFilePath, arr)
+        --cclog("playGlobalBoyOrGirlEffect %s",str)
+       -- AudioEngine.playEffect(str, bLoop)
+	   SetLogic.playGameEffect(str)
+    --end
+  
+end
+function SoundRes.playEffectEx(fileNmale,nSex)--区分普通话和方言
+	local pszFilePath
+	if SetLogic.getGameCheckByIndex(3) ~= 1 then --方言
+		pszFilePath = string.format("bull/music/czh/%s/%s",nSex == 1 and "man" or "woman",fileNmale)
+    else
+        pszFilePath = string.format("bull/music/pth/%s/%s",nSex == 1 and "man" or "woman",fileNmale)
+    end
+	cclog(pszFilePath)
+	SetLogic.playGameEffect(pszFilePath)
+end
+function SoundRes.playGlobalEffect(pszFilePath, bLoop)
+	SetLogic.playGameEffect(pszFilePath)
+end
+function SoundRes.playGameShake(t)
+	SetLogic.playGameShake(t)
+end
+function SoundRes.pauseAllSound()
+    AudioEngine.pauseMusic()
+    AudioEngine.pauseAllEffects()
+end
+
+function SoundRes.resumeAllSound()
+    AudioEngine.resumeMusic()
+    AudioEngine.resumeAllEffects()
+end
+
+
+return SoundRes
+

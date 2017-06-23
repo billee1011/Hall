@@ -1,0 +1,1877 @@
+--------------------------------------------------------------------------
+
+--排序类型
+local ST_ORDER                    = 0                                   --大小排序
+local ST_COUNT                    = 1                                   --数目排序
+local ST_CUSTOM                   = 2                                   --自定排序
+
+--数值定义
+local MAX_WEAVE                   = 7                                   --最大组合
+local MAX_INDEX                   = 20                                  --最大索引
+local MAX_COUNT                   = 21                                  --最大数目
+local TEMP_MAX_COUNT              = 84                                  --最大数目
+local MASK_COLOR                  = 0xF0                                --花色掩码
+local MASK_VALUE                  = 0x0F                                --数值掩码
+local LESS_FAN                    = 9                                   --数值掩码
+
+
+--动作定义
+local ACK_NULL                    = 0x00                                --空
+local ACK_TI                      = 0x01                                --提
+local ACK_PAO                     = 0x02                                --跑
+local ACK_WEI                     = 0x04                                --偎
+local ACK_CHI                     = 0x08                                --吃
+local ACK_CHI_EX                  = 0x10                                --优
+local ACK_PENG                    = 0x20                                --碰
+local ACK_CHIHU                   = 0x40                                --胡
+local ACK_KAN                     = 0x80                                -- 坎
+local ACK_ZIMO                    = 0x80                                -- 自摸
+
+--吃牌类型
+local CK_NULL                     = 0x00                                --无效类型
+local CK_XXD                      = 0x01                                --小小大搭
+local CK_XDD                      = 0x02                                --小大大搭
+local CK_EQS                      = 0x04                                --二七十吃
+local CK_LEFT                     = 0x10                                --靠左对齐
+local CK_CENTER                   = 0x20                                --居中对齐
+local CK_RIGHT                    = 0x40                                --靠右对齐
+
+local LIST_COUNT                    = 14
+
+--扑克逻辑类定义
+local Logic = class("Logic")
+--扑克逻辑类对象实例化
+function Logic.create()
+    local logic = Logic.new()
+    return logic
+end
+
+--扑克逻辑类对象属性   初始化值
+function Logic:ctor()
+    --权位运算类实例化
+    self.cchiHuRightClass = require("phz/Game/PaoHuZi_CChiHuRight")
+    self.cchiHuRight = self.cchiHuRightClass.create()
+    --扑克数据
+    self.m_cbCardDataArray=
+    {
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,                  --小写
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,                  --小写
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,                  --小写
+        0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,                  --小写
+        0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,                  --大写
+        0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,                  --大写
+        0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A,                  --大写
+        0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,0x19,0x1A                   --大写
+    };
+	
+end
+
+----控制函数
+----public:
+
+--获取数值
+function Logic:GetCardValue(cbCardData)
+    return Bit:_and(cbCardData,MASK_VALUE);
+--return cbCardData&MASK_VALUE;
+end
+--获取花色
+function Logic:GetCardColor(cbCardData)
+    return Bit:_and(cbCardData,MASK_COLOR); 
+--return cbCardData&MASK_COLOR;
+end
+
+----获取手牌数组
+--@param tempHandCardDataList 10x4 二维数组
+--@return 二维数组
+function Logic:GetHandCardList(cbCardData, cbCardCount, bcommon)
+    if bcommon then
+        return self:GetCommonHandCardList(cbCardData, cbCardCount)
+    end
+
+    --排序分组结果 
+    local tempDataListCount = 0
+    local tempHandCardDataList = {}
+    local handCardDataIndex = {}  --20  小牌1-10 大牌11-20
+    PaoHuZi_ZeroMemory(handCardDataIndex,20)
+	local tempCardData = {}
+    PaoHuZi_CopyMemory(tempCardData,cbCardData,cbCardCount)
+    self:SortCardListValue(tempCardData, cbCardCount)
+    
+    for i=0, cbCardCount - 1  do
+        --变量定义
+        local samecount = 1;
+        local logicvalue = self:GetCardValue(tempCardData[i+1]);
+
+        --搜索同牌
+        for j = i + 1, cbCardCount - 1 do
+            if (self:GetCardValue(tempCardData[j+1]) ~= logicvalue) then break; end
+            samecount = samecount + 1
+        end
+        if tempCardData[i+1]>10 then
+            handCardDataIndex[tempCardData[i+1]-6] = handCardDataIndex[tempCardData[i+1]-6] + 1   --大牌
+        else
+            handCardDataIndex[tempCardData[i+1]] = handCardDataIndex[tempCardData[i+1]] + 1       --小牌
+        end
+        i = i + samecount - 1;
+    end
+
+    ----3张4张同牌
+    for i=1, 20 do
+        if handCardDataIndex[i] == 4 then
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i+6,i+6}
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i,i,i,i}
+            end
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+        elseif handCardDataIndex[i] == 3 then
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i+6}
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i,i,i}
+            end
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+        end
+    end
+
+    ----顺子123 2710
+    for i=1, 20 do
+        ----小写
+        --对子112233 拆分成123 123
+        if i==1 and handCardDataIndex[i]==2 and handCardDataIndex[i+1]==2 and handCardDataIndex[i+2]==2 then
+            tempHandCardDataList[tempDataListCount+1] = {i,i+1,i+2}
+            tempHandCardDataList[tempDataListCount+2] = {i,i+1,i+2}
+            tempDataListCount = tempDataListCount + 2
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i+1] = 0
+            handCardDataIndex[i+2] = 0
+        --存在123 抽取出来
+        elseif i==1 and handCardDataIndex[i]>0 and handCardDataIndex[i+1]>0 and handCardDataIndex[i+2]>0 then
+            tempHandCardDataList[tempDataListCount+1] = {i,i+1,i+2}
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = handCardDataIndex[i] - 1
+            handCardDataIndex[i+1] = handCardDataIndex[i+1] - 1
+            handCardDataIndex[i+2] = handCardDataIndex[i+2] - 1
+        --对子22 77 1010 拆分成2710 2710
+        elseif i==2 and handCardDataIndex[i]==2 and handCardDataIndex[i+5]==2 and handCardDataIndex[i+8]==2 then
+            tempHandCardDataList[tempDataListCount+1] = {i,i+5,i+8}
+            tempHandCardDataList[tempDataListCount+2] = {i,i+5,i+8}
+            tempDataListCount = tempDataListCount + 2
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i+5] = 0
+            handCardDataIndex[i+8] = 0
+        --存在2710 抽取出来
+        elseif i==2 and handCardDataIndex[i]>0 and handCardDataIndex[i+5]>0 and handCardDataIndex[i+8]>0 then
+            tempHandCardDataList[tempDataListCount+1] = {i,i+5,i+8}
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = handCardDataIndex[i] - 1
+            handCardDataIndex[i+5] = handCardDataIndex[i+5] - 1
+            handCardDataIndex[i+8] = handCardDataIndex[i+8] - 1
+        ----大写    
+        --对子112233 拆分成123 123
+        elseif i==11 and handCardDataIndex[i]==2 and handCardDataIndex[i+1]==2 and handCardDataIndex[i+2]==2 then
+            tempHandCardDataList[tempDataListCount+1] = {i+6,i+1+6,i+2+6}
+            tempHandCardDataList[tempDataListCount+2] = {i+6,i+1+6,i+2+6}
+            tempDataListCount = tempDataListCount + 2
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i+1] = 0
+            handCardDataIndex[i+2] = 0
+        --存在123 抽取出来
+        elseif i==11 and handCardDataIndex[i]>0 and handCardDataIndex[i+1]>0 and handCardDataIndex[i+2]>0 then
+            tempHandCardDataList[tempDataListCount+1] = {i+6,i+1+6,i+2+6}
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = handCardDataIndex[i] - 1
+            handCardDataIndex[i+1] = handCardDataIndex[i+1] - 1
+            handCardDataIndex[i+2] = handCardDataIndex[i+2] - 1
+        --对子22 77 1010 拆分成2710 2710
+        elseif i==12 and handCardDataIndex[i]==2 and handCardDataIndex[i+5]==2 and handCardDataIndex[i+8]==2 then
+            tempHandCardDataList[tempDataListCount+1] = {i+6,i+5+6,i+8+6}
+            tempHandCardDataList[tempDataListCount+2] = {i+6,i+5+6,i+8+6}
+            tempDataListCount = tempDataListCount + 2
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i+5] = 0
+            handCardDataIndex[i+8] = 0
+        --存在2710 抽取出来
+        elseif i==12 and handCardDataIndex[i]>0 and handCardDataIndex[i+5]>0 and handCardDataIndex[i+8]>0 then
+            tempHandCardDataList[tempDataListCount+1] = {i+6,i+5+6,i+8+6}
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = handCardDataIndex[i] - 1
+            handCardDataIndex[i+5] = handCardDataIndex[i+5] - 1
+            handCardDataIndex[i+8] = handCardDataIndex[i+8] - 1
+        end
+    end
+
+    --对子
+    for i=11,20 do
+        local maxCount = handCardDataIndex[i]
+        local minCount = handCardDataIndex[i - 10]
+        if maxCount +  minCount == 3 then
+            if maxCount == 2 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i-10} 
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i-10,i-10}              
+            end
+
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i-10] = 0
+        else
+            if maxCount == 2 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6} 
+                tempDataListCount = tempDataListCount + 1
+                handCardDataIndex[i] = 0 
+            end  
+            if minCount == 2 then 
+                tempHandCardDataList[tempDataListCount+1] = {i-10,i-10} 
+                tempDataListCount = tempDataListCount + 1
+                handCardDataIndex[i - 10] = 0                                 
+            end
+        end            
+    end
+
+    --顺子
+    local function checThreen(index, value)
+        if handCardDataIndex[index]==1 
+            and handCardDataIndex[index+1]==1 and handCardDataIndex[index+2]==1 then
+            tempHandCardDataList[tempDataListCount+1] = {value,value+1,value+2}
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[index] = 0
+            handCardDataIndex[index+1] = 0
+            handCardDataIndex[index+2] = 0
+        end
+    end
+    for i=1, 10 do
+        --顺子
+        if i<=8 then
+            --小牌
+            checThreen(i, i)
+            --大牌
+            checThreen(i + 10, i + 10 + 6)
+        end
+    end
+
+    --双牌
+    for i=11,20 do
+        local maxCount = handCardDataIndex[i]
+        local minCount = handCardDataIndex[i - 10]
+        if maxCount +  minCount == 2 then
+            --两张单牌 
+            tempHandCardDataList[tempDataListCount+1] = {i+6,i-10} 
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i-10] = 0                  
+        end
+    end
+
+    --二顺
+    local function checTwo(index, value)
+        if handCardDataIndex[index]==1 
+            and handCardDataIndex[index+1]==1 then
+            tempHandCardDataList[tempDataListCount+1] = {value,value+1}
+            tempDataListCount = tempDataListCount + 1
+
+            handCardDataIndex[index] = 0
+            handCardDataIndex[index+1] = 0
+        end
+    end
+    for i=1, 10 do
+        --顺子
+        if i<=9 then
+            --小牌
+            checTwo(i, i)
+            --大牌
+            checTwo(i + 10, i + 10 + 6)
+        end
+    end
+
+    --单牌处理
+    local tempSingleNum = 0
+    for i=1, 20 do
+        if handCardDataIndex[i]==1 then
+            if not tempHandCardDataList[tempDataListCount+1] then
+                tempHandCardDataList[tempDataListCount+1] = {}
+            end
+
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1][tempSingleNum+1] = i + 6
+            else
+                tempHandCardDataList[tempDataListCount+1][tempSingleNum+1] = i
+            end
+            handCardDataIndex[i] = 0
+            tempSingleNum = tempSingleNum + 1
+            if tempSingleNum==3 or i==20 then
+                tempDataListCount = tempDataListCount + 1
+                tempSingleNum = 0
+            end
+        end
+    end
+
+    return tempHandCardDataList,tempDataListCount
+end
+
+function Logic:GetCommonHandCardList(cbCardData, cbCardCount)
+    --排序分组结果 
+    local tempDataListCount = 0
+    local tempHandCardDataList = {}
+    local handCardDataIndex = {}  --20  小牌1-10 大牌11-20
+    PaoHuZi_ZeroMemory(handCardDataIndex,20)
+    local tempCardData = {}
+    PaoHuZi_CopyMemory(tempCardData,cbCardData,cbCardCount)
+    self:SortCardListValue(tempCardData, cbCardCount)
+    
+    for i=0, cbCardCount - 1  do
+        --变量定义
+        local samecount = 1;
+        local logicvalue = self:GetCardValue(tempCardData[i+1]);
+
+        --搜索同牌
+        for j = i + 1, cbCardCount - 1 do
+            if (self:GetCardValue(tempCardData[j+1]) ~= logicvalue) then break; end
+            samecount = samecount + 1
+        end
+        if tempCardData[i+1]>10 then
+            handCardDataIndex[tempCardData[i+1]-6] = handCardDataIndex[tempCardData[i+1]-6] + 1   --大牌
+        else
+            handCardDataIndex[tempCardData[i+1]] = handCardDataIndex[tempCardData[i+1]] + 1       --小牌
+        end
+        i = i + samecount - 1;
+    end
+
+    ----3张4张同牌
+    for i=1, 20 do
+        if handCardDataIndex[i] == 4 then
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i+6,i+6}
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i,i,i,i}
+            end
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+        elseif handCardDataIndex[i] == 3 then
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i+6}
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i,i,i}
+            end
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+        end
+    end
+
+    local twoweave, oneweave = {}, {}
+    for i=11,20 do
+        local maxCount = handCardDataIndex[i]
+        local minCount = handCardDataIndex[i - 10]
+        if maxCount +  minCount == 3 then
+            if maxCount == 2 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6,i-10} 
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i-10,i-10}              
+            end
+
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+            handCardDataIndex[i-10] = 0
+        else
+            if maxCount == 2 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i+6} 
+                tempDataListCount = tempDataListCount + 1
+                handCardDataIndex[i] = 0 
+
+                table.insert(twoweave, tempDataListCount) 
+            end  
+            if minCount == 2 then 
+                tempHandCardDataList[tempDataListCount+1] = {i-10,i-10} 
+                tempDataListCount = tempDataListCount + 1
+                handCardDataIndex[i - 10] = 0  
+
+                table.insert(twoweave, tempDataListCount)                                
+            end
+            if minCount == 1 and maxCount == 1 then 
+                --两张单牌 
+                tempHandCardDataList[tempDataListCount+1] = {i+6,i-10} 
+                tempDataListCount = tempDataListCount + 1
+                handCardDataIndex[i] = 0
+                handCardDataIndex[i-10] = 0   
+
+                table.insert(twoweave, tempDataListCount)                               
+            end                                 
+        end
+   end
+
+    --单牌处理
+    for i=1, 20 do
+        if handCardDataIndex[i]==1 then
+            if i>10 then
+                tempHandCardDataList[tempDataListCount+1] = {i+6}
+            else
+                tempHandCardDataList[tempDataListCount+1] = {i}
+            end
+            tempDataListCount = tempDataListCount + 1
+            handCardDataIndex[i] = 0
+
+            table.insert(oneweave, tempDataListCount)
+            if tempDataListCount >= LIST_COUNT then
+                break
+            end
+        end
+    end
+
+    --将多出来的牌插入到单排、双排列上
+    for i=20, 1, -1 do
+        if handCardDataIndex[i]==1 then
+            local value = i + 6
+            if i<=10 then
+                value = i
+            end
+
+            --插入到单排
+            local oneCount = #oneweave
+            local twoCount = #twoweave
+            if oneCount > 0 then
+                local index = oneweave[oneCount]
+                tempHandCardDataList[index][2] = value
+
+                table.remove(oneweave)
+                table.insert(twoweave, index)
+            else
+                local index = twoweave[twoCount]
+                tempHandCardDataList[index][3] = value   
+
+                table.remove(twoweave)             
+            end
+        end
+    end    
+
+    local function compare(avalue, bvalue)
+        local rst = true  
+        if #avalue == 0 then  
+            rst = false  
+        elseif #bvalue == 0 then  
+            rst = true  
+        elseif avalue[1] == bvalue[1] then  
+            rst = false
+        else
+            local value1 = self:GetCardValue(avalue[1]) 
+            local value2 = self:GetCardValue(bvalue[1]) 
+            rst = value1 < value2
+        end  
+       
+        return rst 
+    end
+    table.sort(tempHandCardDataList, compare)
+
+    return tempHandCardDataList,tempDataListCount
+end
+
+--排序,根据牌值排序return bool
+function Logic:SortCardListValue(cbCardData, cbCardCount)
+    --数目过虑
+    if (cbCardCount==0 or cbCardCount>MAX_COUNT_PAOHUZI) then return false; end
+
+    --排序操作
+    local bSorted=true;
+    local cbSwitchData=0
+    local cbLast = cbCardCount-1;
+    repeat
+        bSorted=true;
+        for i = 0 , cbLast-1 do
+            if (cbCardData[i+1]>cbCardData[i+1+1]) then
+
+                --设置标志
+                bSorted=false;
+
+                --扑克数据
+                cbSwitchData = cbCardData[i+1];
+                cbCardData[i+1] = cbCardData[i+1+1];
+                cbCardData[i+1+1] = cbSwitchData;
+            end
+        end
+        cbLast = cbLast - 1;
+    until (not (bSorted==false));
+
+    return true;
+end
+--扑克排序(由小到大)
+function Logic:SortCardList(cbCardData, cbCardCount)
+
+    if (cbCardData == nil or cbCardCount < 2 or cbCardCount > MAX_COUNT_PAOHUZI) then return; end
+
+    --采用提取法(1到10依次提取)
+    local cbData = {}  --[MAX_COUNT];
+    local cbCount = 0;
+    for i = 0 , 10 - 1 do
+        --提小牌
+        for k = 0 , cbCardCount - 1 do
+            if (cbCardData[k+1] == self.m_cbCardDataArray[i+1]) then
+            
+                cbData[cbCount+1] = cbCardData[k+1];
+                cbCount = cbCount + 1
+            end
+        end
+        --提大牌
+        for k = 0 , cbCardCount - 1 do
+            if (cbCardData[k+1] == self.m_cbCardDataArray[i + 40+1]) then
+            
+                cbData[cbCount+1] = cbCardData[k+1];
+                cbCount = cbCount + 1
+            end
+        end
+    end
+    --填充结果数据
+    for k = 0 , cbCount - 1 do
+        cbCardData[k+1] = cbData[k+1];
+    end
+end
+--单牌排序
+function Logic:SortCardListSingle(cbCardData , cbCardCount)
+
+    if (cbCardData == nil or cbCardCount < 2 or cbCardCount > MAX_COUNT_PAOHUZI) then return; end
+
+    --采用提取法(1到10依次提取)
+    local cbData = {}  --[MAX_COUNT];
+    local cbCount = 0;
+    for i = 0 , 10 - 1 do
+        --提小牌
+        for k = 0 , 10 - 1 do
+            if (cbCardData[k+1] == self.m_cbCardDataArray[i+1]) then
+
+                cbData[cbCount+1] = cbCardData[k+1];
+                cbCount = cbCount + 1
+            end
+        end
+        --提大牌
+        for k = 0 , 10 - 1 do
+            if (cbCardData[k+1] == self.m_cbCardDataArray[i + 40+1]) then
+
+                cbData[cbCount+1] = cbCardData[k+1];
+                cbCount = cbCount + 1
+            end
+        end
+    end
+    --填充结果数据
+    for k = 0 , cbCount - 1 do
+        cbCardData[k+1] = cbData[k+1];
+    end
+end
+
+--混乱扑克 return void
+function Logic:RandCardData( cbCardData,  cbMaxCount)
+    --混乱准备
+    local cbCardDataTemp={};--[table.getn(m_cbCardListData)];
+    PaoHuZi_CopyMemory(cbCardDataTemp,self.m_cbCardDataArray,table.getn(self.m_cbCardDataArray));
+
+    --混乱扑克
+    local bRandCount=0;
+    local bPosition=0;
+    repeat
+        math.randomseed(tostring(os.time()):reverse():sub(1, 10)); --加随机数种子
+        bPosition=math.random(10000,99999)%(table.getn(self.m_cbCardDataArray)-bRandCount);
+        cbCardData[1+bRandCount] = cbCardDataTemp[1+bPosition];
+        bRandCount=bRandCount+1;
+        cbCardDataTemp[1+bPosition] = cbCardDataTemp[1+table.getn(self.m_cbCardDataArray)-bRandCount];
+    until (bRandCount>=cbMaxCount);
+    
+    return;
+end
+
+--删除扑克return bool
+function Logic:RemoveCard2( cbCardIndex, cbRemoveCard)
+    --删除扑克
+    local cbRemoveIndex = self:SwitchToCardIndex1(cbRemoveCard);
+
+    --效验扑克
+    if not cbCardIndex[cbRemoveIndex+1] then return false end
+
+    if (cbCardIndex[cbRemoveIndex+1]>0) then
+        cbCardIndex[cbRemoveIndex+1] = cbCardIndex[cbRemoveIndex+1] - 1;
+        return true;
+    end
+
+    return false;
+end
+
+--删除扑克return bool
+function Logic:RemoveCard3( cbCardIndex, cbRemoveCard, cbRemoveCount)
+    --删除扑克
+    for i = 0 ,cbRemoveCount-1 do
+        --效验扑克
+        if not (cbCardIndex[self:SwitchToCardIndex1(cbRemoveCard[i+1])+1]>0) then return false end;
+        --删除扑克
+        local cbRemoveIndex = self:SwitchToCardIndex1(cbRemoveCard[i+1]);
+        if (cbCardIndex[cbRemoveIndex+1]==0) then
+            --还原删除
+            for j=0 , i-1 do
+                cbCardIndex[self:SwitchToCardIndex1(cbRemoveCard[j+1])+1] = cbCardIndex[self:SwitchToCardIndex1(cbRemoveCard[j+1])+1] + 1;
+            end
+            return false;
+        else 
+            --删除扑克
+            cbCardIndex[cbRemoveIndex+1] = cbCardIndex[cbRemoveIndex+1] - 1;
+        end
+    end
+    return true;
+end
+
+----辅助函数
+----public:
+    
+--有效判断return bool
+function Logic:IsValidCard( cbCardData)
+    local cbValue = Bit:_and(cbCardData,MASK_VALUE);     --(cbCardData&MASK_VALUE);
+    local cbColor = Bit:_rshift(Bit:_and(cbCardData,MASK_COLOR),4)     --(cbCardData&MASK_COLOR)>>4;
+    return ((cbValue>=1) and (cbValue<=10) and (cbColor<=1));
+end
+
+--扑克数目return BYTE
+function Logic:GetCardCount( cbCardIndex)
+    --数目统计
+    local cbCardCount=0;
+    for i = 0, MAX_INDEX_PAOHUZI-1 do
+        cbCardCount = cbCardCount + cbCardIndex[i+1];
+    end
+
+    return cbCardCount;
+end
+
+--获取扑克
+function Logic:GetChiCardData( cbChiCardKind, cbCurrentCard, cbCardData)
+
+    --设置扑克
+    if cbChiCardKind==CK_XXD then  --小小大搭
+            if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then
+                cbCardData[0+1] = cbCurrentCard;
+                cbCardData[1+1] = cbCurrentCard;
+                cbCardData[2+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x10);
+            else
+                cbCardData[0+1] = cbCurrentCard;
+                cbCardData[1+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x00);
+                cbCardData[2+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x00);
+            end
+
+            return 3;
+    elseif cbChiCardKind==CK_XDD then  --小大大搭  
+        
+            if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then
+                cbCardData[0+1] = cbCurrentCard;
+                cbCardData[1+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x10);
+                cbCardData[2+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x10);
+            else
+                cbCardData[0+1] = cbCurrentCard;
+                cbCardData[1+1] = cbCurrentCard;
+                cbCardData[2+1] = self.cchiHuRight:Or(self.cchiHuRight:And(cbCurrentCard,MASK_VALUE),0x00);
+            end
+
+            return 3;
+    elseif cbChiCardKind==CK_EQS then  --二七十吃  
+        
+            if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then
+                cbCardData[0+1] = 0x02;
+                cbCardData[1+1] = 0x07;
+                cbCardData[2+1] = 0x0A;
+            else
+                cbCardData[0+1] = 0x12;
+                cbCardData[1+1] = 0x17;
+                cbCardData[2+1] = 0x1A;
+            end
+
+            return 3;
+        
+    elseif cbChiCardKind==CK_LEFT then  --靠左对齐  
+        
+            cbCardData[0+1] = cbCurrentCard;
+            cbCardData[1+1] = cbCurrentCard + 1;
+            cbCardData[2+1] = cbCurrentCard + 2;
+
+            return 3;
+        
+    elseif cbChiCardKind==CK_CENTER then  --居中对齐  
+        
+            cbCardData[0+1] = cbCurrentCard - 1;
+            cbCardData[1+1] = cbCurrentCard;
+            cbCardData[2+1] = cbCurrentCard + 1;
+
+            return 3;
+        
+    elseif cbChiCardKind==CK_RIGHT then  --靠右对齐  
+        
+            cbCardData[0+1] = cbCurrentCard - 2;
+            cbCardData[1+1] = cbCurrentCard - 1;
+            cbCardData[2+1] = cbCurrentCard;
+
+            return 3;
+            
+    end
+
+    return 0;
+end
+
+
+----转换函数
+----public:
+    
+--扑克转换return BYTE
+function Logic:SwitchToCardData1(cbCardIndex)
+    return self.cchiHuRight:Or((self.cchiHuRight:BLShift((cbCardIndex/10),4)),(cbCardIndex%10+1));
+end
+--扑克转换return BYTE
+function Logic:SwitchToCardIndex1( cbCardData)
+    return (self.cchiHuRight:BRShift(self.cchiHuRight:And(cbCardData,MASK_COLOR),4))*10+self.cchiHuRight:And(cbCardData,MASK_VALUE)-1;
+--    return ((cbCardData&MASK_COLOR)>>4)*10+(cbCardData&MASK_VALUE)-1;
+end
+--扑克转换return BYTE
+function Logic:SwitchToCardData3(cbCardIndex, cbCardData, bMaxCount)
+    --转换扑克
+    local bPosition=0;
+    for i=0, MAX_INDEX_PAOHUZI - 1 do
+        local cbIndex = (i%2)*10 + math.floor(i/2);
+        if (cbCardIndex[cbIndex+1]~=0) then
+            for j = 0 , cbCardIndex[cbIndex+1] - 1 do
+                cbCardData[bPosition+1] = self:SwitchToCardData1(cbIndex);
+                bPosition = bPosition + 1
+            end
+        end
+    end
+
+    return bPosition;
+end
+
+--扑克转换return BYTE
+function Logic:SwitchToCardIndex3(cbCardData, cbCardCount, cbCardIndex)
+    --设置变量
+    PaoHuZi_ZeroMemory(cbCardIndex,MAX_INDEX_PAOHUZI);
+
+    --转换扑克
+    for i=0, cbCardCount-1 do
+        cclog("SwitchToCardIndex3 "..i..";"..tostring(cbCardData[i+1]))
+        if self:IsValidCard(cbCardData[i+1]) then
+            cbCardIndex[self:SwitchToCardIndex1(cbCardData[i+1])+1] = cbCardIndex[self:SwitchToCardIndex1(cbCardData[i+1])+1] + 1;
+        end
+    end
+
+    return cbCardCount;
+end
+
+----逻辑函数
+----public:
+
+--提牌判断
+function Logic:GetAcitonTiCard( cbCardIndex, cbTiCardIndex)
+    --提牌搜索
+    local cbTiCardCount=0;
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        if (cbCardIndex[i+1]==4) then
+            cbTiCardIndex[cbTiCardCount+1] = i;
+            cbTiCardCount = cbTiCardCount + 1
+        end
+    end
+
+    return cbTiCardCount;
+end
+--畏牌判断
+function Logic:GetActionWeiCard( cbCardIndex, cbWeiCardIndex)
+    --畏牌搜索
+    local cbWeiCardCount=0;
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        if (cbCardIndex[i+1]==3) then   
+            cbWeiCardIndex[cbWeiCardCount+1] = i;
+            cbWeiCardCount = cbWeiCardCount + 1
+        end
+    end
+
+    return cbWeiCardCount;
+end
+--吃牌判断
+function Logic:GetActionChiCard( cbCardIndex, cbCurrentCard, ChiCardInfo)
+    --效验扑克
+    if (cbCurrentCard==0) then return 0; end
+
+    --变量定义
+    local cbChiCardCount=0;
+    local cbCurrentIndex = self:SwitchToCardIndex1(cbCurrentCard);
+
+    --三牌判断
+    if (cbCardIndex[cbCurrentIndex+1]>=3) then return cbChiCardCount; end
+
+    --大小搭吃
+    local cbReverseIndex = (cbCurrentIndex+10)%MAX_INDEX_PAOHUZI;
+    if ((cbCardIndex[cbCurrentIndex+1]>=1) and (cbCardIndex[cbReverseIndex+1]>=1) and (cbCardIndex[cbReverseIndex+1]~=3)) then
+    
+        --构造扑克
+        local cbCardIndexTemp = {}  --[MAX_INDEX];
+        PaoHuZi_CopyMemory(cbCardIndexTemp,cbCardIndex, MAX_INDEX_PAOHUZI);
+
+        --删除扑克
+        cbCardIndexTemp[cbCurrentIndex+1] = cbCardIndexTemp[cbCurrentIndex+1] - 1 ;
+        cbCardIndexTemp[cbReverseIndex+1] = cbCardIndexTemp[cbReverseIndex+1] - 1;
+
+        --提取判断
+        local cbResultCount = 1;
+        while (cbCardIndexTemp[cbCurrentIndex+1]>0) do
+        
+            local pcbResult = ChiCardInfo[cbChiCardCount+1].cbCardData[cbResultCount+1];
+            if pcbResult~=nil and (self:TakeOutChiCard(cbCardIndexTemp,cbCurrentCard,pcbResult)~=CK_NULL) then 
+                cbResultCount = cbResultCount + 1;
+            else 
+                break;
+            end
+        end
+
+        --设置结果
+        if (cbCardIndexTemp[cbCurrentIndex+1]==0) then
+        
+            ChiCardInfo[cbChiCardCount+1].cbCenterCard = cbCurrentCard;
+            ChiCardInfo[cbChiCardCount+1].cbResultCount = cbResultCount;
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][0+1] = cbCurrentCard;
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][1+1] = cbCurrentCard;
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][2+1] = self:SwitchToCardData1(cbReverseIndex);
+            ChiCardInfo[cbChiCardCount+1].cbChiKind = CK_XDD;
+            if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then ChiCardInfo[cbChiCardCount+1].cbChiKind = CK_XXD; end
+            cbChiCardCount = cbChiCardCount + 1
+        end
+    end
+
+    --大小搭吃
+    if (cbCardIndex[cbReverseIndex+1]==2) then
+    
+        --构造扑克
+        local cbCardIndexTemp = {}  --[MAX_INDEX];
+        PaoHuZi_CopyMemory(cbCardIndexTemp,cbCardIndex,MAX_INDEX_PAOHUZI);
+
+        --删除扑克
+        cbCardIndexTemp[cbReverseIndex+1] = cbCardIndexTemp[cbReverseIndex+1] - 2;
+
+        --提取判断
+        local cbResultCount = 1;
+        while (cbCardIndexTemp[cbCurrentIndex+1]>0) do
+        
+            local pcbResult = ChiCardInfo[cbChiCardCount+1].cbCardData[cbResultCount+1];
+            if pcbResult~=nil and (self:TakeOutChiCard(cbCardIndexTemp,cbCurrentCard,pcbResult)~=CK_NULL) then
+                cbResultCount = cbResultCount + 1;
+            else 
+                break;
+            end
+        end
+
+        --设置结果
+        if (cbCardIndexTemp[cbCurrentIndex+1]==0) then
+        
+            ChiCardInfo[cbChiCardCount+1].cbCenterCard = cbCurrentCard;
+            ChiCardInfo[cbChiCardCount+1].cbResultCount = cbResultCount;
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][0+1] = cbCurrentCard;
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][1+1] = self:SwitchToCardData1(cbReverseIndex);
+            ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][2+1] = self:SwitchToCardData1(cbReverseIndex);
+            ChiCardInfo[cbChiCardCount+1].cbChiKind = CK_XXD;
+            if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then ChiCardInfo[cbChiCardCount+1].cbChiKind = CK_XDD; end
+            cbChiCardCount = cbChiCardCount + 1
+        end
+    end
+
+    --二七十吃
+    local bCardValue = self.cchiHuRight:And(cbCurrentCard,MASK_VALUE);
+    if ((bCardValue==0x02) or (bCardValue==0x07) or (bCardValue==0x0A)) then
+    
+        --变量定义
+        local cbExcursion = {1,6,9};
+        local cbInceptIndex = 10;
+        if (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) then cbInceptIndex = 0; end
+
+        --类型判断
+        local i = 0;
+        for k = 0 , table.getn(cbExcursion) - 1 do
+            local cbIndex = cbInceptIndex + cbExcursion[i+1];
+            if ((cbIndex~=cbCurrentIndex) and ((cbCardIndex[cbIndex+1]==0) or (cbCardIndex[cbIndex+1]==3))) then break; end
+            i = i + 1
+        end
+
+        --提取判断
+        if (i==table.getn(cbExcursion)) then
+        
+            --构造扑克
+            local cbCardIndexTemp = {}  --[MAX_INDEX];
+            PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+            --删除扑克
+            for j = 0 , table.getn(cbExcursion) - 1 do
+                local cbIndex = cbInceptIndex + cbExcursion[j+1];
+                if (cbIndex~=cbCurrentIndex) then cbCardIndexTemp[cbIndex+1] = cbCardIndexTemp[cbIndex+1] - 1; end
+            end
+
+            --提取判断
+            local cbResultCount = 1;
+            while (cbCardIndexTemp[cbCurrentIndex+1]>0) do
+            
+                local pcbResult = ChiCardInfo[cbChiCardCount+1].cbCardData[cbResultCount+1];
+                if pcbResult~=nil and (self:TakeOutChiCard(cbCardIndexTemp,cbCurrentCard,pcbResult)~=CK_NULL) then 
+                    cbResultCount = cbResultCount + 1;
+                else 
+                    break;
+                end
+            end
+
+            --设置结果
+            if (cbCardIndexTemp[cbCurrentIndex+1]==0) then
+            
+                ChiCardInfo[cbChiCardCount+1].cbChiKind = CK_EQS;
+                ChiCardInfo[cbChiCardCount+1].cbCenterCard = cbCurrentCard;
+                ChiCardInfo[cbChiCardCount+1].cbResultCount = cbResultCount;
+                ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][0+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[0+1]);
+                ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][1+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[1+1]);
+                ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][2+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[2+1]);
+                cbChiCardCount = cbChiCardCount + 1
+            end
+        end
+    end
+
+    --顺子类型
+    local cbExcursion = {0,1,2};
+    for i = 0, table.getn(cbExcursion) - 1 do
+        -- 大小牌转换
+        local cbValueIndex = cbCurrentIndex%10;
+        -- 如果是有效牌型
+        if ((cbValueIndex>=cbExcursion[i+1]) and ((cbValueIndex-cbExcursion[i+1])<=7)) then
+        
+            --索引定义
+            -- 搜索牌的起点索引
+            local cbFirstIndex = cbCurrentIndex - cbExcursion[i+1];
+
+            --吃牌判断
+            local j = 0;
+            for k = 0 , 2 do
+                local cbIndex = cbFirstIndex+j;
+                -- 后面的牌数据张数为0或者为3跳过
+                if ((cbIndex~=cbCurrentIndex) and ((cbCardIndex[cbIndex+1]==0) or (cbCardIndex[cbIndex+1]==3))) then break; end
+                j = j + 1
+            end
+
+            --提取判断
+            if (j==table.getn(cbExcursion)) then
+            
+                --构造扑克
+                local cbCardIndexTemp = {}  --[MAX_INDEX];
+                PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+                --删除扑克
+                for j = 0 , 3 - 1 do
+                    local cbIndex = cbFirstIndex + j;
+                    if (cbIndex~=cbCurrentIndex) then cbCardIndexTemp[cbIndex+1] = cbCardIndexTemp[cbIndex+1] - 1; end
+                end
+
+                --提取判断
+                local cbResultCount = 1;
+                while (cbCardIndexTemp[cbCurrentIndex+1]>0) do
+                
+                    local pcbResult = ChiCardInfo[cbChiCardCount+1].cbCardData[cbResultCount+1];
+                    if pcbResult~=nil and (self:TakeOutChiCard(cbCardIndexTemp,cbCurrentCard,pcbResult)~=CK_NULL) then
+                        cbResultCount = cbResultCount + 1;
+                    else 
+                        break;
+                    end
+                end
+
+                --设置结果
+                if (cbCardIndexTemp[cbCurrentIndex+1]==0) then
+                
+                    local cbChiKind = {CK_LEFT,CK_CENTER,CK_RIGHT};
+                    ChiCardInfo[cbChiCardCount+1].cbChiKind = cbChiKind[i+1];
+                    ChiCardInfo[cbChiCardCount+1].cbCenterCard = cbCurrentCard;
+                    ChiCardInfo[cbChiCardCount+1].cbResultCount = cbResultCount;
+                    ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][0+1] = self:SwitchToCardData1(cbFirstIndex);
+                    ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][1+1] = self:SwitchToCardData1(cbFirstIndex+1);
+                    ChiCardInfo[cbChiCardCount+1].cbCardData[0+1][2+1] = self:SwitchToCardData1(cbFirstIndex+2);
+                    cbChiCardCount = cbChiCardCount + 1
+                end
+            end
+        end
+    end
+
+    return cbChiCardCount;
+end
+
+----组合辅助
+----public:
+
+--获取胡息
+function Logic:GetWeaveHuXi1(WeaveItem)
+    --计算胡息
+    if WeaveItem.cbWeaveKind==ACK_TI then  --提
+        
+        return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 12 or 9;
+        
+    elseif WeaveItem.cbWeaveKind==ACK_PAO then  --跑
+        
+        return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 9 or 6;
+        
+    elseif WeaveItem.cbWeaveKind==ACK_WEI or WeaveItem.cbWeaveKind==ACK_KAN then  --偎
+        
+        return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 6 or 3;
+        
+    elseif WeaveItem.cbWeaveKind==ACK_PENG then  --碰
+        
+        return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 3 or 1;
+        
+    elseif WeaveItem.cbWeaveKind==ACK_CHI then  --吃
+        
+        --获取数值
+        local cbValue1 = self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_VALUE);
+        local cbValue2 = self.cchiHuRight:And(WeaveItem.cbCardList[1+1],MASK_VALUE);
+        local cbValue3 = self.cchiHuRight:And(WeaveItem.cbCardList[2+1],MASK_VALUE);
+
+        --一二三吃
+        if ((cbValue1==1) and (cbValue2==2) and (cbValue3==3)) then 
+            return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 6 or 3;
+        end
+
+        --二七十吃
+        if ((cbValue1==2) and (cbValue2==7) and (cbValue3==10)) then 
+            return (self.cchiHuRight:And(WeaveItem.cbCardList[0+1],MASK_COLOR)==0x10) and 6 or 3;
+        end
+
+        return 0;
+        
+    end
+
+    return 0;
+end
+--获取胡息
+function Logic:GetWeaveHuXi2(WeaveItem, cbItemCount)
+    --变量定义
+    local cbHuXiCount = 0;
+
+    --胡息计算
+    for i = 0 , cbItemCount - 1 do
+        cbHuXiCount = cbHuXiCount + self:GetWeaveHuXi1(WeaveItem[i+1]);
+    end
+    
+    return cbHuXiCount;
+end
+
+----判断函数
+----public:
+
+--是否天胡
+function Logic:IsTianHu( cbCardIndex )
+    --变量定义
+    local cbCount4 = 0
+    local cbCount3 = 0
+    local cbCount2 = 0
+
+    --统计变量
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        if (cbCardIndex[i+1]>=2) then cbCount2 = cbCount2 + 1; end
+        if (cbCardIndex[i+1]>=3) then cbCount3 = cbCount3 + 1; end
+        if (cbCardIndex[i+1]>=4) then cbCount4 = cbCount4 + 1; end
+    end
+
+    --天胡判断
+    if (cbCount4>=3) then return true; end
+    if (cbCount3>=5) then return true; end
+    if (cbCount2>=10) then return true; end
+
+    return false;
+end
+
+--是否吃牌
+function Logic:IsChiCard( cbCardIndex , cbCurrentCard)
+
+    if (cbCurrentCard==0) then return false; end
+
+    --构造扑克
+    local cbCardIndexTemp = {}  --[MAX_INDEX];
+    PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+    --插入扑克
+    local cbCurrentIndex = self:SwitchToCardIndex1(cbCurrentCard);
+    cbCardIndexTemp[cbCurrentIndex+1] = cbCardIndexTemp[cbCurrentIndex+1] + 1;
+
+    --提取判断
+    while (cbCardIndexTemp[cbCurrentIndex+1]>0) do
+    
+        local cbResult = {};
+        if (self:TakeOutChiCard(cbCardIndexTemp,cbCurrentCard,cbResult)==CK_NULL) then break; end
+    end
+
+    return (cbCardIndexTemp[cbCurrentIndex+1]==0);
+end
+
+--是否提跑
+function Logic:IsTiPaoCard( cbCardIndex , cbCurrentCard)
+    if (cbCurrentCard==0) then return false; end
+
+    --转换索引
+    local cbCurrentIndex = self:SwitchToCardIndex1(cbCurrentCard);
+
+    --碰牌判断
+    return (cbCardIndex[cbCurrentIndex+1]==3) and true or false;
+end
+
+--是否偎碰
+function Logic:IsWeiPengCard( cbCardIndex , cbCurrentCard)
+    if (cbCurrentCard==0) then return false; end
+
+    --转换索引
+    local cbCurrentIndex = self:SwitchToCardIndex(cbCurrentCard);
+
+    --偎碰判断
+    return (cbCardIndex[cbCurrentIndex+1]==2) and true or false;
+end
+--是否胡牌
+function Logic:IsHuCardInfo( cbCardIndex , WeaveItem , cbItemCount, cbProvideCard, bDispatch, HuCardInfo)
+    --设置结果
+--    tagHuCardInfo HuCardInfoTemp[2];
+--    PaoHuZi_ZeroMemory(&HuCardInfo,sizeof(HuCardInfo));
+--    PaoHuZi_ZeroMemory(&HuCardInfoTemp,sizeof(HuCardInfoTemp));
+    local HuCardInfoTemp = {}
+    for i = 1, 2 do
+        HuCardInfoTemp[i] = {}
+        HuCardInfoTemp[i].cbCardEye = 0
+        HuCardInfoTemp[i].cbHuXiCount = 0
+        HuCardInfoTemp[i].cbWeaveCount = 0
+        HuCardInfoTemp[i].WeaveItemArray = {}
+        for j = 1, MAX_WEAVE_PAOHUZI do
+            HuCardInfoTemp[i].WeaveItemArray[j] = {}
+            HuCardInfoTemp[i].WeaveItemArray[j].cbWeaveKind = 0
+            HuCardInfoTemp[i].WeaveItemArray[j].cbCardCount = 0
+            HuCardInfoTemp[i].WeaveItemArray[j].cbCenterCard = 0
+            HuCardInfoTemp[i].WeaveItemArray[j].cbCardList = {0,0,0,0}
+        end
+    end
+    HuCardInfo.cbCardEye = 0
+    HuCardInfo.cbHuXiCount = 0
+    HuCardInfo.cbWeaveCount = 0
+    HuCardInfo.WeaveItemArray = {}
+    for j = 1, MAX_WEAVE_PAOHUZI do
+        HuCardInfo.WeaveItemArray[j] = {}
+        HuCardInfo.WeaveItemArray[j].cbWeaveKind = 0
+        HuCardInfo.WeaveItemArray[j].cbCardCount = 0
+        HuCardInfo.WeaveItemArray[j].cbCenterCard = 0
+        HuCardInfo.WeaveItemArray[j].cbCardList = {0,0,0,0}
+    end
+    
+
+    --构造扑克
+    local cbCardIndexTemp = {}  --[MAX_INDEX];
+    PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+    --构造子项
+    local cbItemCountTemp = cbItemCount;
+    local WeaveItemTemp = {}  --[MAX_WEAVE];
+    for i = 1, MAX_WEAVE_PAOHUZI do
+        WeaveItemTemp[i] = {}
+        WeaveItemTemp[i].cbWeaveKind = 0
+        WeaveItemTemp[i].cbCardCount = 0
+        WeaveItemTemp[i].cbCenterCard = 0
+        WeaveItemTemp[i].cbCardList = {0,0,0,0}
+    end
+--    CopyMemory(WeaveItemTemp,WeaveItem,cbItemCountTemp*sizeof(tagWeaveItem));
+    for i = 1, cbItemCountTemp do
+        WeaveItemTemp[i] = {}
+        WeaveItemTemp[i].cbWeaveKind = WeaveItem[i].cbWeaveKind
+        WeaveItemTemp[i].cbCardCount = WeaveItem[i].cbCardCount
+        WeaveItemTemp[i].cbCenterCard = WeaveItem[i].cbCenterCard
+         WeaveItemTemp[i].cbCardList = {}
+        for j = 1, 4 do
+            WeaveItemTemp[i].cbCardList[j] = WeaveItem[i].cbCardList[j]
+        end
+    end
+
+    --跑前胡牌
+    self:AnalyseHuCardAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,cbProvideCard,HuCardInfoTemp[0+1]);
+
+    --模拟跑牌
+    local isSimulatePao, tempWeaveCount = self:SimulatePaoAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,cbProvideCard,bDispatch)
+    if ((cbProvideCard~=0) and isSimulatePao==true) then
+        cbItemCountTemp = tempWeaveCount
+        self:AnalyseHuCardAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,0,HuCardInfoTemp[1+1]);
+    end
+
+    --胡牌判断
+    if ((HuCardInfoTemp[0+1].cbHuXiCount>=LESS_FAN) or (HuCardInfoTemp[1+1].cbHuXiCount>=LESS_FAN)) then
+    
+        --设置结果
+        if (HuCardInfoTemp[0+1].cbHuXiCount>=HuCardInfoTemp[1+1].cbHuXiCount) then
+        
+            HuCardInfo.cbCardEye = HuCardInfoTemp[1].cbCardEye
+            HuCardInfo.cbHuXiCount = HuCardInfoTemp[1].cbHuXiCount
+            HuCardInfo.cbWeaveCount = HuCardInfoTemp[1].cbWeaveCount
+            for j = 1, MAX_WEAVE_PAOHUZI do
+                HuCardInfo.WeaveItemArray[j].cbWeaveKind = HuCardInfoTemp[1].WeaveItemArray[j].cbWeaveKind
+                HuCardInfo.WeaveItemArray[j].cbCardCount = HuCardInfoTemp[1].WeaveItemArray[j].cbCardCount
+                HuCardInfo.WeaveItemArray[j].cbCenterCard = HuCardInfoTemp[1].WeaveItemArray[j].cbCenterCard
+                for i = 1, 4 do
+                    HuCardInfo.WeaveItemArray[j].cbCardList[i] = HuCardInfoTemp[1].WeaveItemArray[j].cbCardList[i]
+                end
+            end
+            --增加牌眼
+            if HuCardInfo.cbWeaveCount<7 and HuCardInfo.cbCardEye~=0 then
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbWeaveKind = ACK_NULL
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCardCount = 2
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCenterCard = HuCardInfo.cbCardEye
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCardList = {HuCardInfo.cbCardEye,HuCardInfo.cbCardEye,0,0}
+                
+                HuCardInfo.cbWeaveCount = HuCardInfo.cbWeaveCount + 1
+            end
+--            PaoHuZi_CopyMemory(&HuCardInfo,&HuCardInfoTemp[0],sizeof(tagHuCardInfo));
+        
+        else
+            
+            HuCardInfo.cbCardEye = HuCardInfoTemp[2].cbCardEye
+            HuCardInfo.cbHuXiCount = HuCardInfoTemp[2].cbHuXiCount
+            HuCardInfo.cbWeaveCount = HuCardInfoTemp[2].cbWeaveCount
+            for j = 1, MAX_WEAVE_PAOHUZI do
+                HuCardInfo.WeaveItemArray[j].cbWeaveKind = HuCardInfoTemp[2].WeaveItemArray[j].cbWeaveKind
+                HuCardInfo.WeaveItemArray[j].cbCardCount = HuCardInfoTemp[2].WeaveItemArray[j].cbCardCount
+                HuCardInfo.WeaveItemArray[j].cbCenterCard = HuCardInfoTemp[2].WeaveItemArray[j].cbCenterCard
+                for i = 1, 4 do
+                    HuCardInfo.WeaveItemArray[j].cbCardList[i] = HuCardInfoTemp[2].WeaveItemArray[j].cbCardList[i]
+                end
+            end
+            --增加牌眼
+            if HuCardInfo.cbWeaveCount<7 and HuCardInfo.cbCardEye~=0 then
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbWeaveKind = ACK_NULL
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCardCount = 2
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCenterCard = HuCardInfo.cbCardEye
+                HuCardInfo.WeaveItemArray[HuCardInfo.cbWeaveCount + 1].cbCardList = {HuCardInfo.cbCardEye,HuCardInfo.cbCardEye,0,0}
+
+                HuCardInfo.cbWeaveCount = HuCardInfo.cbWeaveCount + 1
+            end
+--            PaoHuZi_CopyMemory(&HuCardInfo,&HuCardInfoTemp[1],sizeof(tagHuCardInfo));
+        end
+
+        return true;
+    end
+
+    return false;
+end
+
+--是否听牌
+function Logic:IsTingCardInfo( cbCardIndex , WeaveItem , cbItemCount)
+    --遍历扑克
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        local cbProvideCard = self:SwitchToCardData1(i);
+
+        --设置结果
+--        tagHuCardInfo HuCardInfoTemp[2]={};
+        local HuCardInfoTemp = {}
+        for i = 1, 2 do
+            HuCardInfoTemp[i] = {}
+            HuCardInfoTemp[i].cbCardEye = 0
+            HuCardInfoTemp[i].cbHuXiCount = 0
+            HuCardInfoTemp[i].cbWeaveCount = 0
+            HuCardInfoTemp[i].WeaveItemArray = {}
+            for j = 1, MAX_WEAVE_PAOHUZI do
+                HuCardInfoTemp[i].WeaveItemArray[j] = {}
+                HuCardInfoTemp[i].WeaveItemArray[j].cbWeaveKind = 0
+                HuCardInfoTemp[i].WeaveItemArray[j].cbCardCount = 0
+                HuCardInfoTemp[i].WeaveItemArray[j].cbCenterCard = 0
+                HuCardInfoTemp[i].WeaveItemArray[j].cbCardList = {0,0,0,0}
+            end
+        end
+
+        --构造扑克
+        local cbCardIndexTemp = {}  --[MAX_INDEX];
+        PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+        --构造子项
+        local cbItemCountTemp = cbItemCount;
+        local WeaveItemTemp = {}  --[MAX_WEAVE];
+        for i = 1, cbItemCountTemp do
+            WeaveItemTemp[i] = {}
+            WeaveItemTemp[i].cbWeaveKind = WeaveItem[i].cbWeaveKind
+            WeaveItemTemp[i].cbCardCount = WeaveItem[i].cbCardCount
+            WeaveItemTemp[i].cbCenterCard = WeaveItem[i].cbCenterCard
+             WeaveItemTemp[i].cbCardList = {}
+            for j = 1, 4 do
+                WeaveItemTemp[i].cbCardList[j] = WeaveItem[i].cbCardList[j]
+            end
+        end
+--        tagWeaveItem WeaveItemTemp[MAX_WEAVE];
+--        CopyMemory(WeaveItemTemp,WeaveItem,cbItemCountTemp*sizeof(tagWeaveItem));
+
+        --跑前胡牌
+        self:AnalyseHuCardAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,cbProvideCard,HuCardInfoTemp[0+1]);
+
+        --模拟跑牌
+        if ((cbProvideCard~=0) and (self:SimulatePaoAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,cbProvideCard,true)==true)) then
+        
+            self:AnalyseHuCardAction(cbCardIndexTemp,WeaveItemTemp,cbItemCountTemp,0,HuCardInfoTemp[1+1]);
+        end
+
+        --胡牌判断
+        if ((HuCardInfoTemp[0+1].cbHuXiCount>=LESS_FAN) or (HuCardInfoTemp[1+1].cbHuXiCount>=LESS_FAN)) then
+        
+            return true;
+        end
+    end
+
+    return false;
+end
+
+--模拟跑牌
+function Logic:SimulatePaoAction( cbCardIndex , WeaveItem , cbItemCount , cbProvideCard, bDispatch)
+
+    if (cbProvideCard==0) then 
+        return false,cbItemCount; 
+    end
+
+    --变量定义
+    local cbProvideIndex = self:SwitchToCardIndex1(cbProvideCard);
+
+    --提取跑牌
+    if (cbCardIndex[cbProvideIndex+1]==3) then
+    
+        --设置扑克
+        cbCardIndex[cbProvideIndex+1] = 0;
+
+        --设置组合
+        local cbWeaveIndex = cbItemCount;
+        cbItemCount = cbItemCount + 1
+        WeaveItem[cbWeaveIndex+1].cbCardCount = 4;
+        WeaveItem[cbWeaveIndex+1].cbWeaveKind = ACK_PAO;
+        WeaveItem[cbWeaveIndex+1].cbCenterCard = cbProvideCard;
+        WeaveItem[cbWeaveIndex+1].cbCardList[0+1] = cbProvideCard;
+        WeaveItem[cbWeaveIndex+1].cbCardList[1+1] = cbProvideCard;
+        WeaveItem[cbWeaveIndex+1].cbCardList[2+1] = cbProvideCard;
+        WeaveItem[cbWeaveIndex+1].cbCardList[3+1] = cbProvideCard;
+
+        return true,cbItemCount;
+    end
+
+    --跑牌转换
+    for i = 0 , cbItemCount - 1 do
+        --获取属性
+        local cbWeaveKind = WeaveItem[i+1].cbWeaveKind;
+        local cbWeaveCard = WeaveItem[i+1].cbCardList[0+1];
+
+        --转换判断
+        local bChangeWeave = false;
+        if (cbProvideCard==cbWeaveCard) then
+        
+            if (cbWeaveKind==ACK_WEI or WeaveItem.cbWeaveKind==ACK_KAN) then bChangeWeave=true; end
+            if ((cbWeaveKind==ACK_PENG) and (bDispatch==true)) then bChangeWeave=true; end
+        end
+
+        --跑牌处理
+        if (bChangeWeave==true) then
+        
+            --设置组合
+            WeaveItem[i+1].cbCardCount = 4;
+            WeaveItem[i+1].cbWeaveKind = ACK_PAO;
+            WeaveItem[i+1].cbCardList[3+1] = cbProvideCard;
+
+            return true,cbItemCount;
+        end
+    end
+
+    return false,cbItemCount;
+end
+
+----内部函数
+----private:
+
+--分析扑克
+function Logic:AnalyseCard( cbCardIndex, AnalyseItemArray)
+    --变量定义
+    local cbWeaveItemCount = 0;
+--    static tagWeaveItem WeaveItem[128];
+--    ZeroMemory(WeaveItem,sizeof(WeaveItem));
+    local WeaveItem = {}
+    for i = 1 , 30 do
+        WeaveItem[i] = {}
+        WeaveItem[i].cbWeaveKind = 0
+        WeaveItem[i].cbCardCount = 0
+        WeaveItem[i].cbCenterCard = 0
+        WeaveItem[i].cbCardList = {0,0,0,0}
+    end
+
+    --数目统计
+    local cbCardCount=0;
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        cbCardCount = cbCardCount + cbCardIndex[i+1]
+    end
+
+    --数目判断
+    if (cbCardCount==0) then return true; end
+    if ((cbCardCount%3~=0) and ((cbCardCount+1)%3~=0)) then return false; end
+
+    --需求计算
+    local cbLessWeavItem = math.floor(cbCardCount/3);
+    local bNeedCardEye = ((cbCardCount+1)%3==0);
+
+    --单吊判断
+    if ((cbLessWeavItem==0) and (bNeedCardEye==true)) then
+    
+        --牌眼判断
+        for i = 0 , MAX_INDEX_PAOHUZI do
+            if (cbCardIndex[i+1]==2) then
+            
+                --变量定义
+                local AnalyseItem = {};  --tagAnalyseItem
+                AnalyseItem.cbCardEye = 0
+                AnalyseItem.cbHuXiCount = 0
+                AnalyseItem.cbWeaveCount = 0
+                AnalyseItem.WeaveItemArray = {}
+                for k = 1, MAX_WEAVE_PAOHUZI do
+                    AnalyseItem.WeaveItemArray[k] = {}
+                    AnalyseItem.WeaveItemArray[k].cbWeaveKind = 0
+                    AnalyseItem.WeaveItemArray[k].cbCardCount = 0
+                    AnalyseItem.WeaveItemArray[k].cbCenterCard = 0
+                    AnalyseItem.WeaveItemArray[k].cbCardList = {0,0,0,0}
+                end
+--                ZeroMemory(&AnalyseItem,sizeof(AnalyseItem));
+
+                --设置结果
+                AnalyseItem.cbHuXiCount=0;
+                AnalyseItem.cbWeaveCount=0;
+                AnalyseItem.cbCardEye = self:SwitchToCardData1(i);
+                
+                --插入结果
+                table.insert(AnalyseItemArray,1,AnalyseItem);
+--                --插入结果
+--                AnalyseItemArray.Add(AnalyseItem);
+
+                return true;
+            end
+        end
+
+        return false;
+    end
+
+    --拆分处理
+    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+        --分析过虑
+        if (cbCardIndex[i+1]~=0) then
+
+            --变量定义
+            local cbCardData = self:SwitchToCardData1(i);
+    
+            --大小搭吃
+            if ((cbCardIndex[i+1]>=2) and (cbCardIndex[(i+10)%MAX_INDEX_PAOHUZI+1]>=1)) then
+            
+                WeaveItem[cbWeaveItemCount+1].cbCardCount = 3;
+                WeaveItem[cbWeaveItemCount+1].cbWeaveKind = ACK_CHI;
+                WeaveItem[cbWeaveItemCount+1].cbCenterCard = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[0+1] = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[1+1] = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[2+1] = (cbCardData+16)%32;
+                cbWeaveItemCount = cbWeaveItemCount + 1
+            end
+    
+            --大小搭吃
+            if ((cbCardIndex[i+1]>=1) and (cbCardIndex[(i+10)%MAX_INDEX_PAOHUZI+1]>=2)) then
+            
+                WeaveItem[cbWeaveItemCount+1].cbCardCount = 3;
+                WeaveItem[cbWeaveItemCount+1].cbWeaveKind = ACK_CHI;
+                WeaveItem[cbWeaveItemCount+1].cbCenterCard = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[0+1] = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[1+1] = (cbCardData+16)%32;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[2+1] = (cbCardData+16)%32;
+                cbWeaveItemCount = cbWeaveItemCount + 1
+            end
+    
+            --二七十吃
+            if (self.cchiHuRight:And(cbCardData,MASK_VALUE)==0x02) then
+                
+                for j = 1 , cbCardIndex[i+1] do
+                    if ((cbCardIndex[i+5+1]>=j) and (cbCardIndex[i+8+1]>=j)) then
+                    
+                        WeaveItem[cbWeaveItemCount+1].cbCardCount=3;
+                        WeaveItem[cbWeaveItemCount+1].cbWeaveKind=ACK_CHI;
+                        WeaveItem[cbWeaveItemCount+1].cbCenterCard=cbCardData;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[0+1]=cbCardData;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[1+1]=cbCardData+5;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[2+1]=cbCardData+8;
+                        cbWeaveItemCount = cbWeaveItemCount + 1
+                    end
+                end
+            end
+    
+            --顺子判断
+            if ((i<(MAX_INDEX_PAOHUZI-2)) and (cbCardIndex[i+1]>0) and ((i%10)<=7)) then
+                
+                for j = 1, cbCardIndex[i+1] do
+                    if ((cbCardIndex[i+1+1]>=j) and (cbCardIndex[i+2+1]>=j)) then
+                    
+                        WeaveItem[cbWeaveItemCount+1].cbCardCount = 3;
+                        WeaveItem[cbWeaveItemCount+1].cbWeaveKind = ACK_CHI;
+                        WeaveItem[cbWeaveItemCount+1].cbCenterCard = cbCardData;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[0+1] = cbCardData;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[1+1] = cbCardData+1;
+                        WeaveItem[cbWeaveItemCount+1].cbCardList[2+1] = cbCardData+2;
+                        cbWeaveItemCount = cbWeaveItemCount + 1
+                    end
+                end
+            end
+    
+            --碰牌判断
+            if (cbCardIndex[i+1]==3) then
+            
+                WeaveItem[cbWeaveItemCount+1].cbCardCount = 3;
+                WeaveItem[cbWeaveItemCount+1].cbWeaveKind = ACK_PENG;
+                WeaveItem[cbWeaveItemCount+1].cbCenterCard = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[0+1] = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[1+1] = cbCardData;
+                WeaveItem[cbWeaveItemCount+1].cbCardList[2+1] = cbCardData;
+                cbWeaveItemCount = cbWeaveItemCount + 1
+            end
+        end
+    end
+
+    --组合分析
+    if (cbWeaveItemCount>=cbLessWeavItem) then
+    
+        --变量定义
+        local cbCardIndexTemp = {}  --[MAX_INDEX];
+        PaoHuZi_ZeroMemory(cbCardIndexTemp, MAX_INDEX_PAOHUZI);
+
+        --变量定义
+        local cbIndex = {0,1,2,3,4,5,6};
+        local pWeaveItem = {}
+        for k = 1 , 7 do
+            pWeaveItem[k] = {}
+            pWeaveItem[k].cbWeaveKind = 0
+            pWeaveItem[k].cbCardCount = 0
+            pWeaveItem[k].cbCenterCard = 0
+            pWeaveItem[k].cbCardList = {0,0,0,0}
+        end
+--        tagWeaveItem * pWeaveItem[CountArray(cbIndex)];
+
+        --开始组合
+        while (true) do
+        
+            --设置变量
+            PaoHuZi_CopyMemory(cbCardIndexTemp,cbCardIndex, MAX_INDEX_PAOHUZI);
+            for i = 0 , cbLessWeavItem - 1 do
+                pWeaveItem[i+1] = WeaveItem[cbIndex[i+1]+1]
+            end
+--            for (BYTE i=0;i<cbLessWeavItem;i++) pWeaveItem[i]=&WeaveItem[cbIndex[i]];
+
+            --数量判断
+            local bEnoughCard = true;
+            for i = 0, cbLessWeavItem - 1 do
+                for j = 0 , pWeaveItem[i+1].cbCardCount - 1 do
+                    --存在判断
+                    local cbIndex = self:SwitchToCardIndex1(pWeaveItem[i+1].cbCardList[j+1]);
+                    if (cbCardIndexTemp[cbIndex+1]==0) then
+                        bEnoughCard = false;
+                        break;
+                    else 
+                        cbCardIndexTemp[cbIndex+1] = cbCardIndexTemp[cbIndex+1] - 1;
+                    end
+                end
+                if (bEnoughCard==false) then break; end
+            end
+
+            --胡牌判断
+            if (bEnoughCard==true) then
+            
+                --牌眼判断
+                local cbCardEye = 0;
+                if (bNeedCardEye==true) then
+                    for i = 0 , MAX_INDEX_PAOHUZI - 1 do
+                        if (cbCardIndexTemp[i+1]==2) then
+                        
+                            cbCardEye = self:SwitchToCardData1(i);
+                            break;
+                        end
+                    end
+                end
+
+                --组合类型
+                if ((bNeedCardEye==false) or (cbCardEye~=0)) then
+                
+                    --变量定义
+                    local AnalyseItem = {};  --tagAnalyseItem
+                    AnalyseItem.cbCardEye = 0
+                    AnalyseItem.cbHuXiCount = 0
+                    AnalyseItem.cbWeaveCount = 0
+                    AnalyseItem.WeaveItemArray = {}
+                    for i = 1, MAX_WEAVE_PAOHUZI do
+                        AnalyseItem.WeaveItemArray[i] = {}
+                        AnalyseItem.WeaveItemArray[i].cbWeaveKind = 0
+                        AnalyseItem.WeaveItemArray[i].cbCardCount = 0
+                        AnalyseItem.WeaveItemArray[i].cbCenterCard = 0
+                        AnalyseItem.WeaveItemArray[i].cbCardList = {0,0,0,0}
+                    end
+--                    tagAnalyseItem AnalyseItem;
+--                    ZeroMemory(&AnalyseItem,sizeof(AnalyseItem));
+
+                    --设置结果
+                    AnalyseItem.cbHuXiCount = 0;
+                    AnalyseItem.cbCardEye = cbCardEye;
+                    AnalyseItem.cbWeaveCount = cbLessWeavItem;
+
+                    --设置组合
+                    for i = 0 , cbLessWeavItem - 1 do
+                        AnalyseItem.WeaveItemArray[i+1] = pWeaveItem[i+1];
+                        AnalyseItem.cbHuXiCount = AnalyseItem.cbHuXiCount + self:GetWeaveHuXi1(AnalyseItem.WeaveItemArray[i+1]);
+                    end
+                    
+                    --插入结果
+                    table.insert(AnalyseItemArray,1,AnalyseItem);
+--                    --插入结果
+--                    AnalyseItemArray.Add(AnalyseItem);
+                end
+            end
+
+            --设置索引
+            if (cbIndex[cbLessWeavItem-1+1]==(cbWeaveItemCount-1)) then
+            
+                local i = cbLessWeavItem - 1;
+                while (i>0) do
+                    if ((cbIndex[i-1+1]+1)~=cbIndex[i+1]) then
+                    
+                        local cbNewIndex = cbIndex[i-1+1];
+                        for j = (i-1), cbLessWeavItem - 1 do
+                            cbIndex[j+1] = cbNewIndex+j-i+2;
+                        end
+                        break;
+                    end
+                    i = i - 1
+                end
+                if (i==0) then break; end
+            
+            else 
+                cbIndex[cbLessWeavItem-1+1] = cbIndex[cbLessWeavItem-1+1] + 1;
+            end
+            
+        end
+
+        return (table.getn(AnalyseItemArray)>0);
+    end
+
+    return false;
+end
+
+--提取吃牌
+function Logic:TakeOutChiCard( cbCardIndex, cbCurrentCard, cbResultCard)
+    --效验扑克
+    if (cbCurrentCard==0) then return 0; end
+
+    --变量定义
+    local cbFirstIndex = 0;
+    local cbCurrentIndex = self:SwitchToCardIndex1(cbCurrentCard);
+
+    --大小搭吃
+    local cbReverseIndex = (cbCurrentIndex+10)%MAX_INDEX_PAOHUZI;
+    if ((cbCardIndex[cbCurrentIndex+1]>=2) and (cbCardIndex[cbReverseIndex+1]>=1) and (cbCardIndex[cbReverseIndex+1]~=3)) then
+    
+        --删除扑克
+        cbCardIndex[cbCurrentIndex+1] = cbCardIndex[cbCurrentIndex+1] - 1;
+        cbCardIndex[cbCurrentIndex+1] = cbCardIndex[cbCurrentIndex+1] - 1;
+        cbCardIndex[cbReverseIndex+1] = cbCardIndex[cbReverseIndex+1] - 1;
+
+        --设置结果
+        cbResultCard[0+1] = cbCurrentCard;
+        cbResultCard[1+1] = cbCurrentCard;
+        cbResultCard[2+1] = self:SwitchToCardData1(cbReverseIndex);
+
+        return (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) and CK_XXD or CK_XDD;
+    end
+
+    --大小搭吃
+    if (cbCardIndex[cbReverseIndex+1]==2) then
+    
+        --删除扑克
+        cbCardIndex[cbCurrentIndex+1] = cbCardIndex[cbCurrentIndex+1] - 1;
+        cbCardIndex[cbReverseIndex+1] = cbCardIndex[cbReverseIndex+1] - 2;
+
+        --设置结果
+        cbResultCard[0+1] = cbCurrentCard;
+        cbResultCard[1+1] = self:SwitchToCardData1(cbReverseIndex);
+        cbResultCard[2+1] = self:SwitchToCardData1(cbReverseIndex);
+
+        return (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) and CK_XDD or CK_XXD;
+    end
+
+    --二七十吃
+    local bCardValue = self.cchiHuRight:And(cbCurrentCard,MASK_VALUE);
+    if ((bCardValue==0x02) or (bCardValue==0x07) or (bCardValue==0x0A)) then
+    
+        --变量定义
+        local cbExcursion = {1,6,9};
+        local cbInceptIndex = (self.cchiHuRight:And(cbCurrentCard,MASK_COLOR)==0x00) and 0 or 10;
+
+        --类型判断
+        local i = 0;
+        for k = 0 , table.getn(cbExcursion) - 1 do
+            local cbIndex = cbInceptIndex + cbExcursion[i+1];
+            if ((cbCardIndex[cbIndex+1]==0) or ((cbCardIndex[cbIndex+1]==3) and (cbIndex~=cbCurrentIndex))) then break; end
+            i = i + 1
+        end
+
+        --成功判断
+        if (i==table.getn(cbExcursion)) then
+        
+            --删除扑克
+            cbCardIndex[cbInceptIndex+cbExcursion[0+1]+1] = cbCardIndex[cbInceptIndex+cbExcursion[0+1]+1] - 1;
+            cbCardIndex[cbInceptIndex+cbExcursion[1+1]+1] = cbCardIndex[cbInceptIndex+cbExcursion[1+1]+1] - 1;
+            cbCardIndex[cbInceptIndex+cbExcursion[2+1]+1] = cbCardIndex[cbInceptIndex+cbExcursion[2+1]+1] - 1;
+
+            --设置结果
+            cbResultCard[0+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[0+1]);
+            cbResultCard[1+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[1+1]);
+            cbResultCard[2+1] = self:SwitchToCardData1(cbInceptIndex+cbExcursion[2+1]);
+
+            return CK_EQS;
+        end
+    end
+
+    --顺子判断
+    local cbExcursion = {0,1,2};
+    for i = 0 , table.getn(cbExcursion) - 1 do
+        local cbValueIndex = cbCurrentIndex%10;
+        if ((cbValueIndex>=cbExcursion[i+1]) and ((cbValueIndex-cbExcursion[i+1])<=7)) then
+        
+            --吃牌判断
+            cbFirstIndex = cbCurrentIndex - cbExcursion[i+1];
+            if not ( ((cbCardIndex[cbFirstIndex+1]==0) or ((cbCardIndex[cbFirstIndex+1]==3) and (cbFirstIndex~=cbCurrentIndex))) or 
+                ((cbCardIndex[cbFirstIndex+1+1]==0) or ((cbCardIndex[cbFirstIndex+1+1]==3) and (cbFirstIndex+1~=cbCurrentIndex))) or
+                ((cbCardIndex[cbFirstIndex+2+1]==0) or ((cbCardIndex[cbFirstIndex+2+1]==3) and ((cbFirstIndex+2)~=cbCurrentIndex))) ) then
+
+                --删除扑克
+                cbCardIndex[cbFirstIndex+1] = cbCardIndex[cbFirstIndex+1] - 1;
+                cbCardIndex[cbFirstIndex+1+1] = cbCardIndex[cbFirstIndex+1+1] - 1;
+                cbCardIndex[cbFirstIndex+2+1] = cbCardIndex[cbFirstIndex+2+1] - 1;
+    
+                --设置结果
+                cbResultCard[0+1] = self:SwitchToCardData1(cbFirstIndex);
+                cbResultCard[1+1] = self:SwitchToCardData1(cbFirstIndex+1);
+                cbResultCard[2+1] = self:SwitchToCardData1(cbFirstIndex+2);
+    
+                local cbChiKind = {CK_LEFT,CK_CENTER,CK_RIGHT};
+                return cbChiKind[i+1];
+            end
+        end
+    end
+
+    return CK_NULL;
+end
+
+--胡牌分析
+function Logic:AnalyseHuCardAction( cbCardIndex, WeaveItem, cbItemCount, cbProvideCard, HuCardInfo)
+    --变量定义
+--    static CAnalyseItemArray AnalyseItemArray;
+    local AnalyseItemArray = {}
+
+    --设置结果
+--    ZeroMemory(&HuCardInfo,sizeof(HuCardInfo));
+    HuCardInfo.cbCardEye = 0
+    HuCardInfo.cbHuXiCount = 0
+    HuCardInfo.cbWeaveCount = 0
+    HuCardInfo.WeaveItemArray = {}
+    for j = 1, MAX_WEAVE_PAOHUZI do
+        HuCardInfo.WeaveItemArray[j] = {}
+        HuCardInfo.WeaveItemArray[j].cbWeaveKind = 0
+        HuCardInfo.WeaveItemArray[j].cbCardCount = 0
+        HuCardInfo.WeaveItemArray[j].cbCenterCard = 0
+        HuCardInfo.WeaveItemArray[j].cbCardList = {0,0,0,0}
+    end
+
+    --构造扑克
+    local cbCardIndexTemp = {}  --[MAX_INDEX];
+    PaoHuZi_CopyMemory(cbCardIndexTemp, cbCardIndex, MAX_INDEX_PAOHUZI);
+
+    ----特殊处理  玩家跑胡的情况  如果已经跑了5555  不用再插入5进行胡牌判断
+    local isPaoHu = false
+    --拷贝组合
+    for i = 0 , cbItemCount - 1 do
+        local cbWeaveIndex = HuCardInfo.cbWeaveCount;
+        HuCardInfo.cbWeaveCount = HuCardInfo.cbWeaveCount + 1
+        HuCardInfo.WeaveItemArray[cbWeaveIndex+1] = WeaveItem[i+1];
+        HuCardInfo.cbHuXiCount =  HuCardInfo.cbHuXiCount + self:GetWeaveHuXi1(HuCardInfo.WeaveItemArray[cbWeaveIndex+1]);
+        ----如果最后是跑  
+        if HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCenterCard==cbProvideCard and HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCardCount==4 then
+            isPaoHu = true
+        end
+    end
+
+    --提取三牌
+    for i = 0 , MAX_INDEX_PAOHUZI do
+        if (cbCardIndexTemp[i+1]==3) then
+        
+            --设置扑克
+            cbCardIndexTemp[i+1] = 0;
+
+            --设置组合
+            local cbCardData = self:SwitchToCardData1(i);
+            local cbWeaveIndex = HuCardInfo.cbWeaveCount;
+            HuCardInfo.cbWeaveCount = HuCardInfo.cbWeaveCount + 1
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCardCount = 3;
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbWeaveKind = ACK_WEI;
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCenterCard = cbCardData;
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCardList[0+1] = cbCardData;
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCardList[1+1] = cbCardData;
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1].cbCardList[2+1] = cbCardData;
+
+            --设置胡息
+            HuCardInfo.cbHuXiCount = HuCardInfo.cbHuXiCount + self:GetWeaveHuXi1(HuCardInfo.WeaveItemArray[cbWeaveIndex+1]);
+        end
+    end
+
+    --插入扑克
+    if (not isPaoHu) and (cbProvideCard~=0) then
+        cbCardIndexTemp[self:SwitchToCardIndex1(cbProvideCard)+1] = cbCardIndexTemp[self:SwitchToCardIndex1(cbProvideCard)+1] + 1;
+    end
+
+    --分析扑克
+--    AnalyseItemArray.RemoveAll();
+    AnalyseItemArray = {}
+    if (self:AnalyseCard(cbCardIndexTemp,AnalyseItemArray)==false) then
+    
+--        ZeroMemory(&HuCardInfo,sizeof(HuCardInfo));
+        HuCardInfo.cbCardEye = 0
+        HuCardInfo.cbHuXiCount = 0
+        HuCardInfo.cbWeaveCount = 0
+        HuCardInfo.WeaveItemArray = {}
+        for j = 1, MAX_WEAVE_PAOHUZI do
+            HuCardInfo.WeaveItemArray[j] = {}
+            HuCardInfo.WeaveItemArray[j].cbWeaveKind = 0
+            HuCardInfo.WeaveItemArray[j].cbCardCount = 0
+            HuCardInfo.WeaveItemArray[j].cbCenterCard = 0
+            HuCardInfo.WeaveItemArray[j].cbCardList = {0,0,0,0}
+        end
+        return false;
+    end
+
+    --寻找最优
+    local cbHuXiCard = 0;
+    local nBestItem = -1;
+    for i = 0, table.getn(AnalyseItemArray) - 1 do
+--    for (INT_PTR i=0;i<AnalyseItemArray.GetCount();i++)
+        --获取子项
+        local pAnalyseItem = AnalyseItemArray[i+1];
+
+        --胡息分析
+        if (pAnalyseItem.cbHuXiCount >= cbHuXiCard) then
+        
+            nBestItem = i;
+            cbHuXiCard = pAnalyseItem.cbHuXiCount;
+        end
+    end
+
+    --设置结果
+    if (nBestItem>=0) then
+    
+        --获取子项
+        local pAnalyseItem = AnalyseItemArray[nBestItem+1];
+
+        --设置变量
+        HuCardInfo.cbHuXiCount = HuCardInfo.cbHuXiCount + cbHuXiCard;
+        HuCardInfo.cbCardEye = pAnalyseItem.cbCardEye;
+
+        --设置组合
+        for i = 0 , pAnalyseItem.cbWeaveCount - 1 do
+            local cbWeaveIndex = HuCardInfo.cbWeaveCount;
+            HuCardInfo.cbWeaveCount = HuCardInfo.cbWeaveCount + 1
+            HuCardInfo.WeaveItemArray[cbWeaveIndex+1] = pAnalyseItem.WeaveItemArray[i+1];
+        end
+    end
+
+    return (HuCardInfo.cbHuXiCount>=LESS_FAN);
+end
+
+
+return Logic

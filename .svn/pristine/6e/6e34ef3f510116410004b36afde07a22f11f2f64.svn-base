@@ -1,0 +1,1014 @@
+-------------------------------宏定义------------------------------
+local CARD_TYPE_BIG                 = 1         --扑克类型  大 
+local CARD_TYPE_SMALL               = 2         --扑克类型  小 
+
+local BACK_CARD_DATA                = 0x00      --背牌的逻辑值  
+
+local PARENT_TAG_COUNT              = 4
+
+local PARENT_TAG_HANDCARD1          = 101       --玩家   牌父节点1
+local PARENT_TAG_OPERATECARD1       = 201       --操作牌   牌父节点1
+local PARENT_TAG_BADCARD1           = 301       --臭牌   牌父节点1
+
+local PARENT_TAG_CATCHCARD          = 401       --抓牌   父节点
+
+local PARENT_TAG_OPERATESHOWCARD1   = 501       --操作展示牌   父节点1
+
+local PARENT_TAG_TOUCHMOVECARD      = 601       --触摸移动牌   父节点
+local PARENT_TAG_REMAINBACKCARD     = 901       --剩余底牌
+--结算
+local PARENT_TAG_BACKCARD           = 701       --结算底牌   父节点
+local PARENT_TAG_WEAVECARD          = 801       --结算组合牌   父节点
+
+--牌尺寸
+local CARD_SIZE_WIDTH               = 89        --宽
+local CARD_SIZE_HEIGHT              = 95       --高
+
+local CARD_BIG_SIZE_HEIGHT          = 250       --大牌高
+
+--牌距
+local CARD_DISTANCE_X               = 89        --牌间距 X
+local CARD_DISTANCE_Y               = 87        --牌间距Y
+--起始坐标
+local CARD_POSITION_X               = 390       --X轴
+local CARD_POSITION_Y               = 0         --Y轴
+
+
+--玩家2牌属性
+local HANDCARD_BEGIN_POSX           = 62        --牌间距 X
+local HANDCARD_POSX_TABLE           = {}
+
+--抓牌坐标
+local CATCHCARD_SEND_BEGIN_POS      = ccp(642,650)
+local CATCHCARD_BAD_END_POS_TABLE   = {ccp(5,391),ccp(1275,70),ccp(1275,391),ccp(1275,371)}
+
+local CATCHCARD_OUT_BEGIN_POS_TABLE = {ccp(-10,490),ccp(0,370),ccp(1290,490),ccp(1290,230)}
+--吃碰龙等操作牌坐标
+local OPERATECARD_DISTANCE_X        = 89        --牌间X轴距离
+local OPERATECARD_DISTANCE_Y        = 85        --牌间Y轴距离
+
+--操作牌动画起始位置，基于抓牌位置
+local OPERATECARD_BEGIN_POS_TABLE   = {ccp(320, 644), ccp(642, 540), ccp(970, 644), ccp(970, 370)}
+
+--抓牌类型
+local CATCHCARD_TYPE_SENDCARD       = 1  --发牌
+local CATCHCARD_TYPE_OUTCARD        = 2  --出牌
+local CATCHCARD_TYPE_BADCARD        = 3  --臭牌
+
+--数值掩码
+local CARD_MASK_COLOR               = 0xF0      --花色掩码
+local CARD_MASK_VALUE               = 0x0F      --数值掩码
+
+local LIST_COUNT                    = 14
+local ROW_COUNT                     = 4
+local cardScale = 0.48
+--扑克逻辑类定义
+local Poker = class("Poker")
+--扑克逻辑类对象实例化
+function Poker.create()
+    local poker = Poker.new()
+    return poker
+end
+
+--扑克逻辑类对象属性   初始化值
+function Poker:ctor()
+    for i=1,LIST_COUNT do
+        HANDCARD_POSX_TABLE[i] = HANDCARD_BEGIN_POSX + (i - 1) * CARD_DISTANCE_X
+    end    
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+    
+    self.CardCtl = {};
+    self.CardCtl.m_bShoot = {};                             -- 是否弹起
+    self.CardCtl.m_bDisplay = {};                           -- 是否显示
+    self.CardCtl.m_cbCardData = {};                         -- 扑克数据
+    self.CardCtl.m_cbCardCount = {};                        -- 扑克数量
+    self.CardCtl.m_cbCardDataIndex = {}                     -- 扑克数据索引
+    self.CardCtl.m_cbCardPositionX = {};                    -- 扑克X坐标
+    self.CardCtl.m_cbCardPositionY = {};                    -- 扑克Y坐标
+    self.CardCtl.m_bTouchEnable = {}
+    
+    for i=1,LIST_COUNT do
+        self.CardCtl.m_bShoot[i] = {false,false,false,false}
+        self.CardCtl.m_bDisplay[i] = {false,false,false,false}
+        self.CardCtl.m_cbCardData[i] = {0,0,0,0}
+        self.CardCtl.m_cbCardCount[i] = 0;                          
+        self.CardCtl.m_cbCardDataIndex[i] = {0,0,0,0}
+        self.CardCtl.m_cbCardPositionX[i] = {0,0,0,0}
+        self.CardCtl.m_cbCardPositionY[i] = {0,0,0,0}
+        self.CardCtl.m_bTouchEnable[i] = true
+    end
+
+    self.CardCtl.m_cbTotalCardCount =0;                          -- 扑克数量
+    self.CardCtl.m_ccParentNode = PARENT_TAG_HANDCARD1 + 1;     -- 玩家2
+    
+    local wordCardClass = require("phz/Game/WordCard_Create")
+    self.wordCard = wordCardClass.create()
+    
+    self.ShowCardTableCount = {0,0,0,0}                         -- 已经有几组吃碰杠牌
+    self.ShowCardTableCount1 = 0
+end
+----初始化数据
+--@param
+--@return
+function Poker:InitData()
+    self.ShowCardTableCount = {0,0,0,0}
+    self.ShowCardTableCount1 = 0
+end
+
+function Poker:getHandCardPosX(index)
+    return HANDCARD_POSX_TABLE[index]
+end
+
+-------------------------------扑克基本属性---------------------------
+function Poker:IsClickInColumn(index, xpos)
+    local cardWidth = CARD_SIZE_WIDTH
+    local posX = HANDCARD_BEGIN_POSX + CARD_DISTANCE_X * (index - 1)
+    local spaceX = xpos - (posX - cardWidth / 2)
+
+    return xpos > posX - cardWidth / 2 and xpos <= posX + cardWidth / 2, spaceX
+end
+
+function Poker:GetClickInColumn(xpos)
+    --存在数据的第一列、最后一列
+    local fIndex = 0
+    local lIndex = LIST_COUNT
+    for i=1, LIST_COUNT do
+        if self.CardCtl.m_cbCardCount[i] > 0 then
+            if fIndex == 0 then fIndex = i end
+            lIndex = i
+        end
+    end
+
+    local bInside, spaceX = self:IsClickInColumn(1, xpos)
+    local column = 1
+    if spaceX > 0 then 
+        --在右边
+        for i=1,LIST_COUNT do
+            if self:IsClickInColumn(i, xpos) then
+                column = i
+                break
+            end
+
+            column = i
+        end
+    end
+
+    --分析列
+    if column >= fIndex and column <= lIndex then
+        --已经存在、不需要增加
+        return column
+    else
+        if column < fIndex then
+            return fIndex - 1
+        else
+            return lIndex + 1
+        end
+    end
+end
+
+function Poker:IsClickInRow(index, ypos)
+    local cardHeight = CARD_SIZE_HEIGHT
+
+    local ybegin = 0
+    if index > 1 then
+        ybegin = ybegin + (index - 2) * CARD_DISTANCE_Y + cardHeight
+    end
+    local yend = (index - 1) * CARD_DISTANCE_Y + cardHeight
+
+    return ypos > ybegin and ypos <= yend
+end
+
+--查询在哪一行
+function Poker:GetClickInRow(ypos)
+    local rowIndex = ROW_COUNT
+    for i=1,ROW_COUNT do
+        if self:IsClickInRow(i, ypos) then
+            --x坐标在i行范围
+            rowIndex = i
+            break
+        end
+    end
+
+    return rowIndex
+end 
+
+--获取牌的大小类型
+function Poker:GetCardCtlType(parentNodeTag)
+    --大 牌
+    if parentNodeTag==PARENT_TAG_CATCHCARD or parentNodeTag==PARENT_TAG_REMAINBACKCARD then
+        return CARD_TYPE_BIG;
+    --中 牌
+    else
+        return CARD_TYPE_SMALL;       
+    end
+end
+
+--创建扑克牌图片精灵
+function Poker:CreateCardSprite(cbCardData,parentNodeTag)
+    --扑克牌大小类型
+    local cardType = self:GetCardCtlType(parentNodeTag);
+    local sprCard = self.wordCard:CreateWordCard(cbCardData,cardType,(cardType==CARD_TYPE_BIG and 1 or 1))
+
+    return sprCard
+end
+
+----------------------------------获取扑克-----------------------------
+function Poker:GetWeaveCard(parentNode,cbCardDatas, cbCardCount,
+                             cbWeaveIndex, startPos, spaceX, spaceY)
+    local weaveCard = {}
+    for i=1,cbCardCount do
+        local cardData = cbCardDatas[i]
+        local index = i
+        if spaceY > 0 then
+            index = cbCardCount - i + 1
+            cardData = cbCardDatas[cbCardCount - i + 1]
+        end
+
+        local sprCard = self.wordCard:CreateWordCard(cardData, CARD_TYPE_SMALL, 1)
+        local pos = ccp(startPos.x + spaceX * cbWeaveIndex, startPos.y + spaceY * (i - 1))
+        sprCard:setPosition(pos)
+        parentNode:addChild(sprCard)
+
+        sprCard:setTag(cbWeaveIndex * 10 + index)
+        weaveCard[index] = sprCard
+    end
+
+    return weaveCard
+end
+
+--单局结算底牌
+function Poker:GetResultBackCard(parentNode, cbCardDatas, cbCardCount)
+    local spacey = 0
+    if cbCardCount > 23 then
+        --排两行
+        spacey = 40
+    end
+
+    for i=1,cbCardCount do
+        if cbCardDatas[i]~=nil then
+            local sprCard = self.wordCard:CreateWordCard(cbCardDatas[i], CARD_TYPE_SMALL, 1)
+            if sprCard==nil then break end
+
+            if i < 24 then
+                sprCard:setPosition((i-1) * CARD_DISTANCE_X , spacey)
+            else
+                sprCard:setPosition((i-24) * CARD_DISTANCE_X , -spacey)
+            end
+
+            sprCard:setTag(i)
+            parentNode:addChild(sprCard)
+        end
+    end    
+end
+
+--单局结算组合
+function Poker:GetResultWeaveCard(parentNode, cbCardDatas, cbCardCount, cbWeaveIndex)
+    local startPos = ccp(0, 50)
+    local spaceY = CARD_DISTANCE_Y + 5
+    local spaceX = 127
+
+    local weaveCard = self:GetWeaveCard(parentNode, cbCardDatas, cbCardCount,
+                             cbWeaveIndex - 1, startPos, spaceX, spaceY)
+
+    return weaveCard
+end
+
+--单局结算底牌
+function Poker:GetGameBackCard(parentNode, cbCardDatas, cbCardCount)
+    local rowNum = math.ceil(cbCardCount / 9)
+    local startX = -(cbCardCount + 1) / 2 * (CARD_DISTANCE_X - 4)
+    if rowNum > 1 then startX = -5 * (CARD_DISTANCE_X - 4) end
+
+    local columnNum = math.ceil(cbCardCount / 2)
+    
+
+    for i=1,cbCardCount do
+        if cbCardDatas[i]~=nil then
+            local sprCard = self.wordCard:CreateWordCard(cbCardDatas[i], CARD_TYPE_BIG, 1)
+            if sprCard==nil then break end
+
+            local columnIndex = i % 9
+            if columnIndex == 0 then columnIndex = 9 end
+            local rowIndex = math.ceil(i / 9)
+            rowIndex = rowIndex < 5 and rowIndex or 4
+
+            local xpos = startX + columnIndex * (CARD_DISTANCE_X - 4)
+            sprCard:setPosition(xpos, 30 + (CARD_DISTANCE_Y - 14) * (1 - rowIndex))
+            sprCard:setTag(i)
+            parentNode:addChild(sprCard)
+        end
+    end    
+end
+
+--操作的牌
+function Poker:GetOperatorCard(parentNode, cbCardDatas, cbCardCount, wChairID, cbWeaveIndex)
+    local parentTag = parentNode:getTag()
+    local cardCount = parentNode:getChildrenCount()
+    local cardTableCount = self.ShowCardTableCount[parentTag-200]  --父节点上已经有几组吃、碰、杠牌 
+    
+    --已经存在
+    --cclog("GetOperatorCard "..tostring(cbWeaveIndex)..";"..cardTableCount)
+    local bUpdata = false
+    if cbWeaveIndex ~= nil and cbWeaveIndex < cardTableCount then   
+        for i = 1, 3 do
+            local tempSpr = parentNode:getChildByTag(cbWeaveIndex*10+i)
+            if tempSpr~=nil then tempSpr:removeFromParentAndCleanup(true) end
+        end
+        bUpdata = true
+    else
+        cbWeaveIndex = cardTableCount
+        self.ShowCardTableCount[parentTag-200] = self.ShowCardTableCount[parentTag-200] + 1
+    end
+
+    --坐标
+    local beginPos = {ccp(30, 577), ccp(30, 143), ccp(1280-30, 577), ccp(1280-30, 143)}
+    local spaceY = {-CARD_DISTANCE_Y, CARD_DISTANCE_Y, -CARD_DISTANCE_Y, CARD_DISTANCE_Y}
+    local spaceX = {CARD_DISTANCE_X, CARD_DISTANCE_X, -CARD_DISTANCE_X, -CARD_DISTANCE_X}
+    local startPos = beginPos[wChairID]
+    local spaceY = spaceY[wChairID] * cardScale
+    local spaceX = spaceX[wChairID] * cardScale
+
+    --创建牌
+    local weaveCard = self:GetWeaveCard(parentNode, cbCardDatas, cbCardCount, 
+                            cbWeaveIndex, startPos, spaceX, spaceY)
+    for k,v in pairs(weaveCard) do
+        v:setScale(cardScale)        
+    end
+
+    return weaveCard, bUpdata
+end
+
+--打下去的牌
+function Poker:GetBadCard(parentNode, cbCardDatas, cbCardCount, wChairID)
+    local parentTag = parentNode:getTag()
+    local cardCount = parentNode:getChildrenCount()
+
+    --坏牌坐标
+    local beginPos = {ccp(280, 610), ccp(280, 300), ccp(1280 - 280, 610), ccp(1280 - 280, 300)}
+    --位置参数
+    local beginPosX, beginPosY = beginPos[wChairID].x, beginPos[wChairID].y
+    local spaceX, spaceY = CARD_DISTANCE_X * cardScale, CARD_DISTANCE_Y * cardScale
+
+    local sprCard
+    for i=1,cbCardCount do
+        --生成牌
+        sprCard = self.wordCard:CreateWordCard(cbCardDatas[i], CARD_TYPE_SMALL, 1)
+        local cardIndex = cardCount + i
+        local xspace = (cardIndex - 1) * spaceX
+        local ypos = beginPosY
+        if cardIndex > 10 then
+            xspace = (cardIndex - 11) * spaceX
+            ypos = beginPosY - spaceY * 2
+        elseif cardIndex > 5 then
+            xspace = (cardIndex - 6) * spaceX
+            ypos = beginPosY - spaceY                 
+        end
+
+        --设置位置
+        if parentTag < PARENT_TAG_BADCARD1 + 2 then
+            sprCard:setPosition(beginPosX + xspace, ypos)
+        else
+            sprCard:setPosition(beginPosX - xspace, ypos)
+        end
+
+        sprCard:setTag(cardIndex)
+        parentNode:addChild(sprCard)
+        sprCard:setScale(cardScale)
+    end
+
+    return sprCard
+end
+
+--打出、抓牌
+function Poker:GetCatchCard(parentNode, cbCardData)
+    self:RemoveAllCardData(parentNode)
+    local sprCard = self.wordCard:CreateWordCard(cbCardData, CARD_TYPE_BIG, 1)
+    sprCard:setTag(1)
+    parentNode:addChild(sprCard)  
+
+    return sprCard
+end
+
+--移动手牌
+function Poker:GetMyMoveCard(parentNode, cbCardData)
+    self:RemoveAllCardData(parentNode)
+    local sprCard = self.wordCard:CreateWordCard(cbCardData, CARD_TYPE_BIG, 1)
+    sprCard:setTag(1)
+    SetPokerColor(sprCard, ccc3(0xf5, 0xc7, 0xbc))
+    parentNode:addChild(sprCard)    
+end
+
+--设置手牌数据
+function Poker:SetMyHandCardData(cardData, rowIndex, columnIndex, cardSp, bShoot, bDisplay)
+    self.CardCtl.m_bShoot[columnIndex][rowIndex] = bShoot
+    self.CardCtl.m_bDisplay[columnIndex][rowIndex] = bDisplay
+    self.CardCtl.m_cbCardData[columnIndex][rowIndex] = cardData
+    self.CardCtl.m_cbCardDataIndex[columnIndex][rowIndex] = columnIndex*10 + rowIndex
+    self.CardCtl.m_cbCardPositionX[columnIndex][rowIndex] = HANDCARD_POSX_TABLE[columnIndex]
+    self.CardCtl.m_cbCardPositionY[columnIndex][rowIndex] = (rowIndex-1)*CARD_DISTANCE_Y + CARD_SIZE_HEIGHT - CARD_BIG_SIZE_HEIGHT
+
+    if cardSp then
+        cardSp:setTag(self.CardCtl.m_cbCardDataIndex[columnIndex][rowIndex])
+        cardSp:setPosition(ccp(self.CardCtl.m_cbCardPositionX[columnIndex][rowIndex], self.CardCtl.m_cbCardPositionY[columnIndex][rowIndex]))
+    end
+end
+
+--获取其他手牌
+function Poker:GetOtherHandCard(parentNode, cbCardDatas, cbCardCount)
+    local parentTag = parentNode:getTag()
+
+    local pos = {ccp(220, 480), ccp(0, 0), ccp(1280 - 220, 480), ccp(1280 - 220, 170)}
+    local cardTableCount = self.ShowCardTableCount[parentTag - 100]
+
+    --设置位置
+    local parentMk = parentNode:getParent()
+    local actPos = ccp(0, 0)
+    if parentTag == PARENT_TAG_HANDCARD1 then
+        parentMk:setPositionX(10 + cardTableCount * CARD_SIZE_WIDTH * cardScale)
+    else
+        actPos = ccp(1, 0)
+        parentMk:setPositionX(1270 - cardTableCount * CARD_SIZE_WIDTH * cardScale)
+    end
+
+    for a=1, table.getn(cbCardDatas) do
+        local tempSameNum = 0
+        local tempCard = 0
+
+        for i=1,table.getn(cbCardDatas[a]) do
+            local sprCard = self.wordCard:CreateWordCard(cbCardDatas[a][i], CARD_TYPE_SMALL, 1)
+            if parentTag~=PARENT_TAG_HANDCARD1 then
+                sprCard:setPosition(-(a-1)*CARD_DISTANCE_X, CARD_DISTANCE_Y*(i-1))
+            else
+                sprCard:setPosition((a-1)*CARD_DISTANCE_X, CARD_DISTANCE_Y*(i-1))
+            end
+            
+            sprCard:setAnchorPoint(actPos)
+            sprCard:setVisible(true)
+            sprCard:setTag(a*10 + i)
+
+            parentNode:addChild(sprCard)
+            parentNode:reorderChild(sprCard,(cbCardCount-i))
+        end
+    end    
+end
+
+--获取自己手牌
+function Poker:GetMyHandCard(parentNode, cbCardDatas, cbCardCount, bBegin)
+    local weaveCount = table.getn(cbCardDatas)
+    local beginPosY = CARD_SIZE_HEIGHT - CARD_BIG_SIZE_HEIGHT
+    local nStart = LIST_COUNT / 2 - math.floor(weaveCount / 2) 
+
+    self:RemoveAllCardData(parentNode)
+    self:ClearCardItem()
+    for a=1, weaveCount do
+        local listIndex = a + nStart
+        local tempSameNum = 0
+        local tempCard = 0
+
+        for i = 1,table.getn(cbCardDatas[a]) do
+            if i==1 then 
+                tempCard = cbCardDatas[a][i] 
+                tempSameNum = tempSameNum + 1
+            end
+            if i~=1 and tempCard==cbCardDatas[a][i] then
+                tempSameNum = tempSameNum + 1
+            else
+                tempSameNum = 1
+            end
+
+            local sprCard = self.wordCard:CreateWordCard(cbCardDatas[a][i], CARD_TYPE_BIG, 1)
+            if bBegin then  --开局发牌
+                sprCard:setPosition(640, CARD_DISTANCE_Y * (i - 1) + beginPosY)
+                sprCard:setOpacity(0)
+                sprCard:setScale(0.1)
+            else                        
+                --场景恢复
+                sprCard:setPosition(HANDCARD_POSX_TABLE[listIndex], CARD_DISTANCE_Y * (i - 1) + beginPosY)
+            end
+            sprCard:setAnchorPoint(ccp(0.5, 0))
+            sprCard:setVisible(true)
+            sprCard:setTag(listIndex*10+i)
+            parentNode:addChild(sprCard)
+            parentNode:reorderChild(sprCard,(cbCardCount-i))
+        end
+        self:AddCardItem(table.getn(cbCardDatas[a]), cbCardDatas[a], listIndex, tempSameNum<3)
+        if tempSameNum>=3 then
+            self:SetCardColor(parentNode, listIndex)
+        end
+    end
+end
+
+--滑动移动牌
+--@param selectIndex 选中索引  51 5列1行 , ptTouchEndPos 触摸结束位置
+function Poker:MoveMyHandCard(parentNode, selectIndex, ptTouchEndPos)
+    local listIndex = math.floor(selectIndex / 10)  --列索引
+    local cellIndex = selectIndex % 10  --行索引
+
+    --点击的行
+    local rowIndex = self:GetClickInRow(ptTouchEndPos.y)
+    --点击的列
+    local columnIndex = self:GetClickInColumn(ptTouchEndPos.x)
+
+    if rowIndex == cellIndex and columnIndex == listIndex then
+        --位置不变
+        return false
+    end
+
+    if columnIndex == listIndex then
+        --同一列
+        self:SortCard(parentNode, listIndex, cellIndex, columnIndex, rowIndex)
+        return true
+    else
+        --不同列
+        if self.CardCtl.m_cbCardCount[columnIndex]<ROW_COUNT and self.CardCtl.m_bTouchEnable[columnIndex] then
+            self:SortCard(parentNode, listIndex, cellIndex, columnIndex, rowIndex)
+            return true
+        end 
+    end
+    
+    return false 
+end
+
+--移动牌整理  插入新位置  删除旧位置
+function Poker:SortCard(parentNode, listIndex, cellIndex, newListIndex, rowIndex)
+    local cardData = self.CardCtl.m_cbCardData[listIndex][cellIndex]
+    
+    --重置tag值
+    local moveCard = parentNode:getChildByTag(listIndex * 10 + cellIndex)
+    moveCard:setTag(200)
+    --整理单列的牌
+    self:SortListCard(parentNode, listIndex) 
+
+    --最大行数
+    local rowMax = self.CardCtl.m_cbCardCount[newListIndex] + 1
+    self.CardCtl.m_cbCardCount[newListIndex] = rowMax
+
+    --实际行数
+    rowIndex = rowIndex >= rowMax and rowMax or rowIndex
+    if rowIndex ~= rowMax then
+        --将牌上移动
+        for i=rowMax,rowIndex+1,-1 do
+            local cardData = self.CardCtl.m_cbCardData[newListIndex][i - 1]
+            local cardSp = parentNode:getChildByTag(newListIndex * 10 + i - 1)
+
+            --更新索引
+            self:SetMyHandCardData(cardData, i, newListIndex, cardSp) 
+        end
+    end
+
+    --设置新牌
+    self:SetMyHandCardData(cardData, rowIndex, newListIndex, moveCard)
+
+    --重新排序上下级关系
+    for j=1, self.CardCtl.m_cbCardCount[newListIndex] do
+        local cardSp = parentNode:getChildByTag(newListIndex * 10 + j)
+        local zOrder = rowMax - (cardSp:getTag() - newListIndex * 10)
+        parentNode:reorderChild(cardSp, (self.CardCtl.m_cbCardCount[newListIndex] - j))
+    end   
+end
+
+--整理单列的牌
+function Poker:SortListCard(parentNode, listIndex)
+    ----整理原先列
+    self.CardCtl.m_cbCardCount[listIndex] = self.CardCtl.m_cbCardCount[listIndex] - 1
+    local tempCellNum = 0
+    for j = 1, ROW_COUNT do
+        local tempCardSpr = parentNode:getChildByTag(listIndex*10+j) 
+        if tempCardSpr then
+            tempCellNum = tempCellNum + 1
+            local cardData = self.CardCtl.m_cbCardData[listIndex][j]
+            self:SetMyHandCardData(cardData, tempCellNum, listIndex, tempCardSpr)
+        end
+    end
+
+    --最上一行置空
+    self:SetMyHandCardData(0, tempCellNum + 1, listIndex)
+end
+
+----列位置移动    MoveCard移动牌后  原先列已经无牌
+function Poker:MoveList(parentNode, listIndex)
+    --整理排序
+    for i=LIST_COUNT, 2, -1 do
+        if self.CardCtl.m_cbCardCount[i]==0 then
+            for j=i-1, 1, -1 do
+                if self.CardCtl.m_cbCardCount[j]>0 then
+                    self:MoveListByIndex(parentNode, j, i)
+                    break
+                end                    
+            end
+        end
+    end
+
+    --有效列数
+    local listNum, lStart = 0, 0
+    for i=1, LIST_COUNT do
+        if self.CardCtl.m_cbCardCount[i]>0 then
+            listNum = listNum + 1
+            if lStart == 0 then lStart = i end
+        end
+    end
+    --需要开始起始位置
+    local nStart = LIST_COUNT / 2 - math.floor(listNum / 2) + 1
+    local step = lStart - nStart
+
+    --移动列操作
+    --cclog("移动列操作 "..nStart..";"..lStart..";"..step..";"..listNum)
+    if nStart < lStart then        
+        for i=nStart, nStart + listNum - 1 do
+            self:MoveListByIndex(parentNode, i+step, i)
+        end        
+    end
+end
+
+----列移动操作
+--@param listIndex列索引, isMoveToRight 是否向右
+function Poker:MoveListByIndex(parentNode,listIndex,targetListIndex)
+    local tempIndex = targetListIndex
+--    if not isMoveToRight then tempIndex = listIndex - 1 end
+    if self.CardCtl.m_cbCardCount[listIndex]>0 then 
+        self.CardCtl.m_cbCardCount[tempIndex] = self.CardCtl.m_cbCardCount[listIndex]
+        self.CardCtl.m_bTouchEnable[tempIndex] = self.CardCtl.m_bTouchEnable[listIndex]
+
+        for i = 1, self.CardCtl.m_cbCardCount[listIndex] do
+            local tempCardSpr = parentNode:getChildByTag(listIndex*10+i) 
+            if tempCardSpr then
+                local cardData = self.CardCtl.m_cbCardData[listIndex][i]
+                local bShoot = self.CardCtl.m_bShoot[listIndex][i]
+                local bDisplay = self.CardCtl.m_bDisplay[listIndex][i]
+
+                --移动牌
+                self:SetMyHandCardData(cardData, i, tempIndex, tempCardSpr, bShoot, bDisplay)
+                self:SetMyHandCardData(0, i, listIndex)
+            end
+        end
+        self.CardCtl.m_cbCardCount[listIndex] = 0
+        self.CardCtl.m_bTouchEnable[listIndex] = true
+    end
+end
+
+--获取扑克
+function Poker:GetCard(parentNode, cbCardDatas, cbCardCount, cbWeaveIndex, viewChairId, catchCardType)
+    self:GetCardByParent(parentNode, cbCardDatas, cbCardCount, cbWeaveIndex, viewChairId, catchCardType);
+end
+
+--获取扑克 添加到父节点
+function Poker:GetCardByParent(parentNode, cbCardDatas, cbCardCount, cbWeaveIndex, viewChairId, catchCardType)
+    --删除原有扑克
+--    self:RemoveAllCardData(parentNode)
+    --获取扑克基础属性
+    local parentTag = parentNode:getTag()
+    --牌数量
+    local cardCount = parentNode:getChildrenCount()
+
+    --anchorValue为描点偏移量  beginPos为起始位置
+    local beginPosX,beginPosY,anchorValueX,anchorValueY = self:GetCardAnchorPosValue(parentTag,cbCardCount);
+    
+    if parentTag >= PARENT_TAG_OPERATECARD1 and parentTag <= PARENT_TAG_OPERATECARD1 + PARENT_TAG_COUNT then --玩家吃碰牌
+        local cardTableCount = self.ShowCardTableCount[parentTag-200]  --父节点上已经有几组吃、碰、杠牌 
+        if cbWeaveIndex~=nil then   --已经碰  再杠   删除原有3张  重新建立4张
+            for i = 1, 3 do
+                local tempSpr = parentNode:getChildByTag(cbWeaveIndex*10+i)
+                if tempSpr~=nil then tempSpr:removeFromParentAndCleanup(true) end
+            end
+        end
+
+        for i=1,cbCardCount do
+            local sprCard = self:CreateCardSprite(cbCardDatas[i],parentTag)
+            --吃牌的第一张灰色
+            if catchCardType==100 and i==1 then
+                SetPokerColor(sprCard , ccc3(178,178,178))
+            end
+            if parentTag >= PARENT_TAG_OPERATECARD1 + 2 then
+                if cbWeaveIndex~=nil then
+                    sprCard:setPosition(beginPosX-(cbWeaveIndex)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(cbCardCount-i))
+                else
+                    sprCard:setPosition(beginPosX-(cardTableCount)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(cbCardCount-i))
+                end
+            else
+                if cbWeaveIndex~=nil then
+                    sprCard:setPosition(beginPosX+(cbWeaveIndex)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(cbCardCount-i))
+                else
+                    sprCard:setPosition(beginPosX+(cardTableCount)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(cbCardCount-i))
+                end
+            end
+            
+            sprCard:setAnchorPoint(anchorValueX,anchorValueY);
+            sprCard:setVisible(true);
+            if cbWeaveIndex~=nil then
+                sprCard:setTag(cbWeaveIndex*10+i);
+            else
+                sprCard:setTag(cardTableCount*10+i);
+            end
+            parentNode:setVisible(true);
+            parentNode:addChild(sprCard);
+--            parentNode:reorderChild(sprCard,(cbCardCount-i));
+        end
+        if cbWeaveIndex==nil then
+            self.ShowCardTableCount[parentTag-200] = self.ShowCardTableCount[parentTag-200] + 1
+        end
+    elseif parentTag>=PARENT_TAG_BADCARD1 and parentTag<PARENT_TAG_BADCARD1 + PARENT_TAG_COUNT then --玩家臭牌
+        for i=1,cbCardCount do
+            local sprCard = self:CreateCardSprite(cbCardDatas[i],parentTag)
+
+            local cardIndex = cardCount + i
+            local xspace = (cardIndex - 1) * CARD_DISTANCE_X
+            local ypos = beginPosY
+            if cardIndex > 5 then
+                xspace = (cardIndex - 6) * CARD_DISTANCE_X
+                ypos = beginPosY - CARD_DISTANCE_Y         
+            end
+
+            if parentTag<PARENT_TAG_BADCARD1 + 2 then
+                sprCard:setPosition(beginPosX + xspace, ypos)
+            else
+                sprCard:setPosition(beginPosX - xspace, ypos)
+            end
+            sprCard:setAnchorPoint(anchorValueX,anchorValueY);
+            if catchCardType~=100 and cbCardCount==1 then  --抓牌  大于1则是场景恢复
+                sprCard:setOpacity(0);
+            end
+
+            sprCard:setTag(i+cardCount);
+            parentNode:addChild(sprCard);
+        end
+    elseif parentTag>=PARENT_TAG_HANDCARD1 and parentTag<PARENT_TAG_HANDCARD1 + PARENT_TAG_COUNT 
+            and parentTag~=PARENT_TAG_HANDCARD1 + 1 then --其他玩家手牌
+        for a = 1, table.getn(cbCardDatas) do
+            local tempSameNum = 0
+            local tempCard = 0
+            for i = 1,table.getn(cbCardDatas[a]) do
+            
+                local sprCard = self:CreateCardSprite(cbCardDatas[a][i],parentTag)
+                if parentTag~=PARENT_TAG_HANDCARD1 then
+                    sprCard:setPosition(beginPosX-(a-1)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(i-1))
+                else
+                    sprCard:setPosition(beginPosX+(a-1)*CARD_DISTANCE_X , beginPosY+CARD_DISTANCE_Y*(i-1))
+                end
+                sprCard:setAnchorPoint(anchorValueX,anchorValueY);
+                sprCard:setVisible(true);
+                sprCard:setTag(a*10+i);
+                parentNode:addChild(sprCard);
+                parentNode:reorderChild(sprCard,(cbCardCount-i));
+            end
+        end
+    elseif parentTag==PARENT_TAG_HANDCARD1 + 1 then --玩家2 手牌
+        self:RemoveAllCardData(parentNode)
+        self:ClearCardItem()
+        for a = 1, table.getn(cbCardDatas) do
+            local tempSameNum = 0
+            local tempCard = 0
+            for i = 1,table.getn(cbCardDatas[a]) do
+                if i==1 then 
+                    tempCard = cbCardDatas[a][i] 
+                    tempSameNum = tempSameNum + 1
+                end
+                if i~=1 and tempCard==cbCardDatas[a][i] then
+                    tempSameNum = tempSameNum + 1
+                else
+                    tempSameNum = 1
+                end
+                local sprCard = self:CreateCardSprite(cbCardDatas[a][i],parentTag)
+                if cbWeaveIndex==true then  --开局发牌
+                    sprCard:setPosition(694.5 , CARD_DISTANCE_Y*(i-1))
+                    sprCard:setOpacity(0)
+                    sprCard:setScale(0.1)
+                else                        --场景恢复
+                    sprCard:setPosition(HANDCARD_POSX_TABLE[a] , CARD_DISTANCE_Y*(i-1))
+                end
+                sprCard:setAnchorPoint(anchorValueX,anchorValueY);
+                sprCard:setVisible(true);
+                sprCard:setTag(a*10+i);
+                parentNode:addChild(sprCard);
+                parentNode:reorderChild(sprCard,(cbCardCount-i));
+            end
+            self:AddCardItem(table.getn(cbCardDatas[a]) , cbCardDatas[a], a ,tempSameNum<3)
+            if tempSameNum>=3 then
+                self:SetCardColor(parentNode,a)
+            end
+        end
+    elseif parentTag==PARENT_TAG_CATCHCARD then --抓牌        父节点
+        self:RemoveAllCardData(parentNode)
+        local sprCard = self:CreateCardSprite(cbCardDatas[1],parentTag)
+        if catchCardType==CATCHCARD_TYPE_SENDCARD then
+            sprCard:setPosition(CATCHCARD_SEND_BEGIN_POS)
+        else
+            sprCard:setPosition(CATCHCARD_OUT_BEGIN_POS_TABLE[viewChairId])
+        end
+        sprCard:setScale(0.2)
+        sprCard:setOpacity(0);
+        sprCard:setTag(1);
+        parentNode:addChild(sprCard);
+    elseif parentTag>=PARENT_TAG_OPERATESHOWCARD1 and parentTag<PARENT_TAG_OPERATESHOWCARD1 + PARENT_TAG_COUNT then --操作牌   父节点
+        self:RemoveAllCardData(parentNode)
+        --parentNode:setCascadeOpacityEnabled(true)
+        --parentNode:setOpacity(255);
+        local tagIndex = 1
+        parentNode:setScale(0.8)
+        parentNode:setPosition(OPERATECARD_BEGIN_POS_TABLE[viewChairId])
+        for i = 1, table.getn(cbCardDatas) do
+            for j = 1 , cbCardCount do
+                local sprCard = self:CreateCardSprite(cbCardDatas[i][j],parentTag)
+                if parentTag>=PARENT_TAG_OPERATESHOWCARD1 + 2 then
+                    sprCard:setPosition(beginPosX-(i-1)*OPERATECARD_DISTANCE_X , beginPosY-OPERATECARD_DISTANCE_Y*((j-1)))
+                else
+                    sprCard:setPosition(beginPosX+(i-1)*OPERATECARD_DISTANCE_X , beginPosY-OPERATECARD_DISTANCE_Y*((j-1)))
+                end
+                sprCard:setAnchorPoint(anchorValueX,anchorValueY);
+                sprCard:setVisible(true);
+                sprCard:setTag(tagIndex);
+                parentNode:addChild(sprCard);
+                tagIndex = tagIndex + 1
+            end
+        end
+    elseif parentTag==PARENT_TAG_TOUCHMOVECARD then  --滑动牌
+        self:RemoveAllCardData(parentNode)
+        local sprCard = self:CreateCardSprite(cbCardDatas[1],parentTag)
+        sprCard:setTag(1);
+        parentNode:addChild(sprCard);
+    elseif parentTag==PARENT_TAG_BACKCARD then  --结算底牌   父节点
+        for i=1,cbCardCount do
+            if cbCardDatas[i]~=nil then
+                local sprCard = self:CreateCardSprite(cbCardDatas[i],parentTag)
+                if sprCard==nil then break end
+                sprCard:setPosition((i-1) * CARD_DISTANCE_X , 0)
+                sprCard:setTag(i+cardCount);
+                parentNode:addChild(sprCard);
+            end
+        end
+    elseif parentTag==PARENT_TAG_WEAVECARD then  --结算组合牌   父节点
+        local cardTableCount = self.ShowCardTableCount1  --父节点上已经有几组吃、碰、杠牌 
+
+        for i=1,cbCardCount do
+            if cbCardDatas[i]~=nil then
+                local sprCard = self:CreateCardSprite(cbCardDatas[i],parentTag)
+                if sprCard==nil then break end
+                sprCard:setPosition((cardTableCount)*127 , (CARD_DISTANCE_Y + 5)*(cbCardCount-i) + 7)
+                sprCard:setAnchorPoint(0.5, 0);
+                sprCard:setVisible(true);
+                sprCard:setTag(cardTableCount*10+i);
+                parentNode:setVisible(true);
+                parentNode:addChild(sprCard);
+            end
+        --            parentNode:reorderChild(sprCard,(cbCardCount-i));
+        end
+        if cbWeaveIndex==nil then
+            self.ShowCardTableCount1 = self.ShowCardTableCount1 + 1
+        end
+    elseif parentTag==PARENT_TAG_REMAINBACKCARD then   --剩余底牌
+        for i=1,cbCardCount do
+            local sprCard = self:CreateCardSprite(cbCardDatas[i],parentTag)
+            sprCard:setAnchorPoint(0,0.5);
+            if cbCardCount<=10 then
+                local xpos = -CARD_DISTANCE_X * cbCardCount / 2 + i * CARD_DISTANCE_X
+                sprCard:setPosition(xpos, 0)
+            else
+                if i<=10 then
+                    local xpos = -CARD_DISTANCE_X * 10 / 2 + i * CARD_DISTANCE_X
+                    sprCard:setPosition(xpos, 0)
+                else
+                    local tempCardCount = cbCardCount - 10
+                    local xpos = -CARD_DISTANCE_X * tempCardCount / 2 + (i - 10) * CARD_DISTANCE_X
+                    sprCard:setPosition(xpos, -123)
+                end
+            end
+            sprCard:setTag(i);
+            sprCard:setOpacity(0)
+            sprCard:setScale(0.01)
+            parentNode:addChild(sprCard);
+        end
+    end
+end    
+
+--扑克牌之间偏移量、距离  目的适应各种分辨率
+function Poker:GetCardAnchorPosValue(parentTag,cbCardCount)
+    local beginPosX,beginPosY,anchorX,anchorY = 303, 0, 0.5, 0;
+    if parentTag==PARENT_TAG_HANDCARD1 + 1 then 
+        beginPosX,beginPosY,anchorX,anchorY = 303, 0, 0.5, 0;
+    elseif parentTag == PARENT_TAG_HANDCARD1 or 
+        (parentTag == PARENT_TAG_OPERATECARD1 or parentTag == PARENT_TAG_OPERATECARD1 + 1) then
+        beginPosX,beginPosY,anchorX,anchorY = 0, 0, 0, 0;
+    elseif parentTag==PARENT_TAG_HANDCARD1 + 2 or parentTag==PARENT_TAG_HANDCARD1 + 3 or
+        (parentTag == PARENT_TAG_OPERATECARD1 + 2 or parentTag == PARENT_TAG_OPERATECARD1 + 3) then
+        beginPosX,beginPosY,anchorX,anchorY = 0, 0, 1, 0;
+        
+    elseif parentTag>=PARENT_TAG_BADCARD1 and parentTag<PARENT_TAG_BADCARD1 + PARENT_TAG_COUNT then
+        beginPosX,beginPosY,anchorX,anchorY = 0, 0, 0.5, 0.5;
+    elseif parentTag>=PARENT_TAG_OPERATESHOWCARD1 and parentTag<PARENT_TAG_OPERATESHOWCARD1 + PARENT_TAG_COUNT then --操作牌   父节点
+        beginPosX,beginPosY,anchorX,anchorY = 0, 0, 0.5, 1;
+    end
+    return beginPosX,beginPosY,anchorX,anchorY
+end;
+
+--添加玩家3 即我的扑克数据 到结构体
+function Poker:AddCardItem(cbCardCount,cbCardData,listIndex,isTouchEnable)
+    for i = 1, cbCardCount do
+        if cbCardData[i]~=0 then
+            self:SetMyHandCardData(cbCardData[i], i, listIndex)
+        end
+    end
+    self.CardCtl.m_cbCardCount[listIndex] = cbCardCount; 
+    self.CardCtl.m_bTouchEnable[listIndex] = isTouchEnable
+end
+
+--清除扑克数据结构体
+function Poker:ClearCardItem()
+    for listIndex = 1, LIST_COUNT do
+        for i=1, ROW_COUNT do
+            self:SetMyHandCardData(0, i, listIndex)
+        end
+        self.CardCtl.m_cbCardCount[listIndex] = 0; 
+        self.CardCtl.m_bTouchEnable[listIndex] = true
+    end
+end
+
+----操作牌删除牌   吃碰龙
+--@param
+--@return
+function Poker:RemoveOutCard(parentNode,cardDatas,cardCount)
+    local tempListTable = {}
+    local tempListNum = 0
+    local listEmptpe = false
+
+	for i=1, cardCount do
+	    for j=1, LIST_COUNT do
+	       local tempBreak = false
+	       if self.CardCtl.m_cbCardCount[j] > 0 then
+    	       for k=1, ROW_COUNT do
+    	           if self.CardCtl.m_cbCardData[j][k] ~= 0 and cardDatas[i]==self.CardCtl.m_cbCardData[j][k] then
+                       tempListNum = tempListNum + 1
+                       tempListTable[tempListNum] = j
+    	               
+                       --删除牌
+                       local rowNum = self:RemoveCard(parentNode, j*10 + k)
+    	               tempBreak = true
+                       if rowNum == 0 then listEmptpe = true end
+    	               break
+    	           end
+    	       end
+	       end
+	       if tempBreak then break end
+	    end
+	end
+    
+    for i=1, tempListNum do
+        self:SortCardForRemove(parentNode, tempListTable[i])
+	end
+
+    --重新排序
+    if listEmptpe then 
+        self:MoveList(parentNode) 
+    end
+end
+
+----删除牌
+function Poker:SortCardForRemove(parentNode, listIndex)
+    local tempCellNum = 0
+    for j = 1, 4 do
+        local tempCardSpr = parentNode:getChildByTag(listIndex*10+j) 
+        if tempCardSpr then
+            tempCellNum = tempCellNum + 1
+            local cardData = self.CardCtl.m_cbCardData[listIndex][j]
+            self:SetMyHandCardData(cardData, tempCellNum, listIndex, tempCardSpr)
+        end
+    end
+
+    --置空无效行
+    if tempCellNum < 4 then
+        for i = tempCellNum + 1, 4 do
+            self:SetMyHandCardData(0, i, listIndex)
+        end
+    end
+end
+
+----删除牌
+function Poker:RemoveCard(parentNode, selectIndex)
+    local listIndex = math.floor(selectIndex / 10)  --列索引
+    local cellIndex = selectIndex % 10  --行索引
+    local removeCard = parentNode:getChildByTag(selectIndex)
+    --cclog("Poker:RemoveCard "..selectIndex..";"..listIndex..";"..cellIndex..";"..tostring(removeCard))
+    if removeCard ~= nil then
+        removeCard:removeFromParentAndCleanup(true)
+        self.CardCtl.m_cbCardCount[listIndex] = self.CardCtl.m_cbCardCount[listIndex] - 1
+        self.CardCtl.m_bTouchEnable[listIndex] = true
+
+        --最上一行置空
+        self:SetMyHandCardData(0, cellIndex, listIndex)
+    end
+
+    return self.CardCtl.m_cbCardCount[listIndex]
+end
+
+--扑克颜色变化  点击begin、move变灰  end恢复正常
+function Poker:SetCardColor(parentNode,listIndex)
+    for i = 1, self.CardCtl.m_cbCardCount[listIndex] do
+        local sprCard=parentNode:getChildByTag(listIndex*10+i)
+        SetPokerColor(sprCard , ccc3(191,191,191))
+    end
+end
+
+--删除所有手牌
+function Poker:RemoveAllCardData(parentNode)
+    parentNode:removeAllChildrenWithCleanup(true)  --如果Cleanup为true则删除当前节点的所有动作及回调函数
+end
+
+return Poker

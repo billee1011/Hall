@@ -1,0 +1,787 @@
+--GamePlayLogic.lua
+local GamePlayLogic = class("GamePlayLogic", require("phz/Game/GameLogic"))
+
+local that = nil
+
+function GamePlayLogic.create()
+    local GameLogicClass = GamePlayLogic.new()
+    return GameLogicClass
+end
+
+function GamePlayLogic:getInstance() 
+    if that == nil then 
+        that = GamePlayLogic.create()
+    end
+    return that
+end
+
+function GamePlayLogic:ctor()
+    self.super:ctor(self)
+
+    --玩家列表
+    self.userList                       = {}
+    --手牌
+    self.cbCardData                     = {}
+
+    self.myChair                        = 0
+
+    self.gameEndInfo                    = {}
+
+    self.actionAperator                 = {}
+    self.gameOperator                   = {}
+
+    --场景信息
+    self.sceneData                      = {}
+
+    self.sceneIndexs                    = {}
+
+    self.cbOperateIndex = 0
+
+    self.play_panel = nil   
+    self.play_next = nil 
+end
+
+function GamePlayLogic.removeCache()
+    Cache.removePlist{"emote", "phz/images/paoHuZi", "phz/images/wordCard", "phz/images/sparrowEffect", "phz/images/czpdkreplay"}   
+    Cache.removeTexture{"phz/images/BG1.jpg", "phz/images/BG2.jpg"}
+end
+
+function GamePlayLogic.loadingCache()
+    Cache.add{"emote", "phz/images/paoHuZi", "phz/images/wordCard", "phz/images/sparrowEffect", "phz/images/czpdkreplay"}
+end
+
+-- 是否旁观
+function GamePlayLogic:IsLookonMode()
+    return true
+end
+
+function GamePlayLogic:GetUserByChair(chair)
+    return self.userList[chair + 1]
+end
+
+--获取本身物理位置
+function GamePlayLogic:GetMeChairID()
+    return self.myChair
+end
+
+--获取视图位置
+function GamePlayLogic:SwitchViewChairID(chairId)
+    return self.chair_views[chairId + 1]
+end
+
+--解析游戏信息
+function GamePlayLogic:analysisGameData(data)
+    --开局用户列表
+    self:onGamBegin(data.Opening)
+
+    --游戏操作
+    self:onGamAction(data.Action)
+
+    --游戏结束
+    self:onGamEnd(data.Ending)
+
+    self.play_panel:setPlayState(false)
+    local array = CCArray:create() 
+    array:addObject(CCDelayTime:create(2))     
+    array:addObject(CCCallFunc:create(function( )
+        --self.play_panel:setPlayState(true)
+        self.play_panel:startCheckStatus()
+
+        for i=1,GAME_PLAYER_PAOHUZI do
+            self:ShowBackHandCard(i - 1)
+        end 
+    end))
+    self.play_panel:runAction(CCSequence:create(array))    
+end
+
+function GamePlayLogic:onGamBegin(data)
+    --规则参数
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+    FriendGameLogic.game_type = 0
+
+    FriendGameLogic.my_rule = {}
+    table.insert(FriendGameLogic.my_rule, {2, 4})
+    --游戏人数
+    table.insert(FriendGameLogic.my_rule, {3, data.PCT}) 
+     --息囤
+    table.insert(FriendGameLogic.my_rule, {4, data.I3T1})
+    --自摸翻倍
+    if data.IZD and data.IZD ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {5, 1})
+    end
+    --点炮必胡
+    if data.IH and data.IH ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {6, 1})
+    end
+    --有胡必胡
+    if data.IsD and data.IsD ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {7, 1})
+    end
+    --飘
+    if data.OIP and data.OIP ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {100, 1})        
+    end
+
+    --游戏名称
+    cclog("游戏名称 "..tostring(data.GT))
+    if data.GT and data.GT ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {50, data.GT})        
+    end
+    local modeIndex = FriendGameLogic.getRuleValueByIndex(50)
+
+    --毛胡
+    if data.IM and data.IM ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {10, 1})        
+    end
+
+    --红黑胡
+    if modeIndex == 2 and data.IHH and data.IHH ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {11, 1})        
+    end
+
+    --手牌张数
+    if modeIndex == 2 and data.HSC and data.HSC ~= 0 then
+        table.insert(FriendGameLogic.my_rule, {12, data.HSC})        
+    end  
+
+    FriendGameLogic.game_abled = true
+    FriendGameLogic.game_used = 1
+
+    self:onFriendRuleMessage(0, 0, 0)
+    self.GameView.label_playCount:setString("")  --房间号
+    self.GameView.label_roomNum:setString("")
+
+    --开局用户列表 SX
+    for i,v in ipairs(data.UL) do
+        local info = {_name = v.UN, _userDBID = v.DB, _chairID = v.ID, _sex = v.SX, 
+                _faceID = v.FID, m_cbFaceChagneIndex = 0, _userIP = v.IP, _score = v.US}
+
+        local view = self:SwitchViewChairID(info._chairID)
+
+        --显示头像
+        self.GameView:SetUserInfo(view, info)
+        self.GameView:SetOffSprTagVisible(self.GameView.Sprite_Offline[view],false)
+
+        table.insert(self.userList, info)
+
+        --刷新标示
+        if v.PV and v.PV > 0 and FriendGameLogic.isRulevalid(100) then
+            self.GameView:SetPiaoSprTagVisible(self.GameView.Sprite_Piao[view], true)
+            table.insert(self.bIsPiao, {info._chairID, 1})
+        end
+
+        --手牌
+        self.cbCardData[info._chairID + 1] = {}
+        for j,w in ipairs(v.HCL) do
+            if w > 0 then
+                table.insert(self.cbCardData[i], w)    
+            end        
+        end
+    end
+
+    --开局信息
+    local Temp={};
+    Temp.wBankerUser            = data.BD;                        --庄家用户
+    Temp.wCurrentUser           = data.CU;                        --当前用户
+    Temp.cbBankerCard           = data.BCD;                       --庄家扑克
+    Temp.cbCardData={};
+    for i=0,MAX_COUNT_PAOHUZI-1 do
+        Temp.cbCardData[i] = self.cbCardData[self.myChair + 1][i + 1]
+    end
+
+    self.GameView:hideVideoBtns()
+    self:OnSubGameStart(Temp)
+
+    --场景信息
+    self.sceneData.lCellScore           = 1
+    self.sceneData.wBankerUser          = Temp.wBankerUser  
+    self.sceneData.cbBankerCard          = Temp.cbBankerCard
+
+    self.sceneData.bOutCard             = 0   
+    self.sceneData.bResponse            = 0
+    self.sceneData.bUserAction          = 0     
+end
+
+function GamePlayLogic:onGamAction(data)
+    local HallUtils = require("HallUtils")
+
+    self:registerGameAction()
+
+    self.cbOperateCount = data.ActN
+    local cbDiscardCard = {{}, {}, {}} 
+    local cbCardData = HallUtils.tableDup(self.cbCardData)
+    local cdDownCard = {} 
+    
+    table.insert(self.sceneIndexs, {#self.gameOperator, 0})
+
+    local tempdata = HallUtils.tableDup(data)
+    for i=1,self.cbOperateCount do
+        local node = tempdata["NO."..(i - 1)]
+        local opertorType = node.RT
+        if node then
+            if opertorType == 2 then
+                --提牌
+                local Temp={}
+                Temp.wOutCardUser           = node.OU
+                Temp.wActionUser            = node.AU
+                Temp.cbActionCard           = node.AC
+                Temp.cbRemoveCount          = node.RC
+                Temp.bTimes                 = node.TS
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp)                   
+            end           
+
+            if opertorType == 3 then
+                --跑牌
+                local Temp={}
+                Temp.wOutCardUser           = node.OU
+                Temp.wActionUser            = node.AU
+                Temp.cbActionCard           = node.AC
+                Temp.cbRemoveCount          = node.RC
+                Temp.bTimes                 = node.TS
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp)                 
+            end
+
+            if opertorType == 4 then
+                --偎牌
+                local Temp={};
+                Temp.wOutCardUser           = node.OU
+                Temp.wActionUser            = node.AU
+                Temp.cbActionCard           = node.AC
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp)                  
+            end
+
+            if opertorType == 5 then
+                --碰牌
+                local Temp={};
+                Temp.wOutCardUser           = node.OU
+                Temp.wActionUser            = node.AU
+                Temp.cbActionCard           = node.AC
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp)                   
+            end
+
+            if opertorType == 6 then
+                --吃牌  
+                local Temp={};
+                Temp.wOutCardUser           = node.OU
+                Temp.wActionUser            = node.AU
+                Temp.cbActionCard           = node.AC
+                Temp.cbResultCount          = node.RSC
+                Temp.cbChiCardKind={}
+                for i=0,3-1 do
+                    Temp.cbChiCardKind[i] = node.CK[i + 1]
+                end
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp)  
+            end
+
+            if opertorType == 7 then
+                --出牌  
+                local Temp={};
+                Temp.wOutCardUser           = node.OU
+                Temp.cbOutCardData          = node.OD
+
+                Temp.opertorType            = opertorType
+                table.insert(self.gameOperator, Temp) 
+            end
+
+            if opertorType == 8 then
+                --摸牌
+                local Temp={};
+                Temp.cbCardData             = node.CD
+                Temp.wAttachUser            = node.AT
+
+                Temp.opertorType            = opertorType
+
+                --保留场景
+                table.insert(self.sceneIndexs, {#self.gameOperator, 0})
+
+                table.insert(self.gameOperator, Temp)                
+            end            
+        end
+    end
+end
+
+function GamePlayLogic:onGamEnd(data)
+    local Temp={};
+
+    --胜利信息
+    Temp.bZiMo                  = data.BZ
+    Temp.cbHuCard               = data.HC
+    Temp.cbReason               = data.RS
+    Temp.wWinUser               = data.Win
+    Temp.wBankerUser            = data.BD
+    Temp.cbDispatch             = data.DS
+    Temp.wProvideUser           = data.PU
+
+    Temp.bZhahu={};
+    for i=0, GAME_PLAYER_PAOHUZI-1 do
+        Temp.bZhahu[i] = data.ZH[i + 1]
+    end
+
+    --成绩变量
+    Temp.lGameTax               = data.Tax
+    Temp.lGameScore             = {};
+    for i = 0, GAME_PLAYER_PAOHUZI-1 do
+        Temp.lGameScore[i] = data.GS[i + 1]
+    end
+
+    Temp.lPiaoScore             = {};
+    for i = 0, GAME_PLAYER_PAOHUZI-1 do
+        Temp.lPiaoScore[i] = data.PS[i + 1]
+    end
+
+    Temp.lTotalScore             = {};
+    for i = 0, GAME_PLAYER_PAOHUZI-1 do
+        Temp.lTotalScore[i] = data.TSL[i + 1]
+    end
+
+    --扑克变量
+    Temp.bCurrentCard           = data.CC
+    Temp.bCardCount={};
+
+    Temp.bCardData={};
+    for i=0, GAME_PLAYER_PAOHUZI-1 do
+        Temp.bCardData[i] = {}
+        Temp.bCardCount[i] = #data.CDL[i + 1]
+
+        for j=0, Temp.bCardCount[i] - 1 do
+            Temp.bCardData[i][j] = data.CDL[i + 1][j + 1]
+        end
+    end
+
+    Temp.bRemainCount           = #data.RCL
+    Temp.bRemainCards={};
+    for i=0, Temp.bRemainCount-1 do
+        Temp.bRemainCards[i] = data.RCL[i + 1]
+    end
+
+    Temp.bBestHuCard={};
+    for i=0, 4-1 do
+        Temp.bBestHuCard[i] = data.BHL[i + 1]
+    end
+
+    Temp.bHuHandCard            = data.IHC
+    Temp.cbHuCardIndex          = data.HCI
+
+    Temp.HuCardInfo = {}
+    Temp.HuCardInfo.cbCardEye = data.CE
+    Temp.HuCardInfo.cbHuXiCount = data.HX
+    Temp.HuCardInfo.cbWeaveCount = #data.WAL
+
+    Temp.HuCardInfo.WeaveItemArray = {}
+    for i = 0, Temp.HuCardInfo.cbWeaveCount-1 do
+        Temp.HuCardInfo.WeaveItemArray[i] = {}
+        Temp.HuCardInfo.WeaveItemArray[i].cbWeaveKind = data.WAL[i + 1].WK
+        Temp.HuCardInfo.WeaveItemArray[i].cbCardCount = #data.WAL[i + 1].CDL
+        Temp.HuCardInfo.WeaveItemArray[i].cbCenterCard = data.WAL[i + 1].CCD
+
+        Temp.HuCardInfo.WeaveItemArray[i].cbCardList = data.WAL[i + 1].CDL
+    end        
+
+    Temp.HuCardInfo.cbTunCount = data.TC
+    Temp.HuCardInfo.cbTianHu = data.TH
+
+    self.gameEndInfo = Temp
+end
+
+function GamePlayLogic:resumeSocketConnect()
+    self.play_panel:setPlayState(true)
+end
+
+function GamePlayLogic:pauseSocketConnect()
+    self.play_panel:setPlayState(false)
+end
+
+--上一轮
+function GamePlayLogic:playLast() 
+    self:checkPlayNext()
+
+    if self.cbOperateIndex == 0 then return end
+
+    local index = -1
+    if self.sceneIndexs[#self.sceneIndexs][1] < self.cbOperateIndex then
+        index = #self.sceneIndexs
+    else
+        for i,v in ipairs(self.sceneIndexs) do
+            if v[1] > self.cbOperateIndex - 1 then
+                index = i - 1
+                break
+            end
+        end
+    end
+
+    if index == -1 or self.sceneIndexs[index][2] == 0 then return end
+    
+    self.play_panel:setPlayState(false)
+    self.cbOperateIndex = self.sceneIndexs[index][1]
+    self:playScenceByIndex(index)
+    self.play_panel:setPlayState(true)
+end 
+
+--下一轮
+function GamePlayLogic:playNext() 
+    self:checkPlayNext()
+
+    if self.cbOperateIndex == 0 or 
+        self.sceneIndexs[#self.sceneIndexs][1] <= self.cbOperateIndex then 
+        return 
+    end
+
+    local index = -1
+    for i,v in ipairs(self.sceneIndexs) do
+        if v[1] > self.cbOperateIndex then
+            index = i
+            break
+        end
+    end
+
+    if index == -1 then return end
+    
+    if self.sceneIndexs[index][2] ~= 0 then
+        self.play_panel:setPlayState(false)
+        self.cbOperateIndex = self.sceneIndexs[index][1]
+        self:playScenceByIndex(index)
+        self.play_panel:setPlayState(true)
+    else
+        self.play_panel:setPlayState(false)
+        self:setDelaySpeed(0)
+        self.play_panel:setPlaySpeed(0.1)
+        self.play_panel:setPlayState(true)
+
+        self.play_next = self.sceneIndexs[index][1]
+    end 
+end 
+
+--检测是否快速播放
+function GamePlayLogic:checkPlayNext()
+    if self.play_next and self.play_next <= self.cbOperateIndex then
+        self.play_panel:setPlayState(false)
+        self:setDelaySpeed(0.8)
+        self.play_panel:setPlaySpeed()
+        self.play_panel:setPlayState(true)
+
+        self.play_next = nil
+
+        return true
+    end     
+
+    return false
+end
+
+function GamePlayLogic:playNextOeprator() 
+    if self:checkPlayNext() then return end
+
+    self.cbOperateIndex = self.cbOperateIndex + 1
+
+    --保留场景信息
+    for i,v in ipairs(self.sceneIndexs) do
+        if v[1] == self.cbOperateIndex - 1 and v[2] == 0 then
+            local HallUtils = require("HallUtils")
+            self.sceneIndexs[i][2] = {
+                wCurrentUser = self.m_wCurrentUser, wOutCardUser = self.m_wOutCardUser,
+                cbOutCardData = self.m_cbOutCardData, bLeftCardCount = self.bLeftCardCount,
+                cbCardIndex = HallUtils.tableDup(self.m_cbCardIndex),
+                bUserCardCount = HallUtils.tableDup(self.m_bUserCardCount),
+
+                bWeaveItemCount = HallUtils.tableDup(self.m_bWeaveItemCount),
+                WeaveItemArray = HallUtils.tableDup(self.m_WeaveItemArray), 
+
+                bAbandonCardsCount = HallUtils.tableDup(self.bAbandonCardsCount),
+                bAbandonCards = HallUtils.tableDup(self.bAbandonCards),
+
+                cbCardData = HallUtils.tableDup(self.cbCardData),                 
+            }
+
+            --扑克信息
+            local cbCardData = {}
+            local cbCardCount = self.logic:SwitchToCardData3(self.m_cbCardIndex, cbCardData , MAX_COUNT_PAOHUZI)
+            break
+        elseif v[1] >= self.cbOperateIndex then
+            
+            break
+        end
+    end
+    
+    if self.cbOperateCount + 1 == self.cbOperateIndex then
+        self:playGameResult()
+    elseif self.cbOperateCount >= self.cbOperateIndex then
+        self:playGameAction()
+    else
+        self.cbOperateIndex = self.cbOperateCount + 2
+        --self.play_panel:setPlayState(false)
+    end
+end
+
+function GamePlayLogic:playScenceByIndex(index)
+    local HallUtils = require("HallUtils")
+    local sceneData = self.sceneIndexs[index][2]
+
+    self.sceneData.wCurrentUser         = sceneData.m_wCurrentUser 
+    self.sceneData.wOutCardUser         = sceneData.m_wOutCardUser
+
+    --出牌信息
+    self.sceneData.cbOutCardData = sceneData.cbOutCardData
+
+    --扑克信息
+    self.sceneData.bLeftCardCount = sceneData.bLeftCardCount
+
+    self.sceneData.cbCardIndex = HallUtils.tableDup(sceneData.cbCardIndex)
+
+    self.sceneData.bUserCardCount = HallUtils.tableDup(sceneData.bUserCardCount)
+
+    --弃牌
+    self.sceneData.bAbandonCards = HallUtils.tableDup(sceneData.bAbandonCards)
+    self.sceneData.bAbandonCardsCount = HallUtils.tableDup(sceneData.bAbandonCardsCount)
+
+    --组合扑克
+    self.sceneData.bWeaveItemCount = HallUtils.tableDup(sceneData.bWeaveItemCount)
+    self.sceneData.WeaveItemArray = HallUtils.tableDup(sceneData.WeaveItemArray)
+
+    self.cbCardData = HallUtils.tableDup(sceneData.cbCardData)
+
+    self:onSceneMessage(self.sceneData)  
+    for i=1,GAME_PLAYER_PAOHUZI do
+        self:ShowBackHandCard(i - 1)
+    end    
+end
+
+function GamePlayLogic:removeSameCards(hands, count, Temp)
+    for j=1,count do
+        for i,v in ipairs(hands[Temp.wActionUser + 1]) do
+            if Temp.cbActionCard == v then 
+                table.remove(hands[Temp.wActionUser + 1], i)
+                break 
+            end                    
+        end
+    end    
+end
+
+function GamePlayLogic:registerGameAction()
+    self.actionAperator[2] = function(Temp)
+        if  Temp.wActionUser ~= self.myChair then
+            for j=0,3 do
+                for i,v in ipairs(self.cbCardData[Temp.wActionUser + 1]) do
+                    if Temp.cbActionCard == v then 
+                        table.remove(self.cbCardData[Temp.wActionUser + 1], i)
+                        break 
+                    end                    
+                end
+            end 
+
+            self:ShowBackHandCard(Temp.wActionUser)           
+        end
+
+        --提牌
+        self:OnSubUserTiCard(Temp)         
+    end
+
+    self.actionAperator[3] = function(Temp)
+        if  Temp.wActionUser ~= self.myChair then
+            for j=0,2 do
+                for i,v in ipairs(self.cbCardData[Temp.wActionUser + 1]) do
+                    if Temp.cbActionCard == v then 
+                        table.remove(self.cbCardData[Temp.wActionUser + 1], i) 
+                        break
+                    end                    
+                end
+            end 
+
+            self:ShowBackHandCard(Temp.wActionUser)           
+        end
+
+        --跑牌
+        self:OnSubUserPaoCard(Temp);           
+    end
+
+    self.actionAperator[4] = function(Temp)
+        if  Temp.wActionUser ~= self.myChair then
+            for j=0,1 do
+                for i,v in ipairs(self.cbCardData[Temp.wActionUser + 1]) do
+                    if Temp.cbActionCard == v then 
+                        table.remove(self.cbCardData[Temp.wActionUser + 1], i) 
+                        break
+                    end                    
+                end
+            end 
+
+            self:ShowBackHandCard(Temp.wActionUser)           
+        end
+
+        --偎牌
+        self:OnSubUserWeiCard(Temp);          
+    end
+
+    self.actionAperator[5] = function(Temp)
+        if  Temp.wActionUser ~= self.myChair then
+            for j=0,1 do
+                for i,v in ipairs(self.cbCardData[Temp.wActionUser + 1]) do
+                    if Temp.cbActionCard == v then 
+                        table.remove(self.cbCardData[Temp.wActionUser + 1], i) 
+                        break
+                    end
+                end
+            end 
+
+            self:ShowBackHandCard(Temp.wActionUser)           
+        end
+
+        --碰牌
+        self:OnSubUserPengCard(Temp);        
+    end
+
+    --用户吃牌  
+    self.actionAperator[6] = function(Temp)
+        local cardlist, count = self:OnSubUserChiCard(Temp);
+
+        if  Temp.wActionUser ~= self.myChair then 
+            for k,x in ipairs(cardlist) do
+                --变量定义
+                for j=1,count do
+                    --去掉第一个吃牌
+                    if not (k == 1 and j == 1) then
+                        local num = #self.cbCardData[Temp.wActionUser + 1]
+                        local w = x[j]
+
+                        for i=1,num do
+                            local v = self.cbCardData[Temp.wActionUser + 1][i]
+                            if w == v then 
+                                table.remove(self.cbCardData[Temp.wActionUser + 1], i) 
+                                break
+                            end
+                        end
+                    end
+                end               
+           end
+
+            self:ShowBackHandCard(Temp.wActionUser)           
+        end
+
+        
+    end
+
+    --出牌消息     
+    self.actionAperator[7] = function(Temp)
+        if  Temp.wOutCardUser ~= self.myChair then
+            for j=1,1 do
+                for i,v in ipairs(self.cbCardData[Temp.wOutCardUser + 1]) do
+                    if Temp.cbOutCardData == v then 
+                        table.remove(self.cbCardData[Temp.wOutCardUser + 1], i) 
+                        break
+                    end
+                end
+            end 
+
+            self:ShowBackHandCard(Temp.wOutCardUser)           
+        end    
+        return self:OnSubOutCard(Temp);
+    end
+
+    --发牌消息
+    self.actionAperator[8] = function(Temp) 
+        return self:OnSubSendCard(Temp);
+    end
+end
+
+function GamePlayLogic:playGameAction()
+    local node = self.gameOperator[self.cbOperateIndex]
+    if self.actionAperator[node.opertorType] then self.actionAperator[node.opertorType](node) end
+
+    --self:playNextOeprator()
+end
+
+
+function GamePlayLogic:playGameResult() 
+    self.cbOperateIndex = self.cbOperateCount + 2
+    self:playGameEnd()
+end
+
+function GamePlayLogic:playGameEnd() 
+    self:OnSubGameEnd(self.gameEndInfo)
+end
+
+--设置时间
+function GamePlayLogic:SetGameTimer(wChairID,wUserTimerID,wUserTimerCount)
+
+end
+
+function GamePlayLogic:ShowBackHandCard(chair)
+    if chair == self.myChair then return end
+
+    local view = self:SwitchViewChairID(chair)
+    self.GameView.Node_HandCard[view]:removeAllChildrenWithCleanup(true)
+
+    local handCardList,listCount = self.logic:GetHandCardList(self.cbCardData[chair + 1], #self.cbCardData[chair + 1])
+    self.poker:GetOtherHandCard(self.GameView.Node_HandCard[view], handCardList, #self.cbCardData[chair + 1])
+
+    self.GameView.Sprite_HandCardBg1[view]:setOpacity(255)
+    self.GameView.Sprite_HandCardBg1[view]:setVisible(true)
+end
+
+function GamePlayLogic:dispose() 
+    self:CloseGameEndLayer()
+    self.play_panel:stopAllActions()
+    self.play_panel:removeFromParentAndCleanup(true)
+
+    --设置当前操作UI
+    self.main_layer:removeFromParentAndCleanup(true)
+
+    self.removeCache()
+
+    if self.main_layer then
+        self.main_layer = nil
+    end
+
+    that = nil    
+
+    require("LobbyControl").hall_layer = self.hall_layer
+    require("LobbyControl").hall_layer:setVisible(true)
+    
+    local GameLogic = require("phz/Game/GameLogic")    
+    GameLogic:dispose()
+end
+
+--替换到登录主界面
+function GamePlayLogic:replaceMainScence(data)
+    local scene = CCDirector:sharedDirector():getRunningScene()
+    if not scene then return end 
+
+    GamePlayLogic.create()
+
+    GamePlayLogic.loadingCache()
+
+    local PaoHuZiMainLayer = self:CreateMainLayer()
+    scene:addChild(PaoHuZiMainLayer, 1)
+
+    self.play_panel = require("phz/Game/LayerPlayGame").put(scene, 200)
+
+    require("LobbyControl").hall_layer:setVisible(false)
+    self.hall_layer = require("LobbyControl").hall_layer
+    require("LobbyControl").hall_layer = nil
+
+    --that:onUserEnterRoom()
+
+    require("LobbyControl").gameLogic = self    
+
+    self.main_layer = PaoHuZiMainLayer
+
+    self:analysisGameData(data)
+
+    --显示牌墙
+    --self.main_layer:addPlayerPanel(0, self.wBankerUser, self.cbSiceData)
+end
+
+
+function GamePlayLogic:getUserByChair(chair)
+    return self.userList[chair + 1]
+end
+
+return GamePlayLogic

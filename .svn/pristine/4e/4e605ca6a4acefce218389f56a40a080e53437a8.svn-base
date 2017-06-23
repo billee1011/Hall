@@ -1,0 +1,327 @@
+--SpriteWestCard.lua
+local CommonInfo = require("sgmj/GameDefs").CommonInfo
+
+local SpriteWestCard=class("SpriteWestCard",function()
+        return CCSprite:create()
+    end)
+
+----------------------------------------------------------------------------------------------------------------------
+function SpriteWestCard:initPassed(index, ctype)
+    local xpos, indexnum, cardScales = {-3, -3, -3, -3, -3, -4}, 6, 
+                        {0.5 * 0.9, 0.5 * 0.91, 0.5 * 0.92, 0.5 * 0.94, 0.5 * 0.96, 0.5}
+    local skewIndex, skewNum = ctype % indexnum, math.ceil(ctype / indexnum)
+    if skewIndex == 0 then
+        skewIndex = indexnum
+    end
+    local fscale = math.pow(0.956, indexnum - skewIndex)
+    local yskew, spaces = {-5, -5, -5, -5, -5, -5}, {ccp(2, 34*fscale), ccp(3, 34*fscale), ccp(4, 34*fscale)}
+    local yskews = {-5, -6, -8}
+    self.card_bg = loadSprite("mjBack/lmjpassbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(1,0))
+    self:addChild(self.card_bg)
+        
+    self.sprite_card = loadSprite(string.format("mjValue/sc%x.png", index))
+    self.sprite_card:setPosition(ccp(-self.base_size.width/2 + xpos[skewIndex] / 1.5, self.base_size.height/2 + 9))
+    self.sprite_card:setSkewY(yskews[skewNum])
+    self.sprite_card:setRotation(90)
+    self.sprite_card:setScale(0.8 * fscale)   
+    self:addChild(self.sprite_card)
+
+    self.card_index = index
+    self.card_type = ctype
+
+    return spaces[skewNum], 4 - skewNum, skewIndex
+end
+
+function SpriteWestCard.createPassed(index, ctype)
+    if ctype > 18 then 
+        --越界处理
+        ctype = 18 
+    end
+
+    local sprite = SpriteWestCard.new()
+    local space, zindex, skewIndex = sprite:initPassed(index, ctype)
+
+    return sprite, space, zindex, skewIndex
+end
+
+----------------------------------------------------------------------------------------------------------------------
+--三人模式
+function SpriteWestCard:initThreePassed(index, ctype, skewIndex, skewNum)
+    --牌型
+    local cardtype, fscale
+    fscale = 1 / math.pow(0.956, skewIndex - 6)
+    cardtype = (skewNum - 1) * 3 + 18 + (skewIndex - 6)
+
+    local spaces = {ccp(2, 34*fscale), ccp(3, 34*fscale), ccp(4, 34*fscale)}
+    local yskews = {-5, -6, -8}
+    self.card_bg = loadSprite("mjBack/lmjpassbg_"..cardtype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(1,0))
+    self:addChild(self.card_bg)
+        
+    self.sprite_card = loadSprite(string.format("mjValue/sc%x.png", index))
+    self.sprite_card:setPosition(ccp(-self.base_size.width/2 - 2, self.base_size.height/2 + 9))
+    self.sprite_card:setSkewY(yskews[skewNum])
+    self.sprite_card:setRotation(90)
+    self.sprite_card:setScale(0.8 * fscale)   
+    self:addChild(self.sprite_card)
+
+    self.card_index = index
+    self.card_type = ctype
+
+    return spaces[skewNum], 4 - skewNum, skewIndex
+end
+
+function SpriteWestCard.createThreePassed(index, ctype)
+    if ctype > 28 then ctype = 28 end
+    
+    --ui位置调整参数
+    local xpos, indexnum = -3, 9
+    local skewIndex, skewNum = ctype % indexnum, math.ceil(ctype / indexnum)
+    if skewIndex == 0 then
+        skewIndex = indexnum
+    end
+    if ctype == 28 then skewIndex = 10 skewNum = 3 end
+
+    local sprite, space, zindex
+    if skewIndex < 7 then 
+        ctype = (skewNum - 1) * 6 + skewIndex  
+        sprite, space, zindex, skewIndex = SpriteWestCard.createPassed(index, ctype)
+
+        --修正位置
+        if skewIndex == 6 then 
+            space.y = 34*0.96 
+        end
+    else
+        sprite = SpriteWestCard.new()
+        space, zindex, skewIndex = sprite:initThreePassed(index, ctype, skewIndex, skewNum)        
+    end
+
+    return sprite, space, zindex, skewIndex
+end
+
+function SpriteWestCard:initHand(ctype)
+    self.card_type = ctype
+
+    self.card_bg = loadSprite("mjBack/lmjhandbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize()
+    self.card_bg:setAnchorPoint(ccp(0.5,0.5))
+
+    self.card_front = loadSprite("mjBack/mjbg_100.png")
+    self.card_front:setVisible(false)
+    self.card_front:setScale(0.45)
+    self.card_front:setAnchorPoint(ccp(0.5,0.5))
+
+    self:addChild(self.card_bg)
+    self:addChild(self.card_front)
+
+    local fscale = math.pow(0.96, 15 - ctype)
+    local space = ccp(14 * fscale, 58 * fscale)
+    local spaces = {ccp(10, 33), ccp(10, 33), ccp(10, 35), ccp(12, 38),ccp(12, 40), 
+        ccp(12, 40), ccp(12, 42),ccp(12, 43),ccp(13, 46), ccp(13, 46), ccp(14, 49),
+        ccp(15, 51), ccp(15, 53), ccp(15, 58)}
+
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), ctype
+end
+
+function SpriteWestCard:initWallCard(ctype)
+    self.card_type = ctype
+
+    self.card_bg = loadSprite("mjBack/wmjwallbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize()
+    self.card_bg:setAnchorPoint(ccp(0.5,0.5))
+    self:addChild(self.card_bg)
+
+    local spaces = {ccp(8, 33), ccp(8, 33), ccp(8, 35), ccp(8, 36),ccp(8, 38), 
+        ccp(8, 38), ccp(8, 40),ccp(9, 41),ccp(9, 42), ccp(10, 42), ccp(11, 45),
+        ccp(11, 47), ccp(11, 49), ccp(11, 58)}
+
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), ctype
+end
+
+function SpriteWestCard:moveSpace()
+    local fscale = math.pow(0.96, 15 - self.card_type)
+    return ccp(-5 * fscale, -20 * fscale)
+end
+
+function SpriteWestCard:weaveSpace(index)
+    local fscale = math.pow(0.95, index)
+    return ccp(5 * fscale, 20 * fscale)
+end
+
+function SpriteWestCard:getSpace()
+    return self.card_space
+end
+
+--添加手牌
+function SpriteWestCard:addHandCard(card)
+    local sprite, space, zindex = SpriteWestCard.createHand(self.card_type + 1, 0)
+    if card then
+        sprite, space, zindex = SpriteNorthCard.createPublicHand(self.card_type - 1, 0, card)
+    end
+        
+    local zeropos = ccp(self:getPosition())
+    sprite:setPosition(ccp(zeropos.x - self.card_space.x, zeropos.y - self.card_space.y))
+    
+    self:getParent():addChild(sprite, zindex)
+
+    return sprite
+end
+
+function SpriteWestCard:addOpenCard(card)
+    local sprite, space, zindex = SpriteWestCard.createPublicHand(self.card_type + 1, 0, card)
+    local zeropos = ccp(self:getPosition())
+    sprite:setPosition(ccp(zeropos.x - self.card_space.x, zeropos.y - self.card_space.y))
+    
+    self:getParent():addChild(sprite, zindex)
+
+    return sprite
+end
+
+--自己显示牌被的牌
+function SpriteWestCard.createHand(ctype, index)
+    local sprite = SpriteWestCard.new()
+    local space, zindex = sprite:initHand(ctype)
+
+    sprite.card_space = space
+    return sprite, space, zindex, index + 1
+end
+
+function SpriteWestCard.createPublicHand(ctype, index, card)
+    local zspace = 0
+    if ctype > 13 then
+        ctype = 13
+        zspace = -1
+    end
+
+    local sprite, space, zindex = SpriteWestCard.createVerticalPassed(card, ctype)
+    sprite:setScale(0.96)
+    space.x = -space.x*0.96
+    space.y = -space.y*0.96
+    sprite.card_space = space
+    return sprite, space, zindex + zspace, 1
+end
+
+function SpriteWestCard.createWallCard(ctype, index)
+    local sprite = SpriteWestCard.new()
+    local space, zindex = sprite:initWallCard(ctype)
+
+    return sprite, space, zindex, index % 2 + 1
+end
+
+function SpriteWestCard:initHorizontalPassed(index, ctype)
+    self.card_bg = loadSprite("mjBack/wmjpasshorbg_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(0.5,0))
+    self:addChild(self.card_bg)
+
+    local cardposes = {ccp(-6, 13), ccp(-6, 13), ccp(-6, 13),ccp(-6, 13), 
+        ccp(-6, 13), ccp(-6, 13),ccp(-6, 13),ccp(-6, 13), ccp(-6, 13), ccp(-6, 13),
+        ccp(-4, 11), ccp(-4, 9), ccp(-6, 13), ccp(-6, 13)}
+    self.sprite_card = loadSprite(string.format("mjValue/sc%x.png", index))
+    --self.sprite_card:setSkewX(20)
+    self.sprite_card:setPosition(ccp(cardposes[ctype].x / 1.5, self.base_size.height/2 + cardposes[ctype].y / 1.5))
+    --self.sprite_card:setRotation(-90)
+    self.sprite_card:setScaleY(0.8 * math.pow(0.96, ctype - 1))
+    self.sprite_card:setScaleX(math.pow(0.96, ctype - 1))
+    self.sprite_card:setSkewX(16)
+    self:addChild(self.sprite_card)
+
+    self.card_index = index
+    self.card_type = ctype
+    local zindexs = {15, 14, 13, 11, 10, 8, 7, 5, 4}
+    local spaces = {ccp(25, 65), ccp(25, 63), ccp(24, 63),ccp(23, 56), 
+        ccp(23, 55), ccp(20, 51),ccp(19, 44),ccp(19, 44), ccp(18, 45)} --ccp(18, 53), 
+
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), zindexs[ctype]
+end
+
+function SpriteWestCard.createHorizontalPassed(index, ctype, dirct)
+    local sprite = SpriteWestCard.new()
+    local space, zIndex = sprite:initHorizontalPassed(index, ctype)
+    
+    --碰牌位置修正
+    local horspace = ccp(-2, 0)
+
+    sprite.card_dirct = dirct
+    return sprite, space, zIndex, horspace
+end
+
+function SpriteWestCard.addHorizontalPassed(item)
+    local index, ctype = item.card_index, item.card_type
+    local sprite = SpriteWestCard.new()
+    local space = sprite:initHorizontalPassed(index, ctype)
+    sprite.card_dirct = item.card_dirct
+    local spaces = {ccp(65, 0), ccp(64, 0), ccp(62, 0), ccp(60, 0), 
+            ccp(60, 0), ccp(58, 0), ccp(56, 0), ccp(56, 0), ccp(54, 0)}
+
+    return sprite, ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), item:getZOrder()
+end
+
+function SpriteWestCard:initVerticalPassed(index, ctype)
+    local xpos = {7, 7, 6, 5, 4, 4, 4, 2, 1, 1, 1, 1, 0, 1, 1, -2, 7}
+    local fscale = math.pow(0.96, ctype - 1)
+    local zindex = 16 - ctype
+    self.card_index = index
+    self.card_type = ctype
+    if ctype > 13 then
+        fscale = 1
+        zindex = 15
+        ctype = 14
+    end
+
+    self.card_bg = loadSprite("mjBack/wmjpassbg_"..self.card_type..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(0.5,0))
+    self:addChild(self.card_bg)
+
+    self.sprite_card = loadSprite(string.format("mjValue/sc%x.png", index))
+    self.sprite_card:setPosition(ccp(-4, self.base_size.height/2 + 8))
+    self.sprite_card:setSkewY(-20)
+    self.sprite_card:setRotation(90)
+    self.sprite_card:setScale(0.8 * fscale) 
+    self:addChild(self.sprite_card)
+    
+    local spaces = {ccp(16, 52), ccp(16, 50), ccp(16, 49),ccp(15, 47), ccp(14, 45), 
+        ccp(13, 43),ccp(13, 40),ccp(12, 38), ccp(12, 37), ccp(12, 34),
+        ccp(12, 36), ccp(11, 35), ccp(10, 34), ccp(15, 52)} --ccp(18, 53), 
+                                                                            ----
+    --local spaces = {-38, -35, -31, -28, -26, -20, -18, -15, -11, -9, -8, -6, -5, -11, -14, -15, -38}
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), zindex
+end
+
+function SpriteWestCard.createVerticalPassed(index, ctype)
+    local sprite = SpriteWestCard.new()
+    local space, zIndex = sprite:initVerticalPassed(index, ctype)
+
+    sprite.card_space = space
+    return sprite, space, zIndex
+end
+
+function SpriteWestCard:initVerticalBack(ctype)
+    self.card_bg = loadSprite("mjBack/wmjpassback_"..ctype..".png")
+    self.base_size = self.card_bg:getContentSize() 
+    self.card_bg:setAnchorPoint(ccp(0.5,0))
+    self:addChild(self.card_bg)
+
+    self.sprite_card = CCSprite:create()
+    self:addChild(self.sprite_card)
+
+    self.card_index = 0
+    self.card_type = ctype
+                                                                        ----
+    local spaces = {ccp(17, 53), ccp(16, 51), ccp(16, 49), ccp(16, 47), ccp(16, 46), ccp(15, 45),
+                ccp(15, 45), ccp(15, 42), ccp(14, 40), ccp(13, 38), ccp(13, 40), ccp(13, 38), ccp(13, 38), ccp(13, 38)}
+    return ccp(spaces[ctype].x / 1.5, spaces[ctype].y / 1.5), 16 - ctype
+end
+
+function SpriteWestCard.createVerticalBack(ctype)
+    local sprite = SpriteWestCard.new()
+    local space, zIndex = sprite:initVerticalBack(ctype)
+    return sprite, space, zIndex
+end
+
+
+ return SpriteWestCard

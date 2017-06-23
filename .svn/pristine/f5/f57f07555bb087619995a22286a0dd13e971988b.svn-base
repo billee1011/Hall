@@ -1,0 +1,424 @@
+--LayerDeskRule.lua
+local LayerDeskRule=class("LayerDeskRule",function()
+        return CCLayer:create()
+    end)
+--创建房间的时候给玩家选择的界面
+local AppConfig = require("AppConfig")
+local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+--[[ 游戏规则格式
+{
+     count = {
+         [1] = 1,
+         [2] = 10,
+     },
+     price = {
+         [1] = {
+             mult = {
+                 base = 1,
+                 r1 = 0,
+                 r2 = 0,
+             },
+             single = {
+                 base = 2,
+                 r1 = 0,
+                 r2 = 0,
+             },
+         },
+         [10] = {
+             mult = {
+                 base = 2,
+                 r1 = 0,
+                 r2 = 0,
+             },
+             single = {
+                 base = 4,
+                 r1 = 0,
+                 r2 = 0,
+             },
+         },
+     },
+ }]]
+function LayerDeskRule:init(backfunc) 
+    local gameId = CCUserDefault:sharedUserDefault():getIntegerForKey("sgmj_GameId")
+	cclog("gameId:"..gameId)
+	gameId = 21
+    gameId = (gameId == 0) and 21 or gameId
+    FriendGameLogic.getFriendTableRule(10, function(bSucceed)
+        backfunc(bSucceed)
+
+        if bSucceed then
+            self.game_rule = FriendGameLogic.game_rule --局数和价格规则
+
+			-- 上一次选择的数据
+			--data_index = {局数，鬼牌类型，买马数量，飘分}
+            self.data_index = FriendGameLogic.readDeskRule() or {1,3,2,2}
+			
+			if(#self.data_index ~= 4) then self.data_index = {1,3,2,2} end
+			self.gameCountIndex = self.data_index[1] 
+			self.magicCardIndex = self.data_index[2]
+			self.horseCardCountIndex = self.data_index[3]
+			self.piaoFenIndex = self.data_index[4] 
+			
+			self.selectIndex = 1
+            self:initDaimondRule() 
+            self:initGameRule() 
+			
+            self.gameId = gameId
+        end
+    end, gameId)                     
+end
+
+function LayerDeskRule:initDaimondRule()
+    --二层背景
+    local panelBg = loadSprite("common/popBorder.png", true)
+    panelBg:setPreferredSize(CCSizeMake(270, 440))
+    panelBg:setPosition(ccp(1060, 455))
+    self:addChild(panelBg) 
+
+    local function addTipTtf(pos, ftsz, ancpos, tip)
+        local labItem = CCLabelTTF:create(tip, AppConfig.COLOR.FONT_BLACK, ftsz)
+        labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)        
+        labItem:setHorizontalAlignment(kCCTextAlignmentLeft)
+        labItem:setAnchorPoint(ancpos)
+        labItem:setPosition(pos)
+        panelBg:addChild(labItem)
+
+        return labItem
+    end
+
+    local tipPay = "4人支付"
+    
+    --支付方式
+    addTipTtf(ccp(20, 400), 36, ccp(0, 0.5), "支付方式：")
+	--多人支付标签
+    self.multPayLab = addTipTtf(ccp(20, 330), 32, ccp(0, 0.5), tipPay)
+    addTipTtf(ccp(20, 250), 32, ccp(0, 0.5), "1人支付")
+    local multBtn, oneBtn
+    --选择按钮
+    multBtn = self.layer_super:addCheckBox("", "", ccp(240, 330), panelBg, self.layer_zIndex,
+                            function(index, markSp) 
+                                oneBtn:getChildByTag(10):setVisible(false)
+                                markSp:setVisible(true) 
+                                FriendGameLogic.pay_type = 60
+                                self:updataDiamondTTf() end, FriendGameLogic.pay_type ~= 50)
+    oneBtn = self.layer_super:addCheckBox("", "", ccp(240, 250), panelBg, self.layer_zIndex,
+                            function(index, markSp)                                 
+                                multBtn:getChildByTag(10):setVisible(false)
+                                markSp:setVisible(true) 
+                                FriendGameLogic.pay_type = 50 
+                                self:updataDiamondTTf() end, FriendGameLogic.pay_type == 50)
+
+    addTipTtf(ccp(20, 170), 26, ccp(0, 0.5), "所需钻石")
+    addTipTtf(ccp(20, 100), 26, ccp(0, 0.5), "剩余钻石")
+    local daimondTtf, tips = {}, {"", ""..require("Lobby/Login/LoginLogic").UserInfo.DiamondAmount}
+
+    for i=1,2 do
+        local pos = ccp(170, 240 - 70 * i)
+
+        local tifmark = loadSprite("gamerule/blackBg.png", true)
+        tifmark:setPreferredSize(CCSizeMake(80, 42))
+        tifmark:setPosition(pos)
+        panelBg:addChild(tifmark)
+
+        local labItem = CCLabelTTF:create(tips[i], AppConfig.COLOR.FONT_BLACK, 26)
+        labItem:setPosition(pos)
+        panelBg:addChild(labItem)
+
+        local daimondmark = loadSprite("common/diamond.png")
+        daimondmark:setPosition(ccp(240, pos.y))
+        daimondmark:setScale(0.8)
+        panelBg:addChild(daimondmark)
+
+        table.insert(daimondTtf, labItem)
+    end
+
+	--所需宝石标签
+    self.diamond_lab = daimondTtf[1]
+
+    addTipTtf(ccp(140, 30), 30, ccp(0.5, 0.5), "底分：1")
+
+    if AppConfig.ISAPPLE then
+        self.multPayLab:setVisible(false)
+        multBtn:setVisible(false)
+    end
+	    --提示信息
+    local tipmsg = CCLabelTTF:create(AppConfig.TIPTEXT.Tip_FriendDiamond_Msg_New, AppConfig.COLOR.FONT_BLACK, 18)      
+    tipmsg:setPosition(ccp(140, -130))
+    tipmsg:setColor(ccc3(250,55,55))
+    panelBg:addChild(tipmsg)
+
+    if AppConfig.ISAPPLE then
+        fourLab:setVisible(false)
+        fourBtn:setVisible(false)
+    end
+end
+function LayerDeskRule:addGameRuleType(super)
+    local function changeLableTag(index)
+    end
+
+    local titles, gameTypes = {"基本选项", "做牌玩法",}
+    gameTypes = self.layer_super:addGameTypeTitle(super, titles, function(index)
+		cclog("xuanze"..index)
+		self.selectIndex = index
+		super:removeFromParentAndCleanup(true)
+		self:initGameRule()
+    end, self.selectIndex)
+	
+	return true
+end
+
+function LayerDeskRule:initGameRule()
+	print("function LayerDeskRule:initGameRule()")
+    local HallUtils = require("HallUtils")
+
+    --二层背景
+    local panelBg = loadSprite("common/popBorder.png", true)
+    panelBg:setPreferredSize(CCSizeMake(905, 588))
+    panelBg:setPosition(ccp(462, 380))
+    self:addChild(panelBg)  
+
+	if not self:addGameRuleType(panelBg) then
+		return
+	end
+	if self.selectIndex == 1 then
+		self:initGameBaseData(panelBg)
+	elseif self.selectIndex == 2 then
+		self:initGameExData(panelBg)
+	end
+end
+function LayerDeskRule:initGameBaseData(super)
+	    --局数、玩法、可选
+	local height,fontSize = 90,45
+    local items, tips = {}, {"局数：", "鬼牌: ","","买马：","","飘分: "}
+    for i,v in ipairs(tips) do
+         local tipsp = CCLabelTTF:create(v, AppConfig.COLOR.FONT_BLACK, fontSize)
+        tipsp:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+
+        local item = self.layer_super:addCommonItem(tipsp,super,i)
+		tipsp:setPosition(ccp(90,height/2))
+		--item:setContentSize(CCSizeMake(901, height))
+		item:setZOrder(50-i)
+		
+        if (525 - height * i) < 0 then
+			item:setPosition(ccp(2,3))
+		else
+			item:setPosition(ccp(2, 525 - height * i))
+		end
+		
+		item:setColor(ccc3(255,244,210))
+		item:setOpacity(255)
+        table.insert(items, item)
+    end
+
+    --局数 {count = {} price ={}}
+    local countConfig = self.game_rule.count
+    local msgs = {{}, {}}
+    local tips = {{}, {}}
+    for i,v in ipairs(countConfig) do
+        table.insert(msgs[1], v.."局")
+        table.insert(tips[1], "")
+    end
+    --局数
+    local uis, poses = {}, {ccp(170, height/2 - 5), ccp(450, height/2 - 5)}
+    self.layer_super:addCheckGroup(msgs[1], tips[1], poses, items[1], self.layer_zIndex, uis, 
+                function(index)
+                    self:changeGameCount(index) 
+					cclog("局数选择: "..self.game_rule.count[index]) 					
+                end, self.gameCountIndex)  
+	--鬼牌类型
+	local magicCardType = {"无鬼","白板做鬼","翻鬼"}
+	poses = {ccp(170, height/2), ccp(450, height/2), ccp(690, height/2),ccp(170, -height/2)}
+	
+    self.layer_super:addCheckGroup(magicCardType, "", poses, items[2], self.layer_zIndex, {}, 
+                function(index)
+					self.magicCardIndex = index
+                    cclog("鬼牌选择："..(index == 1 and "无鬼" or (index == 2 and "定鬼" or "翻鬼")))                
+                end, self.magicCardIndex)
+	self.layer_super:addCheckBox("无鬼牌翻倍", "", poses[4], items[2], self.layer_zIndex,
+                            function(index, markSp)                              
+							end, false)
+	--买马
+	poses = {ccp(170, height/2), ccp(450, height/2), ccp(690, height/2),ccp(170, -height/2)}
+	local horseCnt = {"无马","买2马","买4马","买6马"}
+    self.layer_super:addCheckGroup(horseCnt, "", poses, items[4], self.layer_zIndex, {}, 
+                function(index)
+					self.horseCardCountIndex = index
+                    cclog("买马选择："..index)  				
+                end, self.horseCardCountIndex)
+	local btn = self.layer_super:addCheckBox("马跟底分", "", poses[2], items[5], self.layer_zIndex,
+                function(index, markSp)  
+					markSp:setVisible(false)
+				end, false)
+	btn:setEnabled(false)
+	btn = self.layer_super:addCheckBox("马跟杠", "", poses[3], items[5], self.layer_zIndex,
+                function(index, markSp)  
+					markSp:setVisible(false)
+				end, false)
+	btn:setEnabled(false)
+	--飘分
+	local piaoFen = {"不飘分","飘5分","飘3分"}
+	self.layer_super:addCheckGroup(piaoFen, "", poses, items[6], self.layer_zIndex, {}, 
+                function(index)
+					self.piaoFenIndex = index
+                    cclog("飘分选择："..index)  				
+                end, self.piaoFenIndex)
+end
+function LayerDeskRule:initGameExData(super)
+	    --局数、玩法、可选
+	local height,fontSize = 90,45
+    local items, tips = {}, {"玩法: ","","","","",""}
+    for i,v in ipairs(tips) do
+         local tipsp = CCLabelTTF:create(v, AppConfig.COLOR.FONT_BLACK, fontSize)
+        tipsp:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+
+        local item = self.layer_super:addCommonItem(tipsp,super,i)
+		tipsp:setPosition(ccp(90,height/2))
+		--item:setContentSize(CCSizeMake(901, height))
+		item:setZOrder(50-i)
+		if (525 - height * i) < 0 then
+			item:setPosition(ccp(2,3))
+		else
+			item:setPosition(ccp(2, 525 - height * i))
+		end
+        
+		
+		item:setColor(ccc3(255,244,210))
+		item:setOpacity(255)
+        table.insert(items, item)
+    end
+	--玩法
+	local gameType = {"抢杠胡全包","杠爆全包","尖牌全包",
+					  "对对胡2倍","混一色2倍","混对4倍",
+					  "清一色4倍","七小对4倍","清对8倍",
+					  "幺九8倍","全风16倍","全幺16倍",
+					  "十三幺16倍(带一九万)",
+					  }
+	local poses = {ccp(170, height/2), ccp(450, height/2), ccp(690, height/2)}
+	for i = 0,#gameType - 1 do
+		cclog(math.floor(7+ (i/3)))
+		self.layer_super:addCheckBox(gameType[i+1], "", poses[i%3 + 1], items[math.floor(1+ (i)/3)], self.layer_zIndex,
+                function(index, markSp)                              
+				end, true)	
+	end
+end
+--改变游戏局数
+function LayerDeskRule:changeGameCount(index)
+	self.gameCountIndex = index;
+	self:updataDiamondTTf()
+end
+
+
+function LayerDeskRule:updataDiamondTTf()
+	cclog("function LayerDeskRule:updataDiamondTTf(index)")
+	--游戏局数
+	local gameCount = self.game_rule.count[self.gameCountIndex]
+	--支付模式
+	local payMode = FriendGameLogic.pay_type == 60 and "mult" or "single"
+
+	--拿到具体的价格表
+	local priceTbale = self.game_rule.price[gameCount][payMode]
+	
+	local payPrice = priceTbale.base
+
+	-- 玩法附加价格(1为无玩法-不漂)
+    local addonPrice = self.piaoFenIndex > 1 and priceTbale["r"..self.piaoFenIndex-1] or 0
+	
+	--最终的钻石数量
+	payPrice = payPrice + addonPrice
+	self.diamond_lab:setString(tostring(payPrice))
+	
+end
+
+--获取游戏规则
+function LayerDeskRule:getGameRule()
+	cclog("function LayerDeskRule:getGameRule()")
+    local diamond = tonumber(self.diamond_lab:getString())
+
+    if require("Lobby/Login/LoginLogic").UserInfo.DiamondAmount < diamond then
+        local hall_layer = require("LobbyControl").hall_layer
+        if hall_layer then
+            require("Lobby/Common/LobbySecondDlg").putTip(
+                hall_layer, 10, AppConfig.TIPTEXT.Tip_Diamond_Tip,
+                function() hall_layer:returnMainPanle(function() hall_layer:showStorePanel() end) end,
+                function() end
+            ):show()
+        end
+        return
+    end
+    FriendGameLogic.my_rule = {}
+    
+    --局数，固定下标2
+    table.insert(FriendGameLogic.my_rule, {2,self.game_rule.count[self.gameCountIndex]})
+
+   --鬼牌
+	table.insert(FriendGameLogic.my_rule, {3,self.magicCardIndex})
+   --买马数量
+    table.insert(FriendGameLogic.my_rule, {4,2*(self.horseCardCountIndex - 1)})
+   
+   --飘分，固定下标100
+   table.insert(FriendGameLogic.my_rule, {100, self.piaoFenIndex >= 1 and self.piaoFenIndex - 1 or 0})
+
+	self.data_index[1] = self.gameCountIndex
+	self.data_index[2] = self.magicCardIndex
+	self.data_index[3] = self.horseCardCountIndex
+	self.data_index[4] = self.piaoFenIndex
+	
+    FriendGameLogic.writeDeskRule(self.data_index)
+    FriendGameLogic.enterGameRoom()
+
+	local msg = self:getInviteMsg()
+	cclog(msg)
+    CCUserDefault:sharedUserDefault():setIntegerForKey("sgmj_GameId", self.gameId)
+end
+
+function LayerDeskRule.getInviteMsg() --邀请好友的消息
+    cclog("function LayerDeskRule.getInviteMsg()")
+    local roominfo = require("cjson").encode({InviteCode = FriendGameLogic.invite_code, GameID = 21})
+
+    local ruletext,horseCard, roomtext = LayerDeskRule.getRuleText()
+    local title = "("..roomtext..")".."韶关麻将".."@你"
+
+    local rulemsg = ruletext --.."，"..birdtext
+
+    --支付方式
+    local paytype = "房主付费"
+    if FriendGameLogic.pay_type == 60 then
+        paytype = "多人付费"
+    end
+
+    return "【"..paytype.."】 "..
+            FriendGameLogic.my_rule[1][2].."局，"..rulemsg.."。快来切磋一下吧！", title, roominfo
+
+end
+
+function LayerDeskRule.getRuleText()--结算规则文本提示
+	cclog("function LayerDeskRule.getRuleText()")
+	local tipText = {
+	 {"无鬼","定鬼","翻鬼"},
+	 {"无马","买2马","买4马","买6马",""},
+	}
+    local roomtext = "房间号："..tostring(FriendGameLogic.invite_code) --..CommonInfo.Game_Name.."："
+
+	local ruletext = "4人,"
+	
+	cclog(FriendGameLogic.my_rule[3][2])
+	cclog(1 + FriendGameLogic.my_rule[3][2]/2)
+	ruletext = ruletext..tipText[1][FriendGameLogic.my_rule[2][2]]..","
+	ruletext = ruletext..tipText[2][1 + FriendGameLogic.my_rule[3][2]/2]
+ 
+    return ruletext, tipText[2][1 + FriendGameLogic.my_rule[3][2]/2],roomtext
+end
+
+function LayerDeskRule.put(super, zindex, backfunc)
+	print("sgmj function LayerDeskRule.put(super, zindex, backfunc)")
+    local layer = LayerDeskRule.new()
+    layer.layer_zIndex = zindex
+    layer.layer_super = super
+    super.panel_bg:addChild(layer, zindex)
+    layer:setPosition(ccp(20, -50))
+
+    layer:init(backfunc)
+    return layer
+end
+
+ return LayerDeskRule

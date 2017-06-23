@@ -1,0 +1,487 @@
+--LayerTGCode.lua
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+local loginLogic = require("Lobby/Login/LoginLogic")
+
+local LayerTGCode=class("LayerTGCode",function(super, zindex)
+    return require("Lobby/LayerPopup").put(super, zindex)
+end)
+
+function LayerTGCode:initMain() 
+    self.btn_zIndex = self.layer_zIndex + 1
+
+    self:addInvite()
+    self.isInvite = true
+    self.panel_bg:setPositionY(self.panel_bg:getPositionY() - 48) 
+
+    --标题
+    self.panel_bg.title1 = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodetitle1_btn1.png", 
+            "lobbyDlg/tgcodetitle1_btn2.png", "lobbyDlg/tgcodetitle1_btn2.png", function()
+                self:addInvite()
+            end), ccp(self.bg_sz.width / 2 - 200, self.bg_sz.height + 34), self.btn_zIndex)
+    self.panel_bg.title2 = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodetitle2_btn1.png", 
+            "lobbyDlg/tgcodetitle2_btn2.png", "lobbyDlg/tgcodetitle2_btn2.png", function()
+                self:addSubmit(false)
+            end), ccp(self.bg_sz.width / 2 + 200, self.bg_sz.height + 34), self.btn_zIndex)
+    self.panel_bg.title2:setChecked(false)
+
+    --返回按钮 
+    CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("common/btnReturn.png", 
+            "common/btnReturn2.png", "common/btnReturn.png", function()
+                self:hide()
+            end), ccp(20, 641), self.btn_zIndex)
+    --隐藏关闭按钮
+    self.close_btn:setVisible(false)
+
+end
+
+-- 自动弹出填写推广码界面生成
+function LayerTGCode:init() 
+    self.btn_zIndex = self.layer_zIndex + 1
+
+    self:addInvite(true)
+    self.panel_bg:setPositionY(self.panel_bg:getPositionY() + 34) 
+
+    --添加提示
+    local CCCheckbox = require("FFSelftools/CCCheckbox")
+    local spriteOff = loadSprite("lobbyDlg/tgcodeCheck.png")
+    local spriteOn = loadSprite("lobbyDlg/tgcodeCheck2.png")
+    local check = CCCheckbox.create(spriteOff, spriteOn, true, true)
+    check:addHandleOfControlEvent(function(first, target, event)
+        local code = 0
+        if target:isChecked() then code = 1 end
+        CCUserDefault:sharedUserDefault():setStringForKey("tgcode_agreen", ""..code)
+    end, CCControlEventTouchUpInside)
+    check:setPosition(ccp(60, -40))
+    check:setTouchPriority(kCCMenuHandlerPriority - self.btn_zIndex)
+    check:setChecked(false)
+    self.panel_bg:addChild(check)
+    
+    local mark = loadSprite("lobbyDlg/tgcodeTip.png")
+    mark:setPosition(ccp(360, -40))
+    self.panel_bg:addChild(mark) 
+end
+
+-- 按钮弹出填写推广码界面生成
+function LayerTGCode:addInvite(isPopwin)
+    if not self.isInvite then
+        if not isPopwin then
+            local sz = CCSizeMake(1180, 605)
+            if not self.panel_bg then self:addFrameBg("common/popBg.png", sz) end
+            if not self.panel_main then
+                self.panel_main = CCLayerColor:create(ccc4(0, 0, 0, 0),sz.width,sz.height)
+                self.panel_bg:addChild(self.panel_main)
+            else
+                self.panel_main:removeAllChildrenWithCleanup(true)
+            end
+            cclog("LayerTGCode:addInvite2")
+
+
+            local tgcode = ""..loginLogic.UserInfo.TGCode
+            if tgcode == "66666" then
+                --提示
+                local labItem = CCLabelTTF:create(AppConfig.TIPTEXT.Tip_TGCode_Msg, AppConfig.COLOR.FONT_ARIAL, 30)
+                labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+                labItem:setDimensions(CCSizeMake(590, 0))
+                labItem:setPosition(ccp(320, sz.height - 100))
+                self.panel_main:addChild(labItem)
+                
+                --推广码输入框
+                local editText = require("Lobby/Common/LobbyEditBox").createMaxWidthEdit(
+                        CCSizeMake(392, 68), loadSprite("common/input.png", true),
+                        ccp(120, sz.height - 200), 
+                        kCCMenuHandlerPriority - self.btn_zIndex, "请输入邀请码")
+                        :setEditFont(AppConfig.COLOR.FONT_ARIAL, 36, AppConfig.COLOR.MyInfo_Record_Label)
+                editText:setEnabled(false)
+                self.panel_main:addChild(editText)
+                self.editText = editText
+
+                --钻石标示
+                local mark = loadSprite("lobbyDlg/diamondMark.png")
+                mark:setPosition(ccp(320, 240))
+                mark:setScale(1.25)
+                self.panel_main:addChild(mark)
+                
+                -- 键盘背景
+                local bg = loadSprite("lobbyDlg/detailcontent_s9img.png", true)
+                bg:setPreferredSize(CCSizeMake(460, 372))
+                bg:setPosition(ccp(865, sz.height - 254))
+                self.panel_main:addChild(bg)
+                
+                -- 数字按钮
+                for i = 0, 9, 1 do
+                    local numBtn = CCButton.createCCButtonByFrameName("lobby/room_itembtn1.png", 
+                        "lobby/room_itembtn2.png", "lobby/room_itembtn1.png", function() self:addNum(i) end)
+                    if i == 0 then
+                        numBtn:setPosition(ccp(865, sz.height-390))
+                    else
+                        numBtn:setPosition(ccp(720+(i-1)%3*146, sz.height-120-math.floor((i-1)/3)*90))
+                    end
+                    numBtn:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+                    numBtn.m_normalSp:setScale(0.95)
+                    numBtn.m_spPress:setScale(1.1)
+                    local numSp = CCLabelAtlas:create(tostring(i), AppConfig.ImgFilePath.."num_room.png",30,45,string.byte('0'))
+                    numSp:setAnchorPoint(ccp(0.5,0.5))
+                    numBtn:addChild(numSp)
+                    self.panel_main:addChild(numBtn)
+                end
+                -- 其它按钮
+                CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobby/room_resetbtn1.png", 
+                            "lobby/room_resetbtn2.png", "lobby/room_resetbtn1.png", function()
+                                self:delNum(true)
+                            end), ccp(720, sz.height-390), self.btn_zIndex)
+                CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobby/room_deletebtn1.png", 
+                            "lobby/room_deletebtn2.png", "lobby/room_deletebtn1.png", function()
+                                self:delNum()
+                            end), ccp(1013, sz.height-390), self.btn_zIndex)  
+                
+                --输入按钮
+                local bindBtn = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodebind_btn1.png", 
+                        "lobbyDlg/tgcodebind_btn2.png", "lobbyDlg/tgcodebind_btn1.png", function()
+                            loginLogic.ChangeTGCode(editText:getText(), function(code)
+                                --require("HallUtils").showWebTip("成功修改邀请码")
+                                self:hide()
+                            end)
+                        end), ccp(sz.width / 2, 94), self.btn_zIndex)
+            else
+                local labItem = CCLabelTTF:create("已绑定推荐人邀请码，商城充值最多赠送82%", AppConfig.COLOR.FONT_ARIAL, 40)
+                labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+                labItem:setDimensions(CCSizeMake(1000, 0))
+                labItem:setPosition(ccp(sz.width / 2, sz.height - 100))
+                self.panel_main:addChild(labItem)
+
+                local labelTGCode = CCLabelTTF:create(string.format("您当前绑定的邀请码为：%s", tostring(tgcode)), AppConfig.COLOR.FONT_ARIAL, 40) 
+                labelTGCode:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+                labelTGCode:setPosition(ccp(sz.width / 2, 200))
+                self.panel_main:addChild(labelTGCode)
+
+                local labelShop = CCLabelTTF:create("现在充值将获得钻石额外赠送，立即前往", AppConfig.COLOR.FONT_ARIAL, 40) 
+                labelShop:setColor(ccc3(255,0,0))
+                labelShop:setPosition(ccp(sz.width / 2 - 50, 100))
+                self.panel_main:addChild(labelShop)
+
+                --钻石标示
+                local mark = loadSprite("lobbyDlg/diamondMark.png")
+                mark:setPosition(ccp(sz.width / 2, 340))
+                mark:setScale(1.25)
+                self.panel_main:addChild(mark)
+                
+                -- 商城按钮
+                local btnShop = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobby/storye_btn1.png", 
+                            "lobby/storye_btn2.png", "lobby/storye_btn1.png", function()
+                                self:hide()
+                                if require("LobbyControl").hall_layer then
+                                    require("LobbyControl").hall_layer:showStorePanel(loginLogic.UserInfo)
+                                end
+                            end), ccp(sz.width / 2 + 380, 120), self.btn_zIndex)
+                local storymark = loadSprite("lobby/storye_tip.png")
+                storymark:setAnchorPoint(ccp(0,1))
+                storymark:setPosition(ccp(20, 10))
+                local array = CCArray:create()
+                array:addObject(CCRotateBy:create(1,-4))
+                array:addObject(CCRotateBy:create(2,8))
+                array:addObject(CCRotateBy:create(1,-4))
+                storymark:runAction(CCRepeatForever:create(CCSequence:create(array)))
+                btnShop:addChild(storymark)
+                
+            end
+        else
+            local sz = CCSizeMake(640, 365)
+            if not self.panel_bg then self:addFrameBg("common/popBg.png", sz) end
+            if not self.panel_main then
+                self.panel_main = CCLayerColor:create(ccc4(0, 0, 0, 0),sz.width,sz.height)
+                self.panel_bg:addChild(self.panel_main)
+            else
+                self.panel_main:removeAllChildrenWithCleanup(true)
+            end
+            
+            cclog("LayerTGCode:addInvite2")
+
+            --提示
+            local labItem = CCLabelTTF:create(AppConfig.TIPTEXT.Tip_TGCode_Msg, AppConfig.COLOR.FONT_ARIAL, 24)
+            labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+            labItem:setDimensions(CCSizeMake(600, 0))
+            labItem:setPosition(ccp(sz.width / 2, sz.height - 60))
+            self.panel_main:addChild(labItem)
+
+            local tgcode = ""..loginLogic.UserInfo.TGCode
+            if tgcode == "66666" then
+                local goBtn = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("common/btn_go.png", 
+                        "common/btn_go2.png", "common/btn_go.png", function()
+                            self:hide()
+                            -- 弹出推广码界面
+                            if require("LobbyControl").hall_layer then
+                                require("LobbyControl").hall_layer:showLobbyPanel("Lobby/Info/LayerTGCode", true)
+                            end
+                        end), ccp(sz.width / 2, 80), self.btn_zIndex)
+            else
+                labItem:setString("已绑定推荐人邀请码，商城充值最多赠送82%")
+
+                local labelTGCode = CCLabelTTF:create(string.format("您当前的邀请码为：%s", tostring(tgcode)), AppConfig.COLOR.FONT_ARIAL, 32) 
+                labelTGCode:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+                labelTGCode:setPosition(ccp(sz.width / 2, 100))
+                self.panel_main:addChild(labelTGCode)
+            end
+
+            --钻石标示
+            local mark = loadSprite("lobbyDlg/diamondMark.png")
+            mark:setPosition(ccp(sz.width / 2, sz.height - 160))
+            self.panel_main:addChild(mark) 
+            
+        end
+        if self.panel_bg.title1 then
+            self.panel_bg.title1:setChecked(true)
+            self.panel_bg.title2:setChecked(false)
+        end
+        self.isInvite = true
+    end
+end
+
+-- 输入数字
+function LayerTGCode:addNum(i)
+    if self.editText then
+        local e, s = self.editText, self.editText:getText()
+        if #s < 6 then e:setText(s..i) end
+    end
+end
+
+-- 删除数字
+function LayerTGCode:delNum(deleteAll)
+    if self.editText then
+        local e, s = self.editText, self.editText:getText()
+        if deleteAll then
+            e:setText("")
+        elseif #s > 0 then
+            e:setText(string.sub(s, 1, #s-1))
+        end
+    end
+end
+
+-- 按钮切换代理人申请界面生成
+function LayerTGCode:addSubmit()
+    if self.isInvite then
+        local sz = self.bg_sz
+        self.panel_main:removeAllChildrenWithCleanup(true)
+        cclog("LayerTGCode:addSubmit")
+        --提示
+        local labItem = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 40)
+        labItem:setDimensions(CCSizeMake(sz.width - 160, 0))
+        labItem:setHorizontalAlignment(kCCTextAlignmentLeft)
+        labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+        labItem:setPosition(ccp(sz.width / 2, sz.height - 150))
+        self.panel_main:addChild(labItem)
+        self.panel_main.labItem = labItem
+        
+        local labItem2 = CCLabelTTF:create(AppConfig.TIPTEXT.Tip_TGCode_Msg4, AppConfig.COLOR.FONT_ARIAL, 32)
+        labItem2:setDimensions(CCSizeMake(sz.width - 160, 0))
+        labItem2:setHorizontalAlignment(kCCTextAlignmentLeft)
+        labItem2:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+        labItem2:setPosition(ccp(sz.width / 2, 280))
+        self.panel_main:addChild(labItem2)
+        self.panel_main.labItem2 = labItem2
+        self.panel_main.labItem2:setVisible(false)
+        
+        -- 先查询本地缓存
+        local uid = loginLogic.UserInfo.UserID
+        local localSave, saveKey = CCUserDefault:sharedUserDefault(), "tgcode_sz_code_"..tostring(uid)
+        local localCode = localSave:getStringForKey(saveKey)
+        if localCode == "" then
+            labItem:setString("正在查询代理人信息，请稍候...")
+            -- 发送请求查询结果回调
+            loginLogic.getSubmitResult(function(code, msg, t)
+                if ShowAgentApply then
+                    if code ~= 0 then self.panel_main.labItem:setString(string.format("查询代理人信息出错，请稍候再试\n\nmsg:%s", msg)) return end
+                    -- nil.未提交过 0.等待审核 1.审核通过 2.审核不通过
+                    if t[1] and 1 == t[1].Status then
+                        localSave:setStringForKey(saveKey, t[1].TGCode)
+                        self:addInforMation(uid, t[1].TGCode)
+                    else
+                        self:addForm(t[1])
+                    end
+                else
+                    if code ~= 0 or (nil == t[1]) or (t[1].Status ~= 1) then
+                        self.panel_main.labItem:setString(AppConfig.TIPTEXT.Tip_TGCode_Msg7)
+                        self.panel_main.labItem2:setVisible(true)
+                    else
+                        localSave:setStringForKey(saveKey, t[1].TGCode)
+                        self:addInforMation(uid, t[1].TGCode)
+                    end
+                end
+            end)
+        else
+            self:addInforMation(uid, localCode)
+        end
+        
+        self.panel_bg.title1:setChecked(false)
+		self.panel_bg.title2:setChecked(true)
+        self.isInvite = false
+    end
+end
+
+function LayerTGCode:createTip(s, size, pos)
+    local tipLabel = CCLabelTTF:create(s, AppConfig.COLOR.FONT_ARIAL, size)
+    tipLabel:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+    tipLabel:setDimensions(CCSizeMake(522, 0))
+    tipLabel:setHorizontalAlignment(kCCTextAlignmentLeft)
+    tipLabel:setAnchorPoint(ccp(0,0.5))
+    tipLabel:setPosition(pos)
+    return tipLabel
+end
+
+
+function LayerTGCode:createInput(s, pos)
+    local editText = require("Lobby/Common/LobbyEditBox").createMaxWidthEdit(
+            CCSizeMake(320, 54), loadSprite("common/input.png", true),
+            pos, 
+            kCCMenuHandlerPriority - self.btn_zIndex, "")
+            :setEditFont(AppConfig.COLOR.FONT_ARIAL, 36, AppConfig.COLOR.MyInfo_Record_Label)
+    editText:setText(s)
+    return editText
+end
+
+
+function LayerTGCode:showTip(s)
+    require("Lobby/Common/LobbySecondDlg").putConfirmTip(self, 10, s, function() end, kCCTextAlignmentCenter):show()
+end
+
+-- 创建填写界面
+function LayerTGCode:addForm(t)
+    local status = t and t.Status or nil
+    cclog("LayerTGCode:addForm status:%s", tostring(status))
+    self.panel_main:removeAllChildrenWithCleanup(true)
+    local sz = self.bg_sz
+    local szName = t and t.RealName or CCUserDefault:sharedUserDefault():getStringForKey("tgcode_sz_name")
+    local szPhone = t and t.CellPhoneNum or CCUserDefault:sharedUserDefault():getStringForKey("tgcode_sz_phone")
+    local szWX = t and t.WeiXinAccount or CCUserDefault:sharedUserDefault():getStringForKey("tgcode_sz_WX")
+    
+    -- 中央分隔线
+    local spriteLine = loadSprite("lobbyDlg/line.png")
+    spriteLine:setPosition(ccp(sz.width / 2, sz.height/2+55))
+    self.panel_main:addChild(spriteLine)
+    
+    -- 提示信息
+    self.panel_main:addChild(self:createTip(AppConfig.TIPTEXT.Tip_TGCode_Msg2, 30, ccp(sz.width/2+25, sz.height - 100)))
+    self.panel_main:addChild(self:createTip(AppConfig.TIPTEXT.Tip_TGCode_Msg3, 26, ccp(52, sz.height - 112)))
+    self.panel_main:addChild(self:createTip(AppConfig.TIPTEXT.Tip_TGCode_Msg4, 26, ccp(52, sz.height - 240)))
+    self.panel_main:addChild(self:createTip(AppConfig.TIPTEXT.Tip_TGCode_Msg5, 30, ccp(52, sz.height - 385)))
+    
+    -- 输入框
+    self.panel_main:addChild(self:createTip("真实姓名：", 30, ccp(sz.width/2+40, sz.height - 200)))
+    self.panel_main.nameEditText = self:createInput(szName, ccp(sz.width/2+200, sz.height - 200))
+    self.panel_main.nameEditText:setEditMaxText(10)
+    self.panel_main:addChild(self.panel_main.nameEditText)
+    self.panel_main:addChild(self:createTip("手机号：", 30, ccp(sz.width/2+40, sz.height - 305)))
+    self.panel_main.phoneEditText = self:createInput(szPhone, ccp(sz.width/2+200, sz.height - 305))
+    self.panel_main.phoneEditText:setEditMaxText(11)
+    self.panel_main:addChild(self.panel_main.phoneEditText)
+    self.panel_main:addChild(self:createTip("微信号：", 30, ccp(sz.width/2+40, sz.height - 412)))
+    self.panel_main.wxEditText = self:createInput(szWX, ccp(sz.width/2+200, sz.height - 412))
+    self.panel_main.wxEditText:setEditMaxText(99)
+    self.panel_main:addChild(self.panel_main.wxEditText)
+    
+    if nil == status or 2 == status then
+        -- 申请按钮
+        self.panel_main.btn_submit = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodesubmit_btn1.png", 
+            "lobbyDlg/tgcodesubmit_btn2.png", "lobbyDlg/tgcodesubmit_btn1.png", function()
+                self:submitForm()
+            end), ccp(sz.width / 2, 94), self.btn_zIndex)
+        -- 不通过弹窗提示
+        if 2 == status then
+            require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                self, 10, string.format(AppConfig.TIPTEXT.Tip_TGCode_Msg6, t.Remark),
+                function() end,
+                kCCTextAlignmentCenter
+            ):show()
+        end
+    -- 审核通过显示信息界面
+    elseif 0 == status then
+        self.panel_main.btn_submit = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodesubmit_btn_disable.png", 
+            "lobbyDlg/tgcodesubmit_btn_disable.png", "lobbyDlg/tgcodesubmit_btn_disable.png", function()
+                self:submitForm()
+            end), ccp(sz.width / 2, 92), self.btn_zIndex):setEnabled(false)
+    end
+end
+
+-- 提交信息
+function LayerTGCode:submitForm()
+    cclog("LayerTGCode:submitForm")
+    if self.panel_main and self.panel_main.nameEditText then
+        local sz = self.bg_sz
+        local szName = self.panel_main.nameEditText:getText()
+        local szPhone = self.panel_main.phoneEditText:getText()
+        local szWX = self.panel_main.wxEditText:getText()
+        -- 缓存数据
+        CCUserDefault:sharedUserDefault():setStringForKey("tgcode_sz_name", szName)
+        CCUserDefault:sharedUserDefault():setStringForKey("tgcode_sz_phone", szPhone)
+        CCUserDefault:sharedUserDefault():setStringForKey("tgcode_sz_WX", szWX)
+        -- 校验数据
+        if #szName<=0 then self:showTip("请填写真实姓名！") return end
+        if #szPhone<=0 then self:showTip("请填写手机号！") return end
+        if #szWX<=0 then self:showTip("请填写微信号！") return end
+        for k = 1, #szName do
+            local c = string.byte(szName,k)
+            if not((c>= 65 and c<=90) or (c>=97 and c<=122) or (c>=127)) then
+                self:showTip("填写的真实姓名有误！") return
+            end
+        end
+        if (#szPhone ~= 11) then self:showTip("填写的手机号码长度不正确！") return end
+        if (not string.match(szPhone,"^1[3|4|5|7|8]%d+$")) then self:showTip("填写的手机号码格式不正确！") return end
+        -- 提交数据
+        loginLogic.submitForTG(szName, szPhone, szWX, function(code, msg, table)
+            if code ~= 0 then
+                require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                    self, 10, string.format("提交申请资料错误，请稍候再试\n\nmsg:%s", msg),
+                    function() end,
+                    kCCTextAlignmentCenter
+                ):show()
+            else
+                self.panel_main.btn_submit:removeFromParentAndCleanup(true)
+                self.panel_main.btn_submit = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodesubmit_btn_disable.png", 
+                    "lobbyDlg/tgcodesubmit_btn_disable.png", "lobbyDlg/tgcodesubmit_btn_disable.png", function()
+                        self:submitForm()
+                    end), ccp(sz.width / 2, 92), self.btn_zIndex):setEnabled(false)
+                require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                    self, 10, "成功提交申请资料，请等待审核结果",
+                    function() end,
+                    kCCTextAlignmentCenter
+                ):show()
+            end
+        end)
+        self.panel_main.btn_submit:setEnabled(false)
+    end
+end
+
+-- 创建通过信息界面
+function LayerTGCode:addInforMation(UserID, TGCode)
+    self.panel_main:removeAllChildrenWithCleanup(true)
+    local sz = self.bg_sz
+    local labItem = CCLabelTTF:create("您当前已是尊敬的代理", AppConfig.COLOR.FONT_ARIAL, 40)
+    labItem:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+    labItem:setPosition(ccp(sz.width / 2, sz.height - 100))
+    self.panel_main:addChild(labItem)
+    local labItem2 = CCLabelTTF:create(string.format("当前ID：%s，您的邀请码：%s",UserID,TGCode), AppConfig.COLOR.FONT_ARIAL, 32)
+    labItem2:setColor(AppConfig.COLOR.MyInfo_Record_Label)
+    labItem2:setPosition(ccp(sz.width / 2, sz.height - 232))
+    self.panel_main:addChild(labItem2)
+    
+    -- 后台管理按钮
+    self.panel_main.btn_manage = CCButton.put(self.panel_main, CCButton.createCCButtonByFrameName("lobbyDlg/tgcodemanage_btn1.png", 
+        "lobbyDlg/tgcodemanage_btn2.png", "lobbyDlg/tgcodemanage_btn1.png", function()
+            -- 打开后台管理界面
+            CJni:shareJni():openUrl("http://agent.5playing.com.cn:81/Login.aspx")
+        end), ccp(sz.width / 2, 120), self.btn_zIndex):setEnabled(not isDone)
+end
+
+function LayerTGCode.putTip(super, zindex)
+    local layer = LayerTGCode.new(super, zindex)
+    layer:init()
+    return layer
+end
+
+function LayerTGCode.put(super, zindex)
+    local layer = LayerTGCode.new(super, zindex)
+    layer:initMain()
+    return layer
+end
+
+return LayerTGCode

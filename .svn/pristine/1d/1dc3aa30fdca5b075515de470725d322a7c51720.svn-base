@@ -1,0 +1,1163 @@
+--LobbyControl.lua
+local LobbyControl = {}
+LobbyControl.__index = LobbyControl
+
+local SetLogic = require("Lobby/Set/SetLogic")
+local WebRequest = require("GameLib/common/WebRequest")
+local LoginLogic = require("Lobby/Login/LoginLogic")
+local AppConfig = require("AppConfig")
+local HallUtils = require("HallUtils")
+
+--常用接口
+require("CocosAudioEngine")
+require("Cache")
+require("FFSelftools/AMap")
+require("FFSelftools/Table")
+require("FFSelftools/controltools")
+require("GameLib/gamelib/CGameLib")
+require("GameLib/common/common")
+
+cc2file = function(...)
+    local str = ccprint(...)
+    if debugMode then
+        local function mkdir(path)
+            if not C2dxEx:isFileExist(path) then
+                return lfs.mkdir(path)
+            end
+            return true
+        end
+
+        local function recursiveMkdir(path)
+            path = string.gsub(path,"\\","/")
+            local lastDir = nil
+            while true do
+                local split = string.find(path,"/")
+                if(split == nil) then
+                    return
+                end
+                local dir = string.sub(path,1,split - 1)
+                path = string.sub(path,split + 1)
+                lastDir = (lastDir == nil) and dir or (lastDir .. "/" ..dir)
+                mkdir(lastDir)
+            end
+        end
+        
+        local storagePath = CJni:shareJni():getStoragePath() .. "log/"
+        recursiveMkdir(storagePath)
+        
+        if not DebugLogFile then
+            f = io.open(storagePath.."debug.log", "w")
+            f:write(string.format("\n[ Logfile Start at %s ]\n\n", os.date("%c")))
+            f:flush(); f:close()
+            DebugLogFile = io.open(storagePath.."debug.log", "a")
+        end
+        
+        DebugLogFile:write(str.."\r")
+        DebugLogFile:flush()
+    end
+end
+
+ccprint = function(...)
+    if type(...) ~= "nil" then
+        local str = ""
+            str = string.format(...)
+            local platform = CCApplication:sharedApplication():getTargetPlatform()
+            if platform == kTargetIphone or platform == kTargetIpad then
+                CJni:shareJni():showMessageBox(str)
+            else
+                print(str)
+            end
+        return str
+    end
+end
+
+cclog = function(...)
+    if debugMode then
+        ccprint(...)
+    end
+end
+
+ccerr = function(msg)
+    if debugMode and type(msg) ~= "nil" then
+        cc2file("[ Error Message at %s ]\n%s" , os.date("%c"), msg)
+        local c = CCDirector:sharedDirector():getRunningScene()
+        if c then
+            local d = c.dLayer
+            if d then
+                local s = d.dTxt:getString()
+                d.dTxt:setString(s.."\n"..msg)
+            else
+                local dLayer = CCLayerColor:create(ccc4(255, 0, 0, 100),1,1)
+                c:addChild(dLayer)
+                c.dLayer = dLayer
+                local dTxt = CCLabelTTF:create(msg, "", 24)
+                dTxt:setHorizontalAlignment(kCCTextAlignmentLeft)
+                dTxt:setAnchorPoint(ccp(0,0))
+                dTxt:setPosition(ccp(20,20))
+                dLayer:addChild(dTxt)
+                dLayer.dTxt = dTxt
+            end
+            d = c.dLayer
+            local size = d.dTxt:getContentSize()
+            d:setContentSize(CCSizeMake(size.width+40, size.height+40))
+            d:stopAllActions()
+            local a = CCArray:create()
+            a:addObject(CCBlink:create(0.5,3))
+            a:addObject(CCDelayTime:create(10))
+            a:addObject(CCCallFuncN:create(function(s)
+                s:getParent().dLayer = nil
+                s:removeFromParentAndCleanup(true)
+            end))
+            d:runAction(CCSequence:create(a))
+        end
+    end
+end
+
+function LobbyControl.isInReview()    
+    return true
+end
+
+-- 大厅启动函数
+function LobbyControl.start(restart)
+    -- 为适应双框架版本，lua代码重复添加新图片资源路径至搜索路径
+    local fUtil = CCFileUtils:sharedFileUtils()
+	fUtil:addSearchPath("Hall/resources/images/")
+	fUtil:addSearchPath(fUtil:getWritablePath().."com.benteng.games.platform/Hall/resources/images/")
+    
+    math.randomseed(os.time())
+    
+    -- LobbyControl.loadingCache()
+
+    AppConfig.init()
+
+    -- 先初始化游戏配置    
+    require("GameConfig")
+
+    --检测app版本信息
+    LobbyControl.checkAppHallVersion()
+
+    GameConfig.init()    
+    local function onFlashEnd()
+        LobbyControl.onFlashEnd()  
+    end
+
+    require("Lobby/Set/SetLogic").readSet()
+
+    if restart then
+        LoginLogic.replaceMainScence()
+        LobbyControl.getFunSwitch(function()
+            LobbyControl.onUpgradeHallEnd()
+        end)
+    else
+        CCDirector:sharedDirector():runWithScene(require("Lobby/Start/LogoLayer").createScene(onFlashEnd))
+    end
+end
+
+--检查安装app大厅版本信息
+function LobbyControl.checkAppHallVersion()
+    local Configger = require("GameLib/common/Configger")
+    local FileUtils = require("GameLib/common/FileUtils")
+
+    local GameConfigFileName = "GameConfig.json"
+    --app版本信息
+    local resGameConfig = FileUtils.readFile("Hall/"..GameConfigFileName)
+    local AppVersion = require("cjson").decode(resGameConfig).hall.version
+
+    --热更版本信息
+    local gameConfig = require("Domain").HallFile..GameConfigFileName
+    if FileUtils.exists(gameConfig) then
+        -- 如果可以读取大厅版本
+        local ConfigTable = Configger.readConfig(gameConfig)
+        if ConfigTable.hall ~= nil then
+            if ConfigTable.hall.version ~= nil then
+                local VersionUtils = require("GameLib/common/VersionUtils")
+                if VersionUtils.isNew(AppVersion, ConfigTable.hall.version) then
+                    --大厅安装apk版本号大于当前热更版本号时，删掉整个热更信息
+                    GameConfig.clearHall()
+                end
+            end
+        end
+    end
+end
+
+--检查安装app游戏版本信息
+function LobbyControl.checkAppGameVersion(gameName)
+    local Configger = require("GameLib/common/Configger")
+    local FileUtils = require("GameLib/common/FileUtils")
+
+    local GameConfigFileName, AppVersion = gameName.."/GameVersion.lua"
+    --app版本信息
+    if FileUtils.exists("Hall/"..GameConfigFileName) then
+        AppVersion = require("Hall/"..gameName.."/GameVersion").new().version
+    elseif FileUtils.exists("Hall/Games/"..GameConfigFileName) then 
+        AppVersion = require("Hall/Games/"..gameName.."/GameVersion").new().version
+    else
+        return
+    end 
+
+    --热更版本信息
+    local updateRoot = require("Domain").HallFile
+    local gameConfig = updateRoot..GameConfigFileName
+    if FileUtils.exists(gameConfig) then
+        local Version = require(gameName.."/GameVersion").new().version
+        if Version then
+            local VersionUtils = require("GameLib/common/VersionUtils")
+            if VersionUtils.isNew(AppVersion, Version) then
+                --游戏安装apk版本号大于当前热更版本号时，删掉该游戏热更信息
+                FileUtils.rmdir(updateRoot..gameName)
+            end
+        end
+    end
+end
+
+function LobbyControl.reStart()
+    cclog("LobbyControl.reStart")
+    local files = {"LobbyControl", "Lobby", "GameLib", "AppConfig", "FFSelftools", 
+                    "HallUtils", "GameConfig", "czmj/", "pdk/"}
+    --大厅已更新，重新登录
+    for k,_ in pairs(package.preload) do 
+        for i,v in ipairs(files) do
+             if string.find(k, v) == 1 then
+                package.preload[k] = nil            
+            end 
+        end
+    end
+
+    for k,_ in pairs(package.loaded) do 
+        for i,v in ipairs(files) do
+             if string.find(k, v) == 1 then                
+                package.loaded[k] = nil            
+            end 
+        end
+    end
+
+    require("LobbyControl").start(true)   
+end
+
+--完成登录、初始化大厅
+function LobbyControl.onInitLobby()
+    --LobbyControl.checkNewStatus()
+    --require("Lobby/Common/LobbySecondDlg").putProgress("登录游戏失败")
+    LobbyControl.getGameList()
+end
+
+--logo界面
+function LobbyControl.onFlashEnd(loginType)
+    --获取并更新大厅信息     
+    LoginLogic.loginFromStart(loginType)
+
+    LobbyControl.getFunSwitch(function()
+        LobbyControl.platform_upgrade = -1
+        LobbyControl.getPlatformInfo()
+    end)
+end
+
+--IOS上线开关是否已经打开
+function LobbyControl.getFunSwitch(backfunc)
+    local function errorFunc()
+       local tipDlg
+        tipDlg = require("Lobby/Common/LobbySecondDlg").putConfirmTip(LoginLogic.main_layer, 10, 
+            "连接游戏服务器失败，请重新尝试...",          
+            function() tipDlg:removeFromParentAndCleanup(true) 
+                    LobbyControl.getFunSwitch(backfunc) end
+        , kCCTextAlignmentCenter):show() 
+    end
+
+    local szData = string.format("AppPartnerID=%d", AppConfig.CONFINFO.AppID)
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        if(isSucceed) then
+            if data ~= nil then
+                local parseTable = require("CocosJson").decode(data)
+                if parseTable.value then
+                    --AppConfig.ISAPPLE = false
+                    AppConfig.ISAPPLE = parseTable.value == 0
+                    AppConfig.APPLESTATU = parseTable.value
+                    backfunc()
+                    return
+                end
+            end
+        end
+
+        errorFunc()
+    end
+
+    if not WebRequest.isNetworkAvailable() then
+        errorFunc()
+    else
+        WebRequest.getData(httpCallback,"GetFunSwitch.aspx",szData)
+    end  
+end
+
+--获取系统公告和跑马灯消息
+function LobbyControl.getPlatformMessage(typeid, func, btype) --AppConfig.CONFINFO.PartnerID
+    local szData = string.format("PartnerID=%d&TypeID=%d", AppConfig.CONFINFO.AppID, typeid)
+    --cclog(szData)
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        if isvilad then
+            --cclog(data)
+            if code == 0 and #table > 0 and table[1].MsgContent then 
+                --cclog("LobbyControl.getPlatformMessage"..table[1].MsgContent)
+                if func then
+                    func(table)
+                end
+                return
+            end
+
+            require("HallUtils").showWebTip(msg)
+        end 
+
+        if func then
+            func()
+        end        
+    end
+    
+    WebRequest.getData(httpCallback,"GetPlatformMessage.aspx",szData, btype, "GetPlatformMessage")
+end
+
+--获取平台动作指令
+function LobbyControl.getActionCmd(func)
+    local szData = string.format("AppPartnerID=%d", AppConfig.CONFINFO.AppID)
+    -- cclog(szData)
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        if isvilad then
+            --cclog(data)
+            if code == 0 and #table > 0 and table[1].ActionID ~= "" then 
+                --cclog("LobbyControl.getPlatformMessage"..table[1].MsgContent)
+                if func then
+                    func(table)
+                end
+                return
+            end
+
+            require("HallUtils").showWebTip(msg)
+        end 
+    end
+    
+    WebRequest.getData(httpCallback,"GetActionCmd.aspx",szData,1)
+end
+
+--获取平台信息判断是否需要更新
+function LobbyControl.getPlatformInfo()
+    local function onUpgradeHallEnd()
+        LobbyControl.onUpgradeHallEnd()
+    end
+
+    local userid = CCUserDefault:sharedUserDefault():getIntegerForKey("userid")
+    local szData = string.format("PartnerID=%d&version=%s&UserID=%d", AppConfig.CONFINFO.AppID, GameConfig.getHallVer(), userid)
+
+    local function httpCallback(isSucceed,tag,data)
+        local curConfig = GameConfig.getGameConfig("hall")
+        local VersionUtils = require("GameLib/common/VersionUtils")
+        local nowVersion = curConfig["version"]
+
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        if isvilad then
+            if code ~= 0 then 
+                HallUtils.showWebTip(msg)
+            else
+                --已经升级
+                LobbyControl.platform_upgrade = 0
+
+                --广告相关
+                LobbyControl.adURL = table[1].AdUrl
+                LobbyControl.bShowAD = table[1].AdStatus
+                
+                --下载
+                local hallVersion = table[1].Version 
+                LobbyControl.szDownloadURL = {table[1].Download, table[1].Download2}
+                LobbyControl.DownloadVersion = hallVersion
+
+                --判断版本
+                if VersionUtils.isNew(hallVersion, nowVersion) then
+                    local hallversion = tonumber(VersionUtils.getSubVersion(hallVersion))
+                    local curversion = tonumber(VersionUtils.getSubVersion(nowVersion)) 
+
+                    if hallversion == curversion then
+                        hallversion = tonumber(VersionUtils.getBuildVersion(hallVersion))
+                        curversion = tonumber(VersionUtils.getBuildVersion(nowVersion))
+                        if hallversion == curversion + 1 then
+                            LobbyControl.platform_upgrade = 1                        
+                        else
+                            -- 下载更新
+                            LobbyControl.platform_upgrade = 2
+                        end
+                    else
+                        -- 提示更新
+                        cclog("提示更新 %s.%s",hallVersion,nowVersion)
+                        LobbyControl.platform_upgrade = 3
+                    end
+                elseif VersionUtils.isOld(hallVersion, nowVersion) then
+                    GameConfig.removeHallOnly()
+                end
+            end 
+        end
+
+        LobbyControl.upgradeHall(onUpgradeHallEnd, nowVersion)
+    end
+
+    if not WebRequest.isNetworkAvailable() then
+        LobbyControl.upgradeHall(onUpgradeHallEnd)
+    else
+        WebRequest.getData(httpCallback,"GetPlatformInfo.aspx",szData)
+    end  
+end
+
+--检查平台信息判断是否需要更新
+function LobbyControl.checkPlatformInfo(failfunc, okfunc)
+    local userid = CCUserDefault:sharedUserDefault():getIntegerForKey("userid")
+    local szData = string.format("PartnerID=%d&version=%s&UserID=%d", AppConfig.CONFINFO.AppID, GameConfig.getHallVer(), userid)
+
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        if isvilad then
+            if code ~= 0 then 
+                HallUtils.showWebTip(msg)
+                failfunc()
+            else
+                --已经升级
+                LobbyControl.platform_upgrade = 0
+                --广告相关
+                LobbyControl.adURL = table[1].AdUrl
+                LobbyControl.bShowAD = table[1].AdStatus
+                --GameConfig.initWorkingPath()
+
+                --下载
+                local hallVersion = table[1].Version 
+                local curConfig = GameConfig.getGameConfig("hall")
+                local VersionUtils = require("GameLib/common/VersionUtils")
+                local nowVersion = curConfig["version"]
+
+                LobbyControl.szDownloadURL = {table[1].Download, table[1].Download2}
+                LobbyControl.DownloadVersion = hallVersion
+
+                --判断版本
+                if VersionUtils.isNew(hallVersion, nowVersion) then
+                    --版本已更新,提示玩家更新
+                    local tipdlg
+                    tipdlg = require("Lobby/Common/LobbySecondDlg").putTip(LobbyControl.hall_layer, 10, 
+                        "发现新版本，请重新登录以便更好的体验游戏！", function()
+                        tipdlg:removeFromParentAndCleanup(true)
+                        LobbyControl.onFlashEnd()
+                    end, function() tipdlg:removeFromParentAndCleanup(true) end, kCCTextAlignmentCenter):show()
+                    return
+                end
+
+                okfunc()
+                return
+            end 
+        end
+
+        failfunc()
+    end
+
+    if not WebRequest.isNetworkAvailable() then
+        failfunc()
+    else
+        WebRequest.getData(httpCallback,"GetPlatformInfo.aspx",szData)
+    end  
+end
+
+--客户端更新失败写记录
+function LobbyControl.writeClientUpdateLoseLog(errorUrl, updateType, myVer, upVer)
+    if #errorUrl > 0 then
+        local urls = require("cjson").encode(errorUrl)
+        local userid = CCUserDefault:sharedUserDefault():getIntegerForKey("userid")
+        local szData = string.format(
+            "UserID=%d&UpdateType=%d&DeviceInfo=%s&DownloadUrl=%s&CurrentVersion=%s&UpdateVersion=%s", 
+            userid, updateType, CJni:shareJni():getDeviceInfo(), urls, myVer, upVer)  
+
+        cclog(szData)
+        WebRequest.getData(nil,"WriteClientUpdateLoseLog.aspx",szData,1)
+    end
+end
+
+--升级大厅
+function LobbyControl.upgradeHall(onUpgradeHallEnd, myVer)
+    local errorUrl = {}
+
+    --全部更新
+    local function onUpgradeFinished()
+        --发送错误提示信息
+        LobbyControl.writeClientUpdateLoseLog(errorUrl, 0, myVer, LobbyControl.DownloadVersion)
+
+        -- 这里需要卸载hall相关的模块，重新加载
+        for k,_ in pairs(package.preload) do            
+            if string.find(k,"Lobby") == 1 then                   
+                package.preload[k] = nil            
+            end
+        end
+        for k,_ in pairs(package.loaded) do        
+            if string.find(k,"Lobby") == 1 then                   
+                package.loaded[k] = nil            
+            end
+        end
+
+        package.preload["LobbyControl"] = nil
+        package.preload["GameConfig"] = nil
+        package.loaded["LobbyControl"] = nil
+        package.loaded["GameConfig"] = nil
+        require("LobbyControl").reStart()
+    end
+
+    if LobbyControl.platform_upgrade < 0 then
+        --获取失败
+        if LobbyControl.platform_upgrade < -1 then
+            --提示框
+                local tipDlg
+                tipDlg = require("Lobby/Common/LobbySecondDlg").putConfirmTip(LoginLogic.main_layer, 10, 
+                    "获取大厅配置失败，请重新获取",          
+                    function() tipDlg:removeFromParentAndCleanup(true) 
+                            LobbyControl.getPlatformInfo()
+                            LobbyControl.platform_upgrade = -1 end
+                , kCCTextAlignmentCenter):show()            
+        else
+            --重新获取
+            LobbyControl.platform_upgrade = LobbyControl.platform_upgrade - 1
+            LobbyControl.getPlatformInfo()
+        end
+        return
+    elseif LobbyControl.platform_upgrade == 0 then
+        --已经为最新版本
+        LobbyControl.onUpgradeHallEnd()
+        if LoginLogic.main_layer:addLongonBtn() then
+            --LoginLogic.main_layer:addLongonBtn()
+        end
+        return
+    end
+    
+    --部分更新
+    if LobbyControl.platform_upgrade < 3 then
+        if LobbyControl.platform_upgrade == 2 then
+            GameConfig.removeHallOnly()
+        end
+
+        local urlIndex, url = 0
+        local function onUpgradeError(errorTip)
+            errorTip = errorTip or "大厅更新失败"
+            cclog("保留上一次错误下载url "..urlIndex)
+            --保留上一次错误下载url
+            if urlIndex > 0 then 
+                table.insert(errorUrl, url)
+                table.insert(errorUrl, errorTip)    --增加错误提示
+            end
+
+            urlIndex = urlIndex + 1
+
+            local loadUrl = LobbyControl.szDownloadURL[urlIndex]
+            cclog("onUpgradeError "..tostring(loadUrl))
+            if loadUrl then
+                url = LoginLogic.main_layer:onHallPartUpdata(LobbyControl.platform_upgrade, 
+                    loadUrl, LobbyControl.DownloadVersion, onUpgradeFinished, onUpgradeError)
+            else
+                HallUtils.showWebTip(errorTip) 
+
+                --发送错误提示信息
+                LobbyControl.writeClientUpdateLoseLog(errorUrl, 0, myVer, LobbyControl.DownloadVersion)
+                errorUrl = {}
+
+                --更新提示框
+                local tipDlg
+                tipDlg = require("Lobby/Common/LobbySecondDlg").putConfirmTip(LoginLogic.main_layer, 10, 
+                    errorTip.."，请重新更新",          
+                    function() urlIndex = 0 onUpgradeError() end
+                , kCCTextAlignmentCenter):show() 
+            end      
+        end
+
+        onUpgradeError()
+    end  
+end
+
+--完成升级
+function LobbyControl.onUpgradeHallEnd()
+    -- LobbyControl.loadingCache()
+    local versionCode = CJni:shareJni():getVersionCode()
+    local function Updated()
+        -- 启动定位
+        AMap:set(5, true)
+        AMap:start()        
+        LoginLogic.quickLogin()
+    end
+
+    if AppConfig.ISWIN32 then
+        Updated()
+        return
+    end
+
+    -- 如果 versionCode 非新版接口返回值类型 string 则为旧版接口
+    if type(versionCode) ~= "string" then
+        LobbyControl.showForceUpdateDlg(true)
+    -- 如果是新版接口，则比较不同平台下的版本号
+    else
+        if (AppConfig.ISWIN32) then Updated() return end
+        if (AppConfig.ISANDROID and versionCode=="160") then Updated() return end
+        if AppConfig.ISIOS and (versionCode=="1.7" or versionCode=="1.6") then Updated() return end
+        LobbyControl.showForceUpdateDlg()
+    end
+end
+
+-- 显示强制更新提示窗
+function LobbyControl.showForceUpdateDlg(isOldPlatform)
+    HallUtils.showWebTip("正在检测游戏版本...")
+    
+    if isOldPlatform then
+        if AppConfig.ISIOS then
+            require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                LoginLogic.main_layer, 10, "发现重要版本发布，需更新后进入\n\n请您前往AppStore进行更新",
+                function() CCDirector:sharedDirector():endToLua() end,
+                kCCTextAlignmentCenter
+            ):show()
+        else
+            local downroot = AppConfig.DownRoot or "http://download.5playing.com.cn/download/czmjdl_1.html"
+            require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                LoginLogic.main_layer, 10, "发现重要版本发布，需更新后进入\n\n请您重新下载并安装新版本",
+                function() CJni:shareJni():showWebView(downroot, 0, 0, 
+                        AppConfig.SCREEN.CONFIG_WIDTH, AppConfig.SCREEN.CONFIG_HEIGHT)
+                end , kCCTextAlignmentCenter
+            ):show()
+        end
+    else
+        if AppConfig.ISIOS then
+            require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                LoginLogic.main_layer, 10, "发现重要版本发布，需更新后进入\n\n请您前往AppStore进行更新",
+                function() GameConfig.clearHall() CJni:shareJni():openUrl("itms://itunes.apple.com/app/id1155902650") end,
+                kCCTextAlignmentCenter
+            ):show()
+        else
+            local downloadUrl = AppConfig.apkDownLoadUrl or "http://download.5playing.com.cn/download/apps/czmj.apk"
+            local u = Updater:new()
+            local size = math.floor(u:getDownloadFileLength(downloadUrl)/10486)/100
+            u:unregisterScriptHandler(); u:delete()
+            -- 这里应该用有确认、取消的提示框
+            require("Lobby/Common/LobbySecondDlg").putTip(LoginLogic.main_layer, 10, string.format("发现重要版本发布，需更新后进入\n\n安装包大小为:%sM，现在下载吗？", size), 
+                    LobbyControl.downloadNewApk,
+                    function() CCDirector:sharedDirector():endToLua() end,
+                    kCCTextAlignmentCenter):show()
+        end
+    end
+
+end
+
+-- 下载更新安装包
+function LobbyControl.downloadNewApk()
+    downloadInformationUI = require("Lobby/Common/LobbySecondDlg").putConfirmTip(
+                LoginLogic.main_layer, 10, "正在下载(0%)，请稍候...",
+                function() CCDirector:sharedDirector():endToLua() end , kCCTextAlignmentCenter)
+    local btnClose = downloadInformationUI.panel_bg.closeBtn
+    if btnClose then
+        btnClose:setVisible(false)
+    end
+    
+    local storagePath = CJni:shareJni():getStoragePath()
+    local downloadUrl = AppConfig.apkDownLoadUrl or "http://download.5playing.com.cn/download/apps/czmj.apk"
+    
+    -- 获取文件名并创建保存路径
+    local fileName = string.match(downloadUrl, ".+/([^/]*%.%w+)$")
+    local savePath, saveFile = storagePath.."download/", storagePath.."download/"..fileName
+    FileUtils.recursiveMkdir(savePath)
+    cclog("storagePath:%s\nfilename:%s", savePath, fileName)
+    
+    -- 下载APK文件并调起安装
+    local u = Updater:new()
+    -- 下载回调
+    u:registerScriptHandler(function(statu, msg)
+        if downloadInformationUI then
+            local t = ""
+            if statu == "state" then 
+                t = downloadInformationUI.tip_lab:getString()
+            elseif statu == "progress" then
+                t = string.format("正在下载(%s%%)，请稍候...", msg:getValue())
+            elseif statu == "success" then
+                u:unregisterScriptHandler(); u:delete()
+                GameConfig.clearHall()
+
+                t = "下载完成，正在校验安装包..."
+                ccprint("CJni:openFile result: %s", CJni:shareJni():openFile(saveFile))
+            elseif statu == "error" then
+                t = string.format("网络连接中断，下载更新失败!\n[%s]\n\n请重进游戏进行更新...", msg:getCString())
+            else
+                ccprint(string.format("update statu:%s msg:%s", statu, msg:getCString()))
+            end
+            downloadInformationUI.tip_lab:setString(t)
+            if statu == "error" then
+                downloadInformationUI.panel_bg.closeBtn:setVisible(true)
+            end
+        end
+    end)
+    -- 下载文件
+    u:update(downloadUrl, saveFile)
+    downloadInformationUI:show()
+end
+
+function LobbyControl.backToHall(jumpToCreateRoomUI)
+    LobbyControl.enterLobby(jumpToCreateRoomUI)
+    if LobbyControl.gameLogic then LobbyControl.gameLogic.removeCache() end
+    LobbyControl.gameLogic = nil
+end
+
+function LobbyControl.backToLogon(errorStr)
+    if LobbyControl.gameSink then
+        LobbyControl.gameSink:exit()
+    end
+
+    local lobbyLayer = LobbyControl.enterLobby()
+    HallUtils.showWebTip(errorStr, lobbyLayer)
+    if LobbyControl.gameLogic then LobbyControl.gameLogic.removeCache() end
+    LobbyControl.gameLogic = nil    
+end
+
+--获去游戏列表
+function LobbyControl.getGameList()
+    local userid = CCUserDefault:sharedUserDefault():getIntegerForKey("userid")
+    local szData = string.format("PartnerID=%d&UserID=%d",AppConfig.CONFINFO.AppID, userid)
+    -- cclog(szData)
+    local function httpCallback(isSucceed,tag,data)
+        --解析数据
+        local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+        if isvilad and code == 0 then
+            LobbyControl.getGameListSuccess(table)
+            return
+        end
+
+        if isvilad then
+            HallUtils.showWebTip(msg)
+        end
+        LobbyControl.getGameListFail()
+    end
+
+    WebRequest.getData(httpCallback,"GetGameList.aspx",szData) 
+end
+
+--获取列表失败
+function LobbyControl.getGameListFail()
+    --判断网络是否存在
+    require("FFSelftools/controltools")
+    local function onExitCallBack(tag,sender)
+        CCDirector:sharedDirector():endToLua()
+    end
+
+    local function onCancelExitCallBack(tag,sender)
+        LobbyControl.getGameList()
+    end
+
+    LoginLogic.showTipDlg("网络不太稳定，获取游戏列表错误", onCancelExitCallBack, onExitCallBack) 
+end
+
+--获取列表成功
+function LobbyControl.getGameListSuccess(table)
+    LobbyControl.game_list = nil
+    LobbyControl.game_list = table
+
+    local count = #LobbyControl.game_list
+    for i=1,count do
+        LobbyControl.checkAppGameVersion(LobbyControl.game_list[i].EnglishName)
+
+        -- 如果GameConfig中游戏版本不存在，则手动添加
+        GameConfig.reloadGameVersion(LobbyControl.game_list[i].EnglishName)
+    end
+
+    -- 下载游戏ICON
+    LobbyControl.updataGameListIcon()
+end
+
+--获取列表完结
+function LobbyControl.getGameListFinish()
+    --校验版本
+    if not require("Lobby/LobbyLogic").checkGameUpdata() then
+        return
+    end
+
+    LoginLogic.onLoginFinished()
+    local lobby = LobbyControl.enterLobby()
+    lobby:checkTGCode()          
+end
+
+function LobbyControl.enterLobby(jumpToCreateRoomUI)
+    -- LobbyControl.loadingCache()
+    LobbyControl.loadHallCache()
+
+    local info = LoginLogic.UserInfo
+    local scence, layer = require("Lobby/Hall/LayerHall").createScene(info)
+    if scence then
+        CCDirector:sharedDirector():replaceScene(scence)
+    end
+    if layer and jumpToCreateRoomUI then
+        --创建房间时防止去做微信回调操作
+        LobbyControl.appWebData = {reCreate = true}
+    end
+    LobbyControl.removeLogonCache()
+
+    return layer  
+end
+
+--遍历游戏列表ICON是否存在  不存在添加游戏ICON
+function LobbyControl.updataGameListIcon()
+    if not CJni:shareJni():isNetworkAvailable() then
+        LobbyControl.getGameListFail()
+        return
+    end  
+
+    require("GameConfig")    
+    local function updateHandler(event, value)
+        if event == "success" then
+            cclog("LobbyControl isExistGameList " .. value)
+        end        
+    end
+    for _,v in ipairs(LobbyControl.game_list) do  
+        GameConfig.addGame(v.EnglishName, v.DownloadRoot, v.IconVersion,updateHandler)
+    end 
+
+    LobbyControl.getGameListFinish()  
+end
+
+-- 轮询状态，主要是好友信息
+function LobbyControl.checkNewStatus(func, PayID)
+    PayID = PayID or 0
+    local szData = string.format("UserID=%d&Pay=%d&AppPartnerID=%d",
+        LoginLogic.UserInfo.UserID, PayID, AppConfig.CONFINFO.AppID)
+
+    --cclog(szData)
+    local function httpCallback(isSucceed,tag,data)
+        LobbyControl.checkNewStatusResp(isSucceed,data, func)
+    end
+
+    WebRequest.getData(httpCallback,"CheckNewStatus.aspx",szData, 2, "CheckNewStatus")
+end
+
+--检测状态返回数据
+function LobbyControl.checkNewStatusResp(isSucceed, data, func)
+    --解析数据
+    local isvilad, code, msg, table = WebRequest.parseData(isSucceed, data)
+    if isvilad then
+        if code ~= 0 then 
+            HallUtils.showWebTip(msg)
+            return
+        end
+
+        func(table[1])
+    end
+end
+
+-- 启动游戏
+function LobbyControl.launchGame(gameName,logonIP,logonPort,webRoot,gametype)       
+    local ok,  ge = pcall(function()
+                return require(gameName .. "/GameEntrance")
+            end)
+    cclog(gameName .. "/GameEntrance"..";"..logonIP..";"..logonPort)
+    if ok then 
+        LobbyControl.gameSink = ge.run(nil,logonIP,logonPort,webRoot,gametype)
+
+        --self.m_szCurrentGame = gameName
+        cclog("succend")
+        return true
+    else
+        --GameConfig.removeGame(gameName)
+    end
+
+    cclog("fail")
+    return false    
+end
+
+function LobbyControl.updataGame(gameId, func, errorfunc)
+    LobbyControl.checkPlatformInfo(errorfunc, 
+    function() 
+        local gameName, server
+        for i,v in ipairs(LobbyControl.game_list) do
+            if v.GameID == gameId then
+                gameName = v.EnglishName
+                server = v
+                break
+            end
+        end
+
+        if not server then
+            HallUtils.showWebTip("游戏尚未开放，敬请期待")
+            errorfunc()
+            return
+        end
+
+        if server.bUpdated then
+            --大厅没有升级到最新版本、不做游戏升级
+            func(false)
+            return
+        end
+
+        local errorUrl, upVer = {} --错误下载地址
+
+        local VersionUtils = require("GameLib/common/VersionUtils")
+        local curConfig = GameConfig.getGameConfig(gameName)
+        local myVer = curConfig["version"]
+        local curMainVersion= tonumber(VersionUtils.getMainVersion(myVer))
+        local curSubVersion= tonumber(VersionUtils.getSubVersion(myVer))
+        local curBuildVersion= tonumber(VersionUtils.getBuildVersion(myVer))
+
+        local progressDlg = require("Lobby/Common/LobbySecondDlg").putProgress("")
+        local function downGameFinish(bUpdated)
+            --发送错误提示信息
+            LobbyControl.writeClientUpdateLoseLog(errorUrl, gameId, myVer, upVer)
+
+            progressDlg:hide()
+            server.bUpdated = true
+
+            if bUpdated then
+                local filepath = gameName.."/"
+                --大厅已更新，重新登录
+                for k,_ in pairs(package.preload) do 
+                    if string.find(k, filepath) == 1 then
+                        package.preload[k] = nil            
+                    end 
+                end
+
+                for k,_ in pairs(package.loaded) do 
+                    if string.find(k, filepath) == 1 then                
+                        package.loaded[k] = nil            
+                    end
+                end                
+            end
+            func(bUpdated)            
+        end
+
+        local function dowGame(urls, downfunc)
+            local urlIndex, downUrl = 1
+
+            --循环下载游戏
+            local function updateHandler(event, value)
+                if event == "state" then 
+                    --downloadStart、downloadDone、uncompressStart、uncompressStart
+                    cclog("updateHandler state "..value)
+                elseif event == "error" then
+                    local errorTip = "游戏下载失败"
+                    if value == "errorCreateFile" then errorTip = "下载游戏：创建文件失败"
+                    elseif value == "errorNetwork" then errorTip = "下载游戏：网络连接错误"
+                    elseif value == "errorUncompress" then errorTip = "下载游戏：解压游戏失败" 
+                    elseif value == "errorUnknown" then errorTip = "下载游戏失败" end 
+                    cclog("updateHandler errorTip "..errorTip)
+                    --保留上一次错误下载url
+                    table.insert(errorUrl, downUrl)
+                    table.insert(errorUrl, errorTip)    --增加错误提示
+
+                    urlIndex = urlIndex + 1
+                    if not urls[urlIndex] then
+                        progressDlg:setProgressCount(15)
+                        HallUtils.showWebTip(errorTip)
+
+                        --发送错误提示信息
+                        LobbyControl.writeClientUpdateLoseLog(errorUrl, gameId, myVer, upVer)
+                        errorfunc()
+                    else
+                        downUrl = downfunc(urls[urlIndex], updateHandler)                        
+                    end
+                elseif event == "progress" then --显示进度CCProgressFromTo
+                    progressDlg:setProgressCount(5)
+                elseif event == "success" then --进入游戏  
+                    downGameFinish(true)
+                    HallUtils.showWebTip("完成游戏更新")
+                end
+            end
+
+            downUrl = downfunc(urls[urlIndex], updateHandler)            
+        end
+
+        for _,config in pairs(LobbyControl.game_list) do
+            if config.EnglishName == gameName then
+                upVer = config.Version
+
+                if not VersionUtils.isNew(upVer,myVer) then
+                    downGameFinish(false)
+                else
+                    HallUtils.showWebTip("正在更新游戏...")
+                    local downUrls = {config.DownloadRoot, config.DownloadRoot2}
+
+                    if curMainVersion < tonumber(VersionUtils.getMainVersion(upVer)) then
+                        dowGame(downUrls, function(url, handler)
+                            return GameConfig.fullDownload(url, config.EnglishName, handler, upVer)
+                        end)
+                    elseif curBuildVersion == tonumber(VersionUtils.getBuildVersion(upVer)) - 1 then
+                        dowGame(downUrls, function(url, handler)
+                            return GameConfig.deltaDownload(url, config.EnglishName, handler, upVer)
+                        end)
+                    elseif curBuildVersion < tonumber(VersionUtils.getBuildVersion(upVer)) then
+                        dowGame(downUrls, function(url, handler)
+                            return GameConfig.fixDownload(url, config.EnglishName, handler, upVer)
+                        end)
+                    else
+                        downGameFinish(false)
+                    end
+                end
+
+                return  
+            end
+        end
+      
+        --游戏不存在
+    end)
+end
+
+function LobbyControl.getGameLogic()
+    return LobbyControl.gameLogic
+end
+
+function LobbyControl.loadingCache()
+    --加载图像缓存
+    Cache.add{"login", "common"}
+end
+
+function LobbyControl.removeLogonCache()
+    -- 释放登陆资源缓存
+    Cache.removePlist("login")
+    Cache.removeTexture{"GameLogo.jpg", "GameLogo.png", "logo.jpg", "login_bg.jpg", "bentlogo.png", "bentxt.png"}
+end
+
+function LobbyControl.loadHallCache()
+    Cache.add{"lobby", "lobbyDlg", "gamerule", "common", "location"}
+end
+
+function LobbyControl.removeHallCache()
+    Cache.removePlist{"lobby", "lobbyDlg", "gamerule"}
+    Cache.removeTexture("lobby_bg.jpg")
+end
+
+function LobbyControl.checkAppWebData()
+    LobbyControl.appWebData = nil
+    
+    if SchemeURLQuery and SchemeURLQuery ~= "" then
+        -- 如果非审核阶段, IMEI登录玩家禁止进入他人房间
+        if (not require("AppConfig").ISAPPLE) and ClientLoginByIMIE then
+            HallUtils.showWebTip("采用微信方式登录才能加入微信好友房间")
+            SchemeURLQuery = nil
+        else
+            SchemeURLQuery = string.sub(SchemeURLQuery,10,-1)
+            local q = (string.gsub(SchemeURLQuery,"%%7B", "{"))
+            q = (string.gsub(q,"%%7D", "}"))
+            q = (string.gsub(q,"%%22", "\""))
+            
+            SchemeURLQuery = nil
+
+            --解析数据
+            local invitetable = require("cjson").decode(q) or {}
+            if invitetable ~= {} then
+                --进入房间
+                LobbyControl.appWebData = invitetable
+                return invitetable
+            end
+        end
+    end 
+
+    return
+end
+
+function shareWebToWx(lineType, url, title, msg, callback)
+    if ClientLoginByIMIE then
+        HallUtils.showWebTip("采用微信方式登录才能分享或邀请好友")
+        return
+    end
+    CJni:shareJni():shareWxWeb(lineType, url, title, msg, callback)
+end
+
+function shareScreenToWx(lineType, scale, title, msg, callback)
+    if ClientLoginByIMIE then
+        HallUtils.showWebTip("采用微信方式登录才能分享")
+        return
+    end
+    CJni:shareJni():shareScreenShot(lineType, scale, title, msg, callback)
+end
+
+function shareScreenToWxEx(node, lineType, title, msg, callback)
+    if ClientLoginByIMIE then
+        HallUtils.showWebTip("采用微信方式登录才能分享")
+        return
+    end
+    if node then
+        node:setAnchorPoint(ccp(0,0)); node:retain()
+        local jni    = CJni:shareJni()
+        local scene  = CCDirector:sharedDirector():getRunningScene()
+        local view   = CCDirector:sharedDirector():getOpenGLView()
+        local glview = CCEGLView:sharedOpenGLView()
+        local gsize  = glview:getFrameSize()
+        local nsize  = node:getContentSize()
+        local renderTexture = CCRenderTexture:create(
+            nsize.width, nsize.height,
+            kCCTexture2DPixelFormat_RGBA8888
+        )
+        renderTexture:retain()
+        glview:setFrameSize(
+            math.min(gsize.width, gsize.height),
+            math.max(gsize.width, gsize.height)
+        )
+        jni:changeOrientation(true)
+        view:setDesignResolutionSize(nsize.width, nsize.height, kResolutionExactFit)
+        -- 需要在下一帧调用
+        scene:runAction(CCSequence:createWithTwoActions(
+            CCDelayTime:create(0),
+            CCCallFuncN:create(function()
+                local fname = "screen.jpg"
+                local path  = CCFileUtils:sharedFileUtils():getWritablePath() .. fname
+                renderTexture:begin(); node:visit(); renderTexture:endToLua()
+                renderTexture:saveToFile(fname, kCCImageFormatJPEG)
+                renderTexture:release(); node:release()
+                jni:shareWxImage(lineType, path, title, msg, function()
+                    if callback then callback() end
+                end)
+                glview:setFrameSize(
+                    math.max(gsize.width, gsize.height),
+                    math.min(gsize.width, gsize.height)
+                )
+                jni:changeOrientation(false)
+                view:setDesignResolutionSize(
+                    AppConfig.SCREEN.CONFIG_WIDTH,
+                    AppConfig.SCREEN.CONFIG_HEIGHT,
+                    kResolutionExactFit
+                )
+            end)
+        ))
+    
+    end
+end
+
+-- 应用切入后台（Android和iOS下均被回调）
+function onAppDidEnterBackground()
+    cclog("onAppDidEnterBackground ")
+    local s = LobbyControl.getGameLogic()
+    if s and type(s.getMyPanel)=="function" then
+        if s:getMyPanel() then
+            s:getMyPanel():enterBackGround()
+        end
+    end
+end
+
+-- 应用即将切入前台（Android和iOS下均被回调）
+function onAppWillEnterForeground()
+    cclog("onAppWillEnterForeground ")
+    NETWORK_BACKTOFOREGROUND = true
+    if LobbyControl.hall_layer then
+        LobbyControl.hall_layer:checkAppWebData(LobbyControl.checkAppWebData())
+    elseif LobbyControl.getGameLogic() then
+        SetLogic.playBackGroundMusic()
+        require("Lobby/FriendGame/FriendGameLogic").checkAppWebData(LobbyControl.checkAppWebData())
+    end
+end
+
+-- 关闭声音引擎（仅Android下被回调）
+function disableAudioEngine()
+    cclog("disableAudioEngine ")
+    AudioEngine.SetPlayStat(true)
+end
+
+-- 延迟启动声音引擎（仅Android下被回调）
+function onDelayResumAudioEngine()
+    cclog("onDelayResumAudioEngine ")
+    AudioEngine.SetPlayStat(false)
+    if LobbyControl.getGameLogic() then SetLogic.playBackGroundMusic() end
+end
+
+-- 应用已经被激活（仅iOS下被回调）
+onAppDidBecomeActive = onAppWillEnterForeground
+
+return LobbyControl

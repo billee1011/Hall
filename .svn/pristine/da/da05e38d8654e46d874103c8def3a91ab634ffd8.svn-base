@@ -1,0 +1,4219 @@
+require("phz/Game/PaoHuZi_Def")
+local AppConfig = require("AppConfig")
+
+--[[local room = require "script.plaza.room" ;
+local room_match = require "script.plaza.room_match" ;
+local local_tip_ui= require "script.plaza.tip_ui";
+local local_tipex_ui= require "script.plaza.tipex_ui";
+local MusicSet = require("script.public.MusicSet")]]
+
+local CT_ERROR                    = 0                                   --错误类型
+local MSG_BEGIN                   = 100                                --空
+
+--动作定义
+local ACK_NULL                    = 0x00                                --空
+local ACK_TI                      = 0x01                                --提
+local ACK_PAO                     = 0x02                                --跑
+local ACK_WEI                     = 0x04                                --偎
+local ACK_CHI                     = 0x08                                --吃
+local ACK_CHI_EX                  = 0x10                                --优
+local ACK_PENG                    = 0x20                                --碰
+local ACK_CHIHU                   = 0x40                                --胡
+local ACK_ZIMO                    = 0x80                                -- 自摸
+
+--吃牌类型
+local CK_NULL                     = 0x00                                --无效类型
+local CK_XXD                      = 0x01                                --小小大搭
+local CK_XDD                      = 0x02                                --小大大搭
+local CK_EQS                      = 0x04                                --二七十吃
+local CK_LEFT                     = 0x10                                --靠左对齐
+local CK_CENTER                   = 0x20                                --居中对齐
+local CK_RIGHT                    = 0x40                                --靠右对齐
+
+local IDI_START_GAME              = 1                                   --开始定时器
+local IDI_OUT_CARD                = 2                                   --出牌定时器
+local IDI_OPERATE_CARD            = 3                                   --操作定时器
+local IDI_ASSISTANT_TIME          = 4                                   --辅助定时器
+
+local TIME_START_GAME             = 15                                  --开始时间
+local TIME_FIRST_OUT_CARD         = 15                                  --首次出牌时间
+local TIME_OUT_CARD               = 15                                  --出牌时间
+local TIME_OPERATE_CARD           = 15                                  --操作时间
+local TIME_ASSISTANT_TIME         = 15                                  --操作时间
+
+local GENDER_FEMALE=1
+local GENDER_MALE=2
+
+local CATCHCARD_TYPE_SENDCARD       = 1  --发牌
+local CATCHCARD_TYPE_OUTCARD        = 2  --出牌
+local CATCHCARD_TYPE_BADCARD        = 3  --臭牌
+local CATCHCARD_TYPE_INSERTCARD     = 4  --插入牌
+
+local SCOLL_LABEL_TYPE_SYSTEM   = 1     --系统公告   
+local SCOLL_LABEL_TYPE_HORN     = 2     --普通喇叭  
+
+local SOCKET_TYPE_SCENE                 = 1  --场景信息
+local SOCKET_TYPE_GAME                  = 2  --游戏消息
+local SOCKET_TYPE_USEREXIT              = 3  --玩家退出
+local SOCKET_TYPE_FRIENDRULE            = 4  --好友桌规则
+local SOCKET_TYPE_LEAVETABLE            = 5  --玩家离开
+local SOCKET_TYPE_FRIENDABLED           = 6  --好友桌加入
+local SOCKET_TYPE_FRIENDEND             = 7  --好友桌结束
+local SOCKET_TYPE_USERSTATUS            = 8  --玩家状态
+local SOCKET_TYPE_REPLACE               = 9  --玩家退出
+
+local FALSE = 0
+local TRUE = 1
+local DELAY_SPEED = 1
+
+--听牌项
+local ListenCardInfo = 
+    {
+        throw_card_data = 0;                --丢弃牌
+        listen_card_count = 0;              --可听牌数
+        listen_card_data = {0,0,0,0,0};            --可听牌数据[5]
+        remain_card_count = {0,0,0,0,0};           --听牌对应剩余数[5]
+        da_hu = {false,false,false,false,false};                       --胡牌类型  bool[5]
+    };
+
+local enDiscardCardFlag = 
+{
+    enDiscardCardFlag_OutCard = 0;      --出牌类型
+    enDiscardCardFlag_DianPao = 1;      --点炮类型
+    enDiscardCardFlag_ZiMo = 2;         --自摸类型
+};
+
+local GameActionKind = 
+    {
+        GAK_NULL = 0;                                               --空
+        GAK_Sice = 1;                                               --掷色子
+        GAK_StartSendCard = 2;                                      --开局发牌
+        GAK_OutCard = 3;                                            --出牌
+        GAK_SendCard = 4;                                           --发牌
+        GAK_OperateNotify = 5;                                      --提示操作
+        GAK_OperateResult = 6;                                      --操作结果
+        GAK_UserChiHu = 7;                                          --用户吃胡
+        GAK_GameEnd = 8;                                            --结束
+        GAK_BirdCard = 9;                                           --鸟牌
+        GAK_Placeholder = 10;                                       --占位
+    };
+
+local GAME_END_LAYER       =           1211
+local GAME_RULE_LAYER       =           1999 
+
+local that = nil
+
+local GameLogic = class("GameLogic")
+
+GameLogic.message_data                   = {}
+GameLogic.bGetGameRule = false
+GameLogic.temp_data                      = {} 
+
+function GameLogic.isLogicExist()
+    return that ~= nil
+end
+
+function GameLogic:setDelaySpeed(speed)
+    DELAY_SPEED = speed
+    self.actionClass.setActionSpeed(speed)
+    self.GameView.setActionSpeed(speed)
+end
+
+function GameLogic:getInstance()  
+    if that == nil then  
+        GameLogic.create()
+
+        -- 网络处理
+        that:SetRecMsgGameHandler()
+        that:OnReadyGame()        
+    end  
+    return that
+end
+
+function GameLogic:checkGameReturnStatus()
+    if (not self.bShowEnd) and self.bGameEndState == 0 then
+        local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+        local GameLibSink = require("phz/GameLibSink")
+
+        if FriendGameLogic.isRulevalid(100) then
+            if FriendGameLogic.game_used < 1 and self:GetMeStatus() < 4 then
+                GameLibSink.game_lib:sendReadyCmd()
+            end
+        else
+            if not self:IsLookonMode() and self:GetMeStatus() < 4 then
+                GameLibSink.game_lib:sendReadyCmd()
+            end
+        end  
+    else
+        if self.bShowEnd then
+            self:hidePiaoOperator()     
+            self.GameView.Button_Start:setVisible(false)
+        end
+    end
+
+    self.bShowEnd = false
+end
+
+--替换到登录主界面
+function GameLogic:replaceMainScence()
+    require("Lobby/FriendGame/FriendGameLogic").enterGameRoomSuccess()
+
+    local sockdata = require("HallUtils").tableDup(GameLogic.message_data)
+
+    local GameLibSink = require("phz/GameLibSink")
+    --GameLibSink.game_lib:releaseTimer()
+    GameLibSink.game_lib:startCheckPing()
+
+    that.startStatus = 0
+
+    if that and that.main_layer then
+        that.startStatus = 1
+
+        --断线重回
+        if that.bGameEndState > 0 then
+            --重置玩家头像
+            for i=1,GAME_PLAYER_PAOHUZI do
+                that.GameView:SetUserInfo(i, 0, that.m_wServerType)
+                that.GameView:SetFreeSprTagVisible(that.GameView.Sprite_Ready[i], false)
+            end
+
+            that.bIsPiao = {}
+        else
+            --游戏界面重置
+            that.main_layer:removeFromParentAndCleanup(true)
+
+            that:dispose(true)
+            GameLogic:getInstance()
+
+            local scence = CCDirector:sharedDirector():getRunningScene()
+            that.main_layer = that:CreateMainLayer()
+            that.main_layer:setTag(PAOHUZI_TAG_GAME)
+            scence:addChild(that.main_layer)
+
+            that.music:MusicFuc(PAOHUZI_MUSIC_PLAY_BG, nil, nil, nil, nil)
+
+            require("LobbyControl").gameLogic = that            
+        end
+    else
+        GameLogic.loadingCache()
+        self.GameView.initData()
+
+        local scence = CCScene:create()
+        local PaoHuZiMainLayer = that:CreateMainLayer()
+        PaoHuZiMainLayer:setTag(PAOHUZI_TAG_GAME)
+        scence:addChild(PaoHuZiMainLayer)
+
+        CCDirector:sharedDirector():replaceScene(scence)
+        that.music:MusicFuc(PAOHUZI_MUSIC_PLAY_BG, nil, nil, nil, nil)
+
+        require("LobbyControl").gameLogic = that
+        require("LobbyControl").removeHallCache()    
+
+        that.main_layer = PaoHuZiMainLayer
+    end
+
+    that:onUserEnterRoom()
+
+  
+
+    GameLogic.message_data = require("HallUtils").tableDup(sockdata)
+    --GameLibSink.game_lib:startTimer()
+end
+
+function GameLogic:clearSecesTimerScript()
+    if that.realy_timer ~= nil then
+        CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(that.realy_timer)
+        that.realy_timer = nil       
+    end     
+end
+
+function GameLogic:dispose(notReset) 
+    if not that then
+        return
+    end
+
+    that.music:StopAllMusic()
+    that:clearSecesTimerScript()
+
+    if that.main_layer then
+        that.main_layer = nil
+    end
+
+    if not notReset then
+        GameLogic.message_data                   = {}
+        GameLogic.bGetGameRule = false
+        GameLogic.temp_data                      = {}  
+    end
+    that = nil
+end
+
+function GameLogic.create()
+    local GameLogicClass = GameLogic.new()
+    return GameLogicClass
+end
+
+function GameLogic:ctor()
+    self.chair_views = {2, 3, 1}
+    GAME_PLAYER_PAOHUZI                 = 3                                   --游戏人数
+    MAX_COUNT_PAOHUZI                   = 21                                  --最大数目
+    MAX_ABANDON_PAOHUZI                 = 21                                  --最大剩余数目
+    MAX_REMAINCOUNT_PAOHUZI             = 38
+    if AppConfig.APPLESTATU < 2 then
+        --服务器尚未更新
+        MAX_REMAINCOUNT_PAOHUZI = 21
+    end
+
+    if require("Lobby/FriendGame/FriendGameLogic").game_id ~= 15 then
+        self.chair_views = {2, 4, 3, 1}
+
+        GAME_PLAYER_PAOHUZI                 = 4
+        MAX_COUNT_PAOHUZI                   = 15
+        MAX_ABANDON_PAOHUZI                 = 24
+        MAX_REMAINCOUNT_PAOHUZI             = 24
+    end
+    self.max_hand = MAX_COUNT_PAOHUZI
+
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+    self.origin = CCDirector:sharedDirector():getVisibleOrigin()
+    self.schedulerID = nil
+    local viewClass = require ("phz/Game/PaoHuZi_View") 
+    self.GameView = viewClass.create()
+    --权位运算类实例化
+    self.cchiHuRightClass = require("phz/Game/PaoHuZi_CChiHuRight")
+    self.cchiHuRight = self.cchiHuRightClass.create()
+--    
+    --扑克逻辑类对象常量实例化
+    self.logicClass = require("phz/Game/PaoHuZi_Logic")
+    self.logic = self.logicClass.create()
+    --扑克类对象常量实例化
+    local pokerClass = require("phz/Game/PaoHuZi_Poker")
+    self.poker = pokerClass.create()
+    --动作类对象常量实例化
+    self.actionClass = require("phz/Game/PaoHuZi_Action")
+    self.action = self.actionClass.create()
+    --音乐类对象常量实例化
+    self.musicClass = require("phz/Game/PaoHuZi_Music")
+    self.music = self.musicClass.create()
+    --粒子效果
+    self.particleClass = require("phz/Game/Particle_Create")
+    self.particle = self.particleClass.create()
+    --滚动类对象常量实例化
+    self.scollMessageClass = require("phz/Game/Public_ScollMessage")
+    self.scollMessage = self.scollMessageClass.create()
+    
+    --游戏变量
+    self.m_lCellScore                   = 0                     --游戏底分  
+    self.m_bTrustee                     = false                 --托管标志
+
+    self.bAbandonCardsCount                = {0,0,0,0};
+    self.bAbandonCards                     = {{}, {}, {}, {}};
+
+    self.m_bWeaveItemCount              = {};                   --[3]组合数目
+    self.m_WeaveItemArray               = {};                   --[3][7]组合扑克
+    self.m_bUserCardCount               = {};                   --[3]扑克数目
+    self.m_cbCardIndex                  = {};                   --[MAX_INDEX]手中扑克  
+    self.m_cbOutCardData                = 0;                    --出牌扑克
+    self.m_wCurrentUser                 = INVALID_CHAIR;        --当前用户
+    self.m_wBankerUser                  = INVALID_CHAIR;        --庄家用户
+    self.m_bUserHuXiCount               = {};                   --[3]胡息数目
+    self.m_wOutCardUser                 = INVALID_CHAIR;        --出牌用户  
+    self.m_bOutCard                     = false;                --出牌标志
+    self.m_wResumeUser                  = INVALID_CHAIR;        --还原用户
+    self.m_cbChooseCount                = 0;                    --选择数目
+    self.m_cbChiCardKind                = {};                   --[3]吃牌类型
+    
+    self.bLeftCardCount                 = 0                     --剩余牌数
+    self.m_TempChiCardInfo              = {}                    --吃牌信息
+    self.m_ChiCardInfo                  = {}                    --吃牌信息
+    self.m_cbOperateCurrentCard         = 0                     --当前操作牌
+    self.banker_open_card_              = 0                     --庄家开牌
+    self.must_hu_                       = false                 --必胡
+    self.m_wWinnerUser                  = INVALID_CHAIR         --赢家
+    self.cbForbiddenCount               = 0                     --禁止出牌数目
+    self.cbForbiddenCards               = {}                    --禁止出牌数据
+    
+    self.chowCardTableCount             = {}                    --吃牌选择数组
+    self.isChowCardStatus               = false                 --是否选择吃牌状态
+    self.operateCode                    = ACK_NULL              --提示操作
+    self.isStartSendCard                = true                  --是否开始发牌
+    self.chowCardTableData              = {}                    --当前吃牌数组
+    
+    self.m_wTimeOutCount                = 0                     --超时次数
+    self.sendCardDelayTime              = 0                     --发牌延迟时间
+    self.isPlayWaitMusic                = false                 --是否播放等待音乐
+    self.isDelayNoticy                  = false                 --有龙牌、跑、偎时 延迟操作提示
+
+    --临时记录
+    self.m_OperateCard                  = {};                   --操作信息CMD_C_OperateCard
+    
+    self.isAllowOutCard                 = true;                 --是否允许出牌
+    self.userCardCount                  = {0,0,0,0}             --玩家剩余数目
+--    self.userOpeateTypeNum              = {0,0,0,0,0}           --玩家操作提示数目  杠、碰、吃、胡、听
+    self.userOpeateItems                = {}                    --玩家操作数据结构体  杠、碰、吃、胡、听
+    self.userSelectCard                 = 1                     --默认选择吃牌  第一组
+    self.isDialect                      = true                  --是否方言
+    
+    self.gameStatus                     = GS_PLAYING_PAOHUZI
+
+    self.startStatus                    = 0
+    self.bGameEndState                  = 0
+
+    self.realy_timer                    = nil
+
+    self.layer = nil
+    self.main_layer = nil
+
+    self.spTimerBg = nil
+
+    self.switchSysButton                = false                 --系统设置按钮切换
+    self.gameRuleLayer                  = nil                   --规则层
+    self.wChiHuUser                     = INVALID_CHAIR         --吃胡用户
+    
+    self.bIsPiao                        = {}
+    self.gameEndLayerCloseSchedulerID   = nil                   --关闭结算层定时器
+    
+    self.messageBack_funcs              = {}
+    self.socketBack_funcs              = {}
+    self.bShowEnd                      = nil  
+
+    self.user_list                     = {}
+    self.my_chair                      = nil
+
+    that = self
+end
+--初始化视图
+function GameLogic:InitView()
+    --初始化界面
+    --that.GameView:InitView()
+end
+
+--初始化变量
+function GameLogic:InitData()
+    self.isDelayNoticy                  = false                 --有龙牌、跑、偎时 延迟操作提示
+    self.sendCardDelayTime              = 0                     --发牌延迟时间
+    self.m_wTimeOutCount                = 0                     --超时次数
+    self.cbForbiddenCount               = 0                     --禁止出牌数目
+    self.cbForbiddenCards               = {}                    --禁止出牌数据
+    self.isStartSendCard                = true                  --是否开始发牌
+    self.operateCode                    = ACK_NULL              --提示操作
+    self.chowCardTableCount             = {}                    --吃牌选择数组
+    self.isChowCardStatus               = false                 --是否选择吃牌状态
+    --游戏变量
+    self.m_lCellScore                   = 0                     --游戏底分
+--    self.m_bTrustee                     = false                 --托管标志
+    
+    self.bAbandonCardsCount                = {0,0,0,0};
+    self.bAbandonCards                     = {{}, {}, {}, {}};
+
+    self.m_bWeaveItemCount              = {0,0,0,0};                   --[3]组合数目
+    self.m_WeaveItemArray               = {};                   --[3][7]组合扑克
+    self.m_bUserCardCount               = {0,0,0,0};                   --[3]扑克数目
+    self.m_cbCardIndex                  = {};                   --[MAX_INDEX]手中扑克
+    self.m_cbOutCardData                = 0;                    --出牌扑克
+    self.m_wCurrentUser                 = INVALID_CHAIR;        --当前用户
+    self.m_wBankerUser                  = INVALID_CHAIR;        --庄家用户
+    self.m_bUserHuXiCount               = {0,0,0,0};                   --[3]胡息数目
+    self.m_wOutCardUser                 = INVALID_CHAIR;        --出牌用户 
+    self.m_bOutCard                     = false;                --出牌标志
+    self.m_wResumeUser                  = INVALID_CHAIR;        --还原用户
+    self.m_cbChooseCount                = 0;                    --选择数目
+    self.m_cbChiCardKind                = {0,0,0,0};                   --[3]吃牌类型
+
+    self.bLeftCardCount                 = 0                     --剩余牌数
+    
+    for i = 1, MAX_INDEX_PAOHUZI do
+        self.m_cbCardIndex[i] = 0
+    end
+    for i = 1, MAX_INDEX_PAOHUZI do
+        self.m_WeaveItemArray[i]               = {};                
+        for j = 1, 7 do
+            self.m_WeaveItemArray[i][j] = {}
+            self.m_WeaveItemArray[i][j].cbWeaveKind = 0
+            self.m_WeaveItemArray[i][j].cbCardCount = 0
+            self.m_WeaveItemArray[i][j].cbCenterCard = 0
+            self.m_WeaveItemArray[i][j].cbCardList = {0,0,0,0}
+        end
+    end
+    self.m_ChiCardInfo                  = {}                    --吃牌信息
+    for i = 1, 6 do
+        self.m_ChiCardInfo[i] = {}
+        self.m_ChiCardInfo[i].cbChiKind = 0
+        self.m_ChiCardInfo[i].cbCenterCard = 0
+        self.m_ChiCardInfo[i].cbResultCount = 0
+        self.m_ChiCardInfo[i].cbCardData = {}
+        for j = 1, 3 do
+            self.m_ChiCardInfo[i].cbCardData[j] = {0,0,0}
+        end
+
+        self.m_TempChiCardInfo[i] = {}
+        self.m_TempChiCardInfo[i].cbChiKind = 0
+        self.m_TempChiCardInfo[i].cbCenterCard = 0
+        self.m_TempChiCardInfo[i].cbResultCount = 0
+        self.m_TempChiCardInfo[i].cbCardData = {}
+        for j = 1, 3 do
+            self.m_TempChiCardInfo[i].cbCardData[j] = {0,0,0}
+        end        
+    end
+    self.m_cbOperateCurrentCard         = 0                     --当前操作牌
+    self.banker_open_card_              = 0                     --庄家开牌
+    self.must_hu_                       = false                 --必胡
+    self.m_wWinnerUser                  = INVALID_CHAIR         --赢家
+    
+    
+--    self.userOpeateTypeNum              = {0,0,0,0,0}           --玩家操作提示数目  杠、碰、吃、胡、听
+    for i = 1, 5 do
+        self.userOpeateItems[i]    = {}                        --玩家操作数据结构体  杠、碰、吃、胡、听
+    end
+    
+    self.startStatus                    = 0
+    self.bGameEndState                  = 0    
+end
+
+--退出回调事件
+function GameLogic.CloseWindowEx(bIntermet)
+    that:CloseWindow(bIntermet);
+end
+
+--退出按钮回调事件 --
+function GameLogic:CloseWindow(bIntermet)
+
+    --判断场景
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then 
+        cclog("scene nil ")
+        return;
+    end
+    local UILayer = scene:getChildByTag(PAOHUZI_TAG_GAME);
+    if nil == UILayer then 
+        print("UILayer nil "); 
+        return;
+    end
+
+    that.bIntermet=bIntermet
+
+    --退出按钮触发事件{
+    --确定退出
+    local function OnYesFun(  )
+
+        --删除界面
+        local_tipex_ui.OnCloseFun();
+
+        --结算界面 规则界面
+        that:CloseGameEndLayer()
+        that:CloseGameRuleLayer()
+        --删除界面
+        local scene = CCDirector:sharedDirector():getRunningScene() ;
+        if nil == scene then cclog("scene nil ")end
+        local UILayer = scene:getChildByTag(PAOHUZI_TAG_GAME);
+        if nil == UILayer then print("UILayer nil "); 
+        else UILayer:removeFromParentAndCleanup(true) end
+
+        --比赛判断
+        if(that:IsMatchGame())then
+
+            --退出比赛
+            FGameDC:getDC():MatchQuit();
+        end
+
+        --清理接口
+        --FGameDC:getDC():SetRecMsgGameHandler(function () end,true);
+        --FGameDC:getDC():CloseGameFinish();
+
+        --删除音乐
+        that.music:StopAllMusic()
+
+        --显示房间
+        if(that:IsMatchGame())then
+            local str=FGameDC:getDC():IsCanQuit();
+            if(that.bIntermet~=true and str=="")then
+                room_match.OnExitUI(true);
+            else
+                room_match.OnReturnFuc();
+            end
+        else
+            if(IsDebug())then
+                room.OnExitUI(true);
+            else
+                room.OnReturnFuc();
+            end
+        end
+    end
+
+    --询问退出
+    local str=FGameDC:getDC():IsCanQuit();
+    if(""~=str and (bIntermet==nil or bIntermet==false))then
+
+        --询问切换
+        local_tipex_ui.PopupTipExUI(OnYesFun,nil,str,1);
+
+    else
+        OnYesFun();
+    end
+
+end
+-------------------定时器begin----------------------------
+--定时器
+function GameLogic:scheduleEx( callback, delay)
+    local tb  = CCArray:create()
+    tb:addObject(CCDelayTime:create(delay))
+    tb:addObject(CCCallFunc:create(callback))
+
+    local sequence = CCSequence:create(tb)
+
+    local action = CCRepeatForever:create(sequence)
+    self.GameView.Sprite_RemainCardBg:runAction(action)
+    return action
+end
+
+--定时器(一次性)
+function GameLogic:performWithDelayEx(callback, delay)
+--    self.GameView.Sprite_Dqpm:stopAllActions()
+    local tb  = CCArray:create()
+    tb:addObject(CCDelayTime:create(delay))
+    tb:addObject(CCCallFunc:create(callback))
+
+    local sequence = CCSequence:create(tb)
+    self.GameView.Sprite_Dqpm:runAction(sequence)
+    return sequence
+end
+
+function GameLogic:performWithDelayExs(callbacks, delays)
+--    self.GameView.Sprite_Dqpm:stopAllActions()
+    local tb  = CCArray:create()
+    for i,callback in ipairs(callbacks) do
+        tb:addObject(CCDelayTime:create(delays[i]))
+        tb:addObject(CCCallFunc:create(callback))
+    end
+
+    local sequence = CCSequence:create(tb)
+    self.GameView.Sprite_Dqpm:runAction(sequence)
+    return sequence
+end
+
+--定时器响应
+function GameLogic:OnUpdateTimer()
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+
+    --条件判断
+    if(self.wLeftCount<=0 and FriendGameLogic.game_type ~= 0)then
+        self:KillGameTimer(self.wTimerChairID);
+        return;
+    end
+    if self.wLeftCount<=4 and self.wLeftCount > 0 then
+        if self.wTimerChairID == 2 then
+            --播放音乐
+            self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_TIME_UP,nil,nil,nil)
+            require("Lobby/Set/SetLogic").playGameShake(100)            
+        end
+    end
+    --累加次数
+    self.wLeftCount=self.wLeftCount-1;
+    local leftCount = self.wLeftCount
+    if self.wLeftCount <= 0 and FriendGameLogic.game_type == 0 then
+        self.wLeftCount = 0
+        leftCount = 1
+    end
+
+    --更新界面
+    self.GameView:SetUserLeftTimer(self.wTimerChairID,self.wLeftCount);
+    --通知判断
+    self:OnTimerMessage(self.wTimerChairID,leftCount,self.wUserTimerID);
+end
+
+--时间消息
+function GameLogic:OnTimerMessage(wChairID, nElapse, nTimerID)
+
+end
+
+--删除时间
+function GameLogic:KillGameTimer(wTimerChairID)
+    --更新界面
+    self.GameView:SetUserLeftTimer(wTimerChairID,-1);
+    --设置变量
+    self.wTimerChairID=0;
+    self.wUserTimerID=0;
+    self.wLeftCount = 0;
+--    if self.particleNode~=nil then
+--        self.particleNode:removeFromParentAndCleanup(true)
+--        self.particleNode = nil
+--    end
+    --删除时间
+    self.GameView.Sprite_RemainCardBg:stopAllActions();
+end
+
+--设置时间
+function GameLogic:SetGameTimer(wChairID,wUserTimerID,wUserTimerCount)
+
+    --删除时间 
+    self.GameView.Sprite_RemainCardBg:stopAllActions();
+
+    --判断参数
+    if(wUserTimerCount<=0 or not wChairID)then
+        return;
+    end
+
+    --设置变量
+    self.wTimerChairID=wChairID;
+    self.wUserTimerID=wUserTimerID;
+    self.wLeftCount = wUserTimerCount;
+    
+    --粒子动画
+    local tempParticle,tempParticleNode1 = self.particle:CreateParticleCircleProgress(self.GameView.Sprite_Time[wChairID] , 20 , ccp(36,36) , 33 , wUserTimerCount ,  "phz/images/paticle1.png")
+    self.particleNode = tempParticleNode1;
+    --更新界面
+    self.GameView:SetUserLeftTimer(self.wTimerChairID,self.wLeftCount);
+
+    --设置定时器
+    self:scheduleEx(function() self:OnUpdateTimer() end, 1)
+end
+
+--托管
+function GameLogic:OnTrustee(trustee,time_out)
+    --重置次数
+    if (not time_out) then self.m_wTimeOutCount=0; end
+    
+    --FGameDC:getDC():SendUserTrusteeship(not self.m_bTrustee)
+end
+
+
+-------------------定时器end------------------------------
+-------------------------------------------按钮事件  begin---------------------------------------
+
+--聊天按钮事件
+function GameLogic:OnTalkFunc(event)
+    --显示判断
+    --that.ChatFrame:ShowWin(not that.ChatFrame:isVisible())
+end
+
+--退出按钮事件
+function GameLogic:OnExitFunc(event)
+    that:returnToLobby()
+    -- that:CloseWindow();
+end
+--解散按钮事件
+function GameLogic:OnDismissFunc(event)
+    local super = CCDirector:sharedDirector():getRunningScene()
+    require("Lobby/FriendGame/FriendGameLogic").showDismissTipDlg(
+        super,200,require("phz/GameLibSink"))
+end
+
+--方言复选框按钮事件
+function GameLogic:OnDialectFunc(event)
+    --that.isDialect = not that.isDialect
+    --that.GameView:SetDialectTip(that.isDialect)
+end
+--托管复选框按钮事件
+function GameLogic:OnEntrustFunc(event)
+    print("OnEntrustFunc")
+    --that.m_wTimeOutCount=0;
+    --FGameDC:getDC():SendUserTrusteeship(not that.m_bTrustee)
+end
+--取消托管
+function GameLogic:OnCanelEntrustFunc(event)
+    print("OnCanelEntrustFunc")
+    --that.m_wTimeOutCount=0;
+    --FGameDC:getDC():SendUserTrusteeship(not that.m_bTrustee)
+end
+
+function GameLogic:OnReadyGame()
+    --轮询准备，防止准备失败
+    local pDirector = CCDirector:sharedDirector()
+    that.realy_timer = that.realy_timer or pDirector:getScheduler():scheduleScriptFunc(
+    function() 
+        if that and that.realy_timer then
+            self:onGetSocketData() 
+        end
+    end,0.03,false)    
+end
+
+--开始按钮事件
+function GameLogic:OnStartFunc(event)
+    --cc2file("OnStartFunc "..getTickCount())
+    that:CloseGameEndLayer()
+
+    --去掉臭庄
+    that.GameView:HideBadGameTip()
+
+    --初始化吃碰杠数组
+    that.poker:InitData()
+    --重置界面节点
+    that.GameView:ResetNodeStatus()
+
+    
+    if that.DeskResult then 
+        that.DeskResult:SetLayerVisible(true) 
+    elseif require("Lobby/FriendGame/FriendGameLogic").isRulevalid(100) then
+        that:onPiaoOperator(5)
+        that.GameView.Button_Start:setVisible(false)
+    else
+        require("phz/GameLibSink").game_lib:sendReadyCmd()
+
+        --删除定时器
+        that:KillGameTimer(-1)
+    end    
+end
+
+--返回按钮事件
+function GameLogic:OnReturntFunc(event)
+    if that.gameEnd then
+        that.GameView.Button_Start:setPositionX(640)
+        that.GameView.Button_Start:setVisible(true)
+        that.GameView.Button_Return:setVisible(false)
+        that.gameEnd:SetLayerVisible(true)
+    end   
+end
+
+--返回按钮事件
+function GameLogic:OnLookFunc(event)
+    that.GameView.Button_Start:setPositionX(640 + 140)
+    that.GameView.Button_Start:setVisible(true)
+    that.GameView.Button_Return:setPositionX(640 - 140)
+    that.GameView.Button_Return:setVisible(true)
+
+    that.gameEnd:SetLayerVisible(false)  
+end
+
+function GameLogic:OnChangeDeskFunc(event)
+    --清理接口
+    FGameDC:getDC():CloseGameFinish();
+
+    --设置分配
+    if(self.m_wServerType ~= GAME_GENRE_MATCH)then
+            room.SetPlayGameTimer();
+    end
+    --重置界面节点
+    that.GameView:ResetNodeStatus()
+    
+    that.GameView.Button_Start:setVisible(false)
+end
+
+--邀请按钮事件
+function GameLogic:OnInviteFunc(event)
+    --微信好友
+    local msg, titile, roominfo = require("phz/LayerDeskRule").getInviteMsg()
+    local now, all = that:getPlayeCount()
+    if now > 0 then 
+        local tipMsgs = {"一", "二", "三", "四",}
+        titile = titile.."，"..tipMsgs[now].."缺"..tipMsgs[(all - now)] 
+    end
+
+    local url = AppConfig.WXMsg.App_Url..roominfo
+    CJni:shareJni():shareWxWeb(1, url, titile, msg, function() end)    
+end
+
+--胡牌按钮事件
+function GameLogic:OnWinFunc(event)
+    print("OnWinFunc")
+    that:OnCardOperate(ACK_CHIHU)
+end
+--碰牌按钮事件
+function GameLogic:OnPongFunc(event)
+    print("OnPongFunc")
+    that:OnCardOperate(ACK_PENG)
+end
+--吃牌按钮事件
+function GameLogic:OnChowFunc(event)
+    print("OnChowFunc")
+    that.GameView:SetBtnBg(false)
+    that.GameView:SetCardsItemBgVisible(true)
+    that.isChowCardStatus = true                 --是否选择吃牌状态
+end
+--取消按钮事件
+function GameLogic:OnGiveUpFunc(event)
+    print("OnGiveUpFunc")
+    that:OnCardOperate(ACK_NULL)
+    that.GameView:ClearAllCardsItem(that.chowCardTableCount)
+    that.chowCardTableCount = {}
+end
+
+--继续比赛按钮事件
+function GameLogic:OnContinueMacthFunc(event)
+
+end
+
+--结算层返回按钮事件
+function GameLogic:OnCloseFunc(event)
+    print("OnCloseFunc_PAOHUZI")
+    if not that.isPlayWaitMusic then
+        that.isPlayWaitMusic = true                 --是否播放等待音乐
+        --播放等待音乐
+        that.music:MusicFuc(PAOHUZI_MUSIC_PLAY_WAIT, nil, nil, nil, nil)
+    end
+    --删除结算界面 、定时器
+    that:CloseGameEndLayer()
+
+    if that.DeskResult then that.DeskResult:SetLayerVisible(true) end
+end
+
+function GameLogic:OnPiaoFunc(index)
+    local socres = {0, 5}
+    that:sendPiao(1, socres[index])
+
+    require("phz/GameLibSink").game_lib:sendReadyCmd()
+end
+
+
+-------------------------------------------按钮事件  end  ---------------------------------------
+--
+--------------------------------------------------场景UI设置begin----------------------------------
+--场景设置   空闲状态
+function GameLogic:SetMainLayerUI_Free(pBuffer)
+    cclog("场景空闲状态")
+    --设置游戏状态
+    self:SetGameStatus(GS_FREE_PAOHUZI);
+    
+    self.m_lCellScore = pBuffer.lCellScore
+    --设置游戏信息
+    self.GameView:SetBaseScore(self.m_lCellScore);
+    --设置开始游戏定时器
+    if(not self:IsLookonMode() and GAME_GENRE_MATCH ~= self:GetGameGenre()) then
+    
+        self:SetGameTimer(ME_CHAIRID_PAOHUZI,IDI_START_GAME, TIME_START_GAME);
+        --开始按钮
+        --self.GameView.Button_Start:setVisible(true)
+        --self.GameView.Button_ChangeDesk:setVisible(true)
+    end
+    
+end
+
+--场景设置  游戏状态
+function GameLogic:SetMainLayerUI_Playing(pBuffer)
+    cclog("场景游戏状态::")
+    --效验数据
+    local me_chair_id = self:GetMeChairID();
+
+    --设置状态
+    self:SetGameStatus(GS_PLAYING_PAOHUZI);
+    --设置游戏信息
+    self.GameView:SetBaseScore(pBuffer.lCellScore);
+    --庄家设置
+    self.GameView:SetBankerUser(self:SwitchViewChairID(pBuffer.wBankerUser),false)
+
+    --不能打出去的牌
+    for i=0,MAX_COUNT_PAOHUZI-1 do
+        local card = pBuffer.cbForbiddenCards[i]
+        if card > 0 then
+            table.insert(self.cbForbiddenCards, card)
+            self.cbForbiddenCount = self.cbForbiddenCount + 1
+        end
+    end
+
+    --设置变量
+    self.m_lCellScore = pBuffer.lCellScore
+    self.m_wBankerUser = pBuffer.wBankerUser;
+    self.m_wCurrentUser = pBuffer.wCurrentUser;
+    self.m_wOutCardUser = pBuffer.wOutCardUser;
+    self.m_cbOutCardData = pBuffer.cbOutCardData;
+    self.m_bOutCard = (pBuffer.bOutCard==TRUE) and true or false;
+    
+    PaoHuZi_CopyMemoryEx(self.m_cbCardIndex, pBuffer.cbCardIndex, MAX_INDEX_PAOHUZI);
+    PaoHuZi_CopyMemoryEx(self.m_bUserCardCount, pBuffer.bUserCardCount, GAME_PLAYER_PAOHUZI);
+    PaoHuZi_CopyMemoryEx(self.m_bWeaveItemCount, pBuffer.bWeaveItemCount, GAME_PLAYER_PAOHUZI);
+    
+    for i = 1 , GAME_PLAYER_PAOHUZI do
+        for j = 1 , 7 do
+            self.m_WeaveItemArray[i][j].cbWeaveKind = pBuffer.WeaveItemArray[i-1][j-1][0]
+            self.m_WeaveItemArray[i][j].cbCardCount = pBuffer.WeaveItemArray[i-1][j-1][1]
+            self.m_WeaveItemArray[i][j].cbCenterCard = pBuffer.WeaveItemArray[i-1][j-1][2]
+            PaoHuZi_CopyMemory(self.m_WeaveItemArray[i][j].cbCardList, pBuffer.WeaveItemArray[i-1][j-1][3], 4);
+        end
+    end  
+    --胡息信息
+    for i = 0 , GAME_PLAYER_PAOHUZI - 1 do
+        --设置胡息
+        self.m_bUserHuXiCount[i+1] = 0;
+
+        --胡息计算
+        for j = 0 , self.m_bWeaveItemCount[i+1] - 1 do
+            self.m_bUserHuXiCount[i+1] = self.m_bUserHuXiCount[i+1] + self.logic:GetWeaveHuXi1(self.m_WeaveItemArray[i+1][j+1]);
+        end
+    end
+    --扑克信息
+    local cbCardData = {}  --[MAX_COUNT];
+    local cbCardCount = self.logic:SwitchToCardData3(self.m_cbCardIndex, cbCardData, MAX_COUNT_PAOHUZI);
+
+    --设置界面 显示扑克牌堆
+    self.GameView:SetBackCards(pBuffer.bLeftCardCount,true);
+    self.bLeftCardCount = pBuffer.bLeftCardCount
+    
+    --设置手牌
+    local bTempData = {}
+    self:CopyMemoryZ(bTempData, cbCardData, cbCardCount)    
+    local handCardList, listCount = self:resetHandCard(cbCardCount, bTempData)
+
+    --出牌界面
+    if self.m_cbOutCardData~=0 then
+        if (self.m_wOutCardUser~=INVALID_CHAIR) then
+            --显示出牌
+            local outCardViewChairID  = self:SwitchViewChairID(self.m_wOutCardUser)
+
+            --动作
+            local cardSp = that.poker:GetCatchCard(that.GameView.Node_CatchCard, self.m_cbOutCardData)
+            self:CardLightEffect()
+            cardSp:setPosition(that.action.getCatchPosition(outCardViewChairID))
+        elseif self.m_wCurrentUser~=INVALID_CHAIR and not self.m_bOutCard then
+            --发牌
+            local sendViewChairID = self:SwitchViewChairID(self.m_wCurrentUser)
+
+            --动作
+            local cardSp = that.poker:GetCatchCard(that.GameView.Node_CatchCard, self.m_cbOutCardData)
+            cardSp:setPosition(that.action.getCatchPosition(sendViewChairID))
+        end
+    end
+    
+    --游戏界面
+    for i = 0, GAME_PLAYER_PAOHUZI - 1 do
+        --变量定义
+        local wViewChairID = self:SwitchViewChairID(i);
+
+        --设置胡息
+        self.GameView:SetHuXiCount(wViewChairID,self.m_bUserHuXiCount[i+1]);
+
+        --组合界面
+        for j=0, self.m_bWeaveItemCount[i+1] - 1 do
+            local data
+            if (self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_TI) then
+                data = {self.m_WeaveItemArray[i+1][j+1].cbCardList[1],0,0,0};
+            elseif (self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_WEI) then
+                data = {self.m_WeaveItemArray[i+1][j+1].cbCardList[1],0,0};          
+            else
+                if self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_CHI then
+                    self:ReplaceChowCard(self.m_WeaveItemArray[i+1][j+1].cbCardList, self.m_WeaveItemArray[i+1][j+1].cbCenterCard)
+                end
+                data = self.m_WeaveItemArray[i+1][j+1].cbCardList
+            end
+
+            --生成操作的牌
+            local weave = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+                data, self.m_WeaveItemArray[i+1][j+1].cbCardCount, wViewChairID)  
+            if self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_CHI then
+                --吃牌添加标识
+                SetPokerColor(weave[1] , ccc3(191,191,191))
+            end        
+        end
+
+        local tempAbandonCards = {}
+        PaoHuZi_CopyMemoryEx(tempAbandonCards, pBuffer.bAbandonCards[i], pBuffer.bAbandonCardsCount[i])
+        --丢弃牌
+        self.poker:GetBadCard(self.GameView.Node_BadCard[wViewChairID], tempAbandonCards, pBuffer.bAbandonCardsCount[i], wViewChairID)
+    end
+    
+    --动作界面
+    if ((pBuffer.bUserAction~=ACK_NULL) and (pBuffer.bResponse==FALSE) and (self:IsLookonMode()==false)) then
+    
+        self:SetGameTimer(self:SwitchViewChairID(self:GetMeChairID()),IDI_OPERATE_CARD, TIME_OPERATE_CARD);
+        
+        self.m_cbOperateCurrentCard = pBuffer.cbOutCardData
+        
+        self:OperateControl(pBuffer.bUserAction, self.m_cbOutCardData, pBuffer.bMustHu)
+    end
+
+    --设置时间
+    if (self.m_wCurrentUser~=INVALID_CHAIR) then
+        if (self.m_bOutCard==true) then
+            self:SetGameTimer(self:SwitchViewChairID(self.m_wCurrentUser), IDI_OUT_CARD, TIME_OUT_CARD);
+            if ((self:IsLookonMode()==false) and (self:GetMeChairID()==(self.m_wCurrentUser)))  then
+                --出牌提示
+                self.GameView:SetOutCardTip(self.particle , true)
+            end
+        
+        elseif (self:GetMeChairID()==(self.m_wCurrentUser)) and (self:IsLookonMode()==false) then
+            --require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_CONTINUE_CARD_PAOHUZI, "", 0)
+        end
+    end
+
+        --[[local Temp={}
+        Temp.wOutCardUser           = 1
+        Temp.wActionUser            = 1
+        Temp.cbActionCard           = 0x18
+        that:OnSubUserWeiCard(Temp)
+
+        local Temp={}
+        Temp.wOutCardUser           = 2
+        Temp.wActionUser            = 2
+        Temp.cbActionCard           = 0x18
+        Temp.cbRemoveCount          = 0
+        Temp.bTimes                 = 1
+        that:OnSubUserTiCard(Temp)]]
+    local ba = require("ByteArray").new()
+    ba:writeUByte(self.bLeftCardCount)
+    ba:setPos(1)
+    require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_CONTINUE_CARD_PAOHUZI, ba:getBuf(), ba:getLen())
+end
+
+--回放场景设置
+function GameLogic:onSceneMessage(sceneData)
+    that:CloseGameEndLayer()
+
+    --去掉臭庄
+    that.GameView:HideBadGameTip()
+
+    --初始化吃碰杠数组
+    that.poker:InitData()
+
+    --重置界面节点
+    that.GameView:ResetNodeStatus()
+
+    that:KillGameTimer(-1)
+
+    local HallUtils = require("HallUtils")
+
+    self:InitData()
+
+    --效验数据
+    local me_chair_id = self:GetMeChairID();
+
+    --设置状态
+    self:SetGameStatus(GS_PLAYING_PAOHUZI);
+    --设置游戏信息
+    self.GameView:SetBaseScore(sceneData.lCellScore);
+    --庄家设置
+    self.GameView:SetBankerUser(self:SwitchViewChairID(sceneData.wBankerUser),false)
+    
+    --设置变量
+    self.m_lCellScore = sceneData.lCellScore
+    self.m_wBankerUser = sceneData.wBankerUser;
+    self.m_wCurrentUser = sceneData.wCurrentUser;
+    self.m_wOutCardUser = sceneData.wOutCardUser;
+    self.m_cbOutCardData = sceneData.cbOutCardData;
+    self.m_bOutCard = (sceneData.bOutCard==TRUE) and true or false;
+    
+    self.m_cbCardIndex = HallUtils.tableDup(sceneData.cbCardIndex)
+    self.m_bUserCardCount = HallUtils.tableDup(sceneData.bUserCardCount)
+    self.m_bWeaveItemCount = HallUtils.tableDup(sceneData.bWeaveItemCount)
+    self.m_WeaveItemArray = HallUtils.tableDup(sceneData.WeaveItemArray)
+ 
+    --胡息信息
+    for i = 0 , GAME_PLAYER_PAOHUZI - 1 do
+        --设置胡息
+        self.m_bUserHuXiCount[i+1] = 0;
+        --胡息计算
+        for j = 0, self.m_bWeaveItemCount[i+1] - 1 do
+            self.m_bUserHuXiCount[i+1] = self.m_bUserHuXiCount[i+1] + self.logic:GetWeaveHuXi1(self.m_WeaveItemArray[i+1][j+1]);
+        end
+    end
+
+    --扑克信息
+    local cbCardData = {}
+    local cbCardCount = self.logic:SwitchToCardData3(self.m_cbCardIndex, cbCardData , MAX_COUNT_PAOHUZI);
+
+    --设置界面 显示扑克牌堆
+    self.GameView:SetBackCards(sceneData.bLeftCardCount,true);
+    self.bLeftCardCount = sceneData.bLeftCardCount
+    --设置手牌
+    local bTempData = {}
+    self:CopyMemoryZ(bTempData, cbCardData, cbCardCount)    
+    local handCardList, listCount = self:resetHandCard(cbCardCount, bTempData)
+
+    --出牌界面
+    if self.m_cbOutCardData~=0 then
+        if (self.m_wOutCardUser~=INVALID_CHAIR) then
+            --显示出牌
+            local outCardViewChairID  = self:SwitchViewChairID(self.m_wOutCardUser)
+            self.poker:GetCard(self.GameView.Node_CatchCard, {self.m_cbOutCardData}, 1, nil, outCardViewChairID ,CATCHCARD_TYPE_OUTCARD)
+            --牌发光
+            self:CardLightEffect()
+            --动作
+            self.action:SetCatchCardAction(self.GameView.Node_CatchCard, nil , outCardViewChairID, CATCHCARD_TYPE_OUTCARD)
+        elseif self.m_wCurrentUser~=INVALID_CHAIR then
+            --发牌
+            local sendViewChairID = self:SwitchViewChairID(self.m_wCurrentUser)
+            self.poker:GetCard(self.GameView.Node_CatchCard, {self.m_cbOutCardData}, 1, nil, sendViewChairID ,CATCHCARD_TYPE_SENDCARD)
+            --动作
+            self.action:SetCatchCardAction(self.GameView.Node_CatchCard , nil , sendViewChairID , CATCHCARD_TYPE_SENDCARD)    
+        end
+    end
+    
+    --游戏界面
+    for i = 0, GAME_PLAYER_PAOHUZI - 1 do
+        --变量定义
+        local wViewChairID = self:SwitchViewChairID(i);
+
+        --设置胡息
+        self.GameView:SetHuXiCount(wViewChairID,self.m_bUserHuXiCount[i+1]);
+    
+        --用户扑克
+        if ((i)~=self:GetMeChairID()) then
+        
+--            client_view_->SetOtherUserHandCards(model()->SwitchViewChairID(i),
+--                pStatusPlay->bUserCardCount[i]);
+        end
+
+        --组合界面
+        for j=0, self.m_bWeaveItemCount[i+1] - 1 do
+            local data
+            if (self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_TI) then
+                data = {self.m_WeaveItemArray[i+1][j+1].cbCardList[1],0,0,0};
+            elseif (self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_WEI) then
+                data = {self.m_WeaveItemArray[i+1][j+1].cbCardList[1],0,0};          
+            else
+                if self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_CHI then
+                    self:ReplaceChowCard(self.m_WeaveItemArray[i+1][j+1].cbCardList, self.m_WeaveItemArray[i+1][j+1].cbCenterCard)
+                end
+                data = self.m_WeaveItemArray[i+1][j+1].cbCardList
+            end
+
+            --生成操作的牌
+            local weave = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+                data, self.m_WeaveItemArray[i+1][j+1].cbCardCount, wViewChairID)
+          if self.m_WeaveItemArray[i+1][j+1].cbWeaveKind == ACK_CHI then
+                --吃牌添加标识
+                SetPokerColor(weave[1] , ccc3(191,191,191))
+            end                         
+        end
+        --丢弃牌
+        self.poker:GetBadCard(self.GameView.Node_BadCard[wViewChairID], sceneData.bAbandonCards[i + 1], sceneData.bAbandonCardsCount[i + 1], wViewChairID)
+--        client_view_->ResetDiscardCards(wViewChairID, pStatusPlay->bAbandonCards[i], pStatusPlay->bAbandonCardsCount[i]);
+    end
+end
+
+--------------------------------------------------场景设置UIend----------------------------------
+--游戏场景
+function GameLogic:OnGameSceneMessage( cbGameStation, pBuffer )
+    cclog("场景："..cbGameStation)
+    --变量初始化
+    self:InitData()
+    --[[if (GAME_GENRE_MATCH == FGameDC:getDC():GetGameGenre()) then
+        self.GameView.Sprite_Dqpm:setVisible(true)
+    end]]
+    --空闲状态
+    if(GS_FREE_PAOHUZI==cbGameStation)then
+        --that.isPlayWaitMusic = true                 --是否播放等待音乐
+        --播放等待音乐
+        --self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_WAIT, nil, nil, nil, nil)
+--        --播放背景音乐
+--        self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_BG, nil, nil, nil, nil)
+        self:SetMainLayerUI_Free(pBuffer)
+        return true;
+    --游戏状态
+    elseif(GS_PLAYING_PAOHUZI==cbGameStation)then
+        self:SetMainLayerUI_Playing(pBuffer)
+        return true;
+    end
+    return false;
+end
+
+--------------------------------------------------消息事件 begin -------------------------------------------------------
+---------------消息处理
+--游戏开始
+function GameLogic:OnSubGameStart(pBuffer)  
+    cclog("OnSubGameStart")
+    --停止等待音乐
+    self.music:StopEffectsMusic()
+    that.isPlayWaitMusic = false                 --是否播放等待音乐
+
+    --消息处理控制
+    self.msg_processing_ = true;
+    -- 龙的次数
+    self.m_long_times    = 0;
+    -- 跑的次数
+    self.m_pao_times     = 0;
+    --设置游戏状态
+    self:SetGameStatus(GS_PLAYING_PAOHUZI);
+    self:KillGameTimer(-1);
+
+    --变量初始化
+    self:InitData()
+    --初始化吃碰杠数组
+    self.poker:InitData()
+    --重置界面节点
+    if (false) then --GAME_GENRE_MATCH == FGameDC:getDC():GetGameGenre()v
+        self.GameView:ResetNodeStatus()
+        self.GameView.Sprite_Dqpm:setVisible(true)
+    end
+
+    --数据赋值
+    self.m_wCurrentUser = pBuffer.wCurrentUser
+    self.m_wBankerUser = pBuffer.wBankerUser
+    self.banker_open_card_ = pBuffer.cbBankerCard
+    for i=0, GAME_PLAYER_PAOHUZI-1 do
+        self.m_bUserCardCount[i+1] = (i == self.m_wBankerUser and self.max_hand or (self.max_hand - 1));
+    end
+    
+    --庄家设置
+    self.GameView:SetBankerUser(self:SwitchViewChairID(pBuffer.wBankerUser),false)
+    
+    --启动洗牌动画
+    self.GameView:SetBackCards(80, true)
+    self.action:SetSendCardAction(self.GameView.Sprite_RemainCardBg, self.GameView.AtlasLabel_RemainCardCount,
+        (self.max_hand-1)*GAME_PLAYER_PAOHUZI, self.m_wCurrentUser, self.chair_views, true)
+
+    self.bLeftCardCount = 80 - (self.max_hand-1)*GAME_PLAYER_PAOHUZI
+    
+    --初始化手牌
+    local meCardCount = self.m_bUserCardCount[self:GetMeChairID() + 1]
+    local handCardList, listCount = self:resetHandCard(meCardCount, pBuffer.cbCardData, true)
+
+    --手牌动画
+    that:StartCardAction(that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI], handCardList, listCount)
+    --发牌音效
+    self.music:PlaySendCardMusic()
+
+    --设置准备图片
+    self.GameView:SetFreeSprTagVisible(nil,false)
+    --分桌提示
+    self.GameView.Sprite_TipWait:setVisible(false)  --分桌提示
+    
+    local sendViewChairID = self:SwitchViewChairID(self.m_wCurrentUser)
+    local bankerViewChairID = self:SwitchViewChairID(self.m_wBankerUser)
+
+    --发送最后一张牌
+    local function SendCardBack1()
+        self.bLeftCardCount = self.bLeftCardCount - 1
+
+        --剩余牌数
+        self.GameView:SetBackCards(self.bLeftCardCount, false)
+
+        --动作
+        self.poker:GetCatchCard(self.GameView.Node_CatchCard, pBuffer.cbBankerCard)
+        self.action:SetGetCardAction(self.GameView.Node_CatchCard, bankerViewChairID)
+
+        --播放音乐
+        self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_SENDCARD, 0, 0, 0, 0)
+        
+        --设置定时器
+        self:SetGameTimer(sendViewChairID,IDI_OUT_CARD, TIME_FIRST_OUT_CARD)
+    end
+    --self:performWithDelayEx(SendCardBack1, 1 * DELAY_SPEED);
+    --插入牌
+    local function SendCardBack2()
+        --插入动作
+        self.action:SetInsertCardAction(self.GameView.Node_CatchCard, bankerViewChairID,
+                function()
+                    local myChair = self:GetMeChairID()
+                    --庄家重置手牌
+                    if self.m_wBankerUser == myChair then
+                        self:resetHandCard(meCardCount, pBuffer.cbCardData)
+                    end
+                    
+                    self.main_layer:setTouchEnabled(true)
+
+                    if (self.m_wCurrentUser == myChair) then
+                        self.m_bOutCard=true
+                        self.GameView:SetOutCardTip(self.particle, true, true)
+                    end
+
+                    self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+                    self:resumeSocketConnect()
+                end)
+
+        --播放音乐
+        self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_SORT_CARD, 0, 0, 0, 0)
+        
+        self.isStartSendCard = false
+    end
+
+    --self:performWithDelayEx(SendCardBack2, 2 * DELAY_SPEED);
+    
+    self:pauseSocketConnect()
+    self.main_layer:setTouchEnabled(false)
+    self:performWithDelayExs({SendCardBack1, SendCardBack2}, {2 * DELAY_SPEED, 2 * DELAY_SPEED})
+
+    
+    return 1
+end
+
+--用户提牌
+function GameLogic:OnSubUserTiCard(pBuffer)  
+    cclog("OnSubUserTiCard")
+    local wMeChairID = self:GetMeChairID()
+
+
+    self.msg_processing_ = true    
+    self.isDelayNoticy = false                 --有龙牌、跑、偎时 延迟操作提示
+    local wChairID = pBuffer.wActionUser;
+    local cbCardData = pBuffer.cbActionCard;
+    local cbRemoveCount = pBuffer.cbRemoveCount;
+    
+    --明跑判断
+    local bExistWeave = false
+    local cbIndex = 0
+    while cbIndex<self.m_bWeaveItemCount[wChairID+1] do
+        --变量定义
+        local cbWeaveKind = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind;
+        local cbWeaveCard = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1];
+
+        --明跑判断
+        if ((cbCardData==cbWeaveCard) and ((cbWeaveKind==ACK_PENG) or (cbWeaveKind==ACK_WEI)))  then
+            bExistWeave=true
+            break
+        end
+        cbIndex = cbIndex + 1
+    end
+
+    --扑克数目
+    self.m_bUserCardCount[wChairID+1] = self.m_bUserCardCount[wChairID+1] - cbRemoveCount;
+
+    --扑克数据
+    if ((wChairID)==wMeChairID) then
+        local cbCardList = {cbCardData,cbCardData,cbCardData,cbCardData}
+        self.logic:RemoveCard3(self.m_cbCardIndex,cbCardList,cbRemoveCount)
+        self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],cbCardList,cbRemoveCount)
+    end
+
+    --设置组合 
+    if (bExistWeave==false) then self.m_bWeaveItemCount[wChairID+1] = self.m_bWeaveItemCount[wChairID+1] + 1; end
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount = 4;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind = ACK_TI;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCenterCard = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[1+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[2+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[3+1] = cbCardData;
+
+    --更新胡息
+    self:UpdateUserHuXiCount(wChairID);
+
+    local wViewChairID = self:SwitchViewChairID(wChairID);
+
+    --组合界面 : 垄牌也是只亮最上面一张
+    local cardData = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1]
+    local data = {cardData, 0,0,0};
+
+    self:pauseSocketConnect()
+    --牌
+    local weaveCard, bUpdata = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+            data, 4, wViewChairID, cbIndex)
+
+    local wViewOutChair     --打出牌位置
+    --删除抓牌、防止起手龙
+    if self.m_cbOutCardData == cardData then
+        --删除定时器
+        self:KillGameTimer(-1)
+
+        --设置界面
+        self.GameView:SetOutCardTip(self.particle, false)
+
+        --删除抓牌
+        self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+
+        --设置变量
+        self.m_cbOutCardData = 0
+        self.m_wOutCardUser = INVALID_CHAIR
+
+        wViewOutChair = wViewChairID
+    end
+
+    --动作
+    self.action:SetOperateCardAction({weaveCard}, wViewChairID, wViewChairID, function()
+        self:PlayActionFlv(ACK_TI, wChairID, pBuffer.bTimes) end, function() 
+            self.GameView:SetHuXiCount(wViewChairID, self.m_bUserHuXiCount[wChairID+1]);
+            self:resumeSocketConnect() 
+        end, bUpdata)
+    
+    return 1
+end
+--发送扑克
+function GameLogic:OnSubSendCard(pBuffer)  
+    --删除定时器
+    self:KillGameTimer(-1);
+    --剩余数
+    self.bLeftCardCount = self.bLeftCardCount - 1
+    local function SendCardCallBack()
+        local function SendCardBack()
+            --剩余牌数
+            self.GameView:SetBackCards(self.bLeftCardCount,false)
+            --发牌
+            local sendViewChairID = self:SwitchViewChairID(pBuffer.wAttachUser)
+            --播放音乐
+            self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_SENDCARD, 0, 0, 0, 0)
+
+            --动作
+            that.poker:GetCatchCard(that.GameView.Node_CatchCard, pBuffer.cbCardData)
+            that.action:SetGetCardAction(that.GameView.Node_CatchCard, sendViewChairID)
+
+            --延时显示手牌
+            self:performWithDelayEx(function()
+                self:resumeSocketConnect()
+            end, 1)            
+        end
+
+        --玩家弃牌
+        if (self.m_wOutCardUser ~= INVALID_CHAIR) then
+            local wViewChairID = self:SwitchViewChairID(self.m_wOutCardUser)
+
+            self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+            --臭牌
+            that.poker:GetBadCard(that.GameView.Node_BadCard[wViewChairID], {self.m_cbOutCardData}, 1, wViewChairID)
+            --动作
+            that.action:SetBadCardAction(that.GameView.Node_BadCard[wViewChairID], wViewChairID)
+
+            --播放音乐
+            self:PlayMusic(PAOHUZI_MUSIC_PLAY_OUT_CARD, 0, pBuffer.cbCardData, pBuffer.wAttachUser)
+            self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_SORT_CARD, 0, 0, 0, 0)
+
+            self.bAbandonCardsCount[self.m_wOutCardUser + 1] = self.bAbandonCardsCount[self.m_wOutCardUser + 1] + 1
+            table.insert(self.bAbandonCards[self.m_wOutCardUser + 1], self.m_cbOutCardData)
+        end   
+
+        SendCardBack()
+
+        ----发牌信息
+        self.m_wOutCardUser = pBuffer.wAttachUser;
+        self.m_cbOutCardData = pBuffer.cbCardData;
+    
+    end
+
+    self:pauseSocketConnect()
+    SendCardCallBack()
+    --[[if self.isDelayNoticy then
+        self:performWithDelayEx(SendCardCallBack, 1 * DELAY_SPEED);
+    else
+        SendCardCallBack()
+    end]]
+
+    return 1;
+end
+--更新胡息
+function GameLogic:UpdateUserHuXiCount(wChairID)
+    --胡息计算
+    local bUserHuXiCount = 0;
+    for i = 0 , self.m_bWeaveItemCount[wChairID+1] - 1 do
+        bUserHuXiCount = bUserHuXiCount + self.logic:GetWeaveHuXi1(self.m_WeaveItemArray[wChairID+1][i+1]);
+    end
+
+    --设置胡息
+    self.m_bUserHuXiCount[wChairID+1] = bUserHuXiCount;
+
+    return true
+end
+
+--用户跑牌
+function GameLogic:OnSubUserPaoCard(pBuffer)  
+    cclog("OnSubUserPaoCard");
+    local wMeChairID = self:GetMeChairID();
+    
+    self.msg_processing_ = true
+    self.isDelayNoticy = false                 --有龙牌、跑、偎时 延迟操作提示
+    local wChairID = pBuffer.wActionUser;
+    local cbCardData = pBuffer.cbActionCard;
+    local cbRemoveCount = pBuffer.cbRemoveCount;
+
+    --明跑判断
+    local bExistWeave = false;
+    local cbIndex = 0;
+    while cbIndex<self.m_bWeaveItemCount[wChairID+1] do
+        --变量定义
+        local cbWeaveKind = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind;
+        local cbWeaveCard = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1];
+
+        --明跑判断
+        if ((cbCardData==cbWeaveCard) and ((cbWeaveKind==ACK_PENG) or (cbWeaveKind==ACK_WEI))) then
+        
+            bExistWeave=true;
+            break;
+        end
+        cbIndex = cbIndex + 1
+    end
+
+    --扑克数目
+    self.m_bUserCardCount[wChairID+1] = self.m_bUserCardCount[wChairID+1] - cbRemoveCount;
+
+    --扑克数据
+    if ((bExistWeave==false) and ((wChairID)== wMeChairID)) then
+    
+        local cbCardList = {cbCardData,cbCardData,cbCardData};
+        self.logic:RemoveCard3(self.m_cbCardIndex , cbCardList , cbRemoveCount);
+        self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],cbCardList,cbRemoveCount)
+    end
+
+    --设置组合
+    if (bExistWeave==false) then self.m_bWeaveItemCount[wChairID+1] = self.m_bWeaveItemCount[wChairID+1] + 1; end
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount = 4;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind = ACK_PAO;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCenterCard = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[1+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[2+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[3+1] = cbCardData;
+
+    --更新胡息
+    self:UpdateUserHuXiCount(wChairID);
+
+    --删除定时器
+    self:KillGameTimer(-1);
+
+    local wViewChairID = self:SwitchViewChairID(wChairID);
+
+    --设置变量
+    self.m_cbOutCardData = 0;
+    self.m_wOutCardUser = INVALID_CHAIR;
+
+    --设置界面
+    self.GameView:SetOutCardTip(self.particle, false)
+
+    self:pauseSocketConnect()
+    --牌
+    local cardDatas = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList
+    local cardCount = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount
+    local weaveCard, bUpdata = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+        cardDatas, cardCount, wViewChairID, cbIndex)
+
+    --动作
+    local outViewChairID = self:SwitchViewChairID(pBuffer.wOutCardUser)
+    self.action:SetOperateCardAction({weaveCard}, outViewChairID, wViewChairID, function()
+        self:PlayActionFlv(ACK_PAO, wChairID, pBuffer.bTimes) end, function() 
+            self.GameView:SetHuXiCount(wViewChairID, self.m_bUserHuXiCount[wChairID+1]);
+            self:resumeSocketConnect() 
+        end, bUpdata)
+
+    --删除抓牌
+    self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+
+    return 1
+end
+--用户偎牌
+function GameLogic:OnSubUserWeiCard(pBuffer)  
+    cclog("OnSubUserWeiCard");
+    local wMeChairID = self:GetMeChairID();
+
+    self.msg_processing_ = true;
+    self.isDelayNoticy = true                 --有龙牌、跑、偎时 延迟操作提示
+
+    local wChairID = pBuffer.wActionUser;
+    local cbCardData = pBuffer.cbActionCard;
+    
+    --扑克数目
+    self.m_bUserCardCount[wChairID+1] = self.m_bUserCardCount[wChairID+1] - 2;
+
+    --扑克数据
+    if ((wChairID)==wMeChairID) then
+    
+        local cbCardList = {cbCardData,cbCardData};
+        self.logic:RemoveCard3(self.m_cbCardIndex , cbCardList , 2);
+        self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],cbCardList,2)
+    end
+
+    --设置组合
+    local cbIndex = self.m_bWeaveItemCount[wChairID+1];
+    self.m_bWeaveItemCount[wChairID+1] = self.m_bWeaveItemCount[wChairID+1] + 1
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount = 3;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind = ACK_WEI;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCenterCard = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[1+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[2+1] = cbCardData;
+
+    --更新胡息
+    self:UpdateUserHuXiCount(wChairID);
+
+    --删除定时器
+    self:KillGameTimer(-1);
+    
+    local wViewChairID = self:SwitchViewChairID(wChairID);
+
+    local data  = {self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1],0,0};
+
+    --出牌信息
+    self.m_cbOutCardData = 0;
+    self.m_wOutCardUser = INVALID_CHAIR;
+
+    --界面设置
+    self.GameView:SetOutCardTip(self.particle, false)
+
+    self:pauseSocketConnect()
+    self.isDelayNoticy = false
+    local cardCount = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount
+    local weaveCard = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+        data, cardCount, wViewChairID)
+    
+    --动作
+    self.action:SetOperateCardAction({weaveCard}, wViewChairID, wViewChairID, function()
+        self:PlayActionFlv(ACK_WEI, wChairID) end, function() 
+            self.GameView:SetHuXiCount(wViewChairID, self.m_bUserHuXiCount[wChairID+1]);
+            self:resumeSocketConnect() 
+        end)
+
+
+    --删除抓牌
+    self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+
+    return 1
+end
+--用户碰牌
+function GameLogic:OnSubUserPengCard(pBuffer)  
+    cclog("OnSubUserPengCard");
+    local wMeChairID = self:GetMeChairID();
+
+    self.msg_processing_ = true;
+    self.isChowCardStatus = false
+
+    local wChairID = pBuffer.wActionUser;
+    local cbCardData = pBuffer.cbActionCard;
+
+    --扑克数目
+    self.m_bUserCardCount[wChairID+1] = self.m_bUserCardCount[wChairID+1] - 2;
+
+    --扑克数据
+    if ((wChairID)==wMeChairID) then
+    
+        local cbCardList = {cbCardData,cbCardData};
+        self.logic:RemoveCard3(self.m_cbCardIndex , cbCardList , 2);
+        self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],cbCardList,2)
+    end
+
+    --删除定时器
+    self:KillGameTimer(-1);
+
+    --设置组合
+    local cbIndex = self.m_bWeaveItemCount[wChairID+1];
+    self.m_bWeaveItemCount[wChairID+1] = self.m_bWeaveItemCount[wChairID+1] + 1
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount = 3;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind = ACK_PENG;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCenterCard = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[1+1] = cbCardData;
+    self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[2+1] = cbCardData;
+
+    --更新胡息
+    self:UpdateUserHuXiCount(wChairID);
+
+    local wViewChairID = self:SwitchViewChairID(wChairID)
+
+    --出牌信息
+    self.m_cbOutCardData = 0;
+    self.m_wOutCardUser = INVALID_CHAIR;
+
+    --设置界面
+    self.GameView:SetOutCardTip(self.particle , false)
+    
+    local cardDatas = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList
+    local cardCount = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount
+    local weaveCard = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+        cardDatas, cardCount, wViewChairID)
+    
+    --动作
+    local outViewChairID = self:SwitchViewChairID(pBuffer.wOutCardUser)
+    self.action:SetOperateCardAction({weaveCard}, outViewChairID, wViewChairID, function()
+        self:PlayActionFlv(ACK_PENG, wChairID) end, function() 
+        end)
+
+
+    --删除抓牌
+    self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+
+    --界面处理
+    self.GameView:SetBtnBg(false)
+    self.GameView:ClearAllCardsItem(self.chowCardTableCount)
+    
+    self.GameView:SetHuXiCount(wViewChairID, self.m_bUserHuXiCount[wChairID+1]) 
+
+    return 1
+end
+--用户吃牌
+function GameLogic:OnSubUserChiCard(pBuffer)  
+    cclog("OnSubUserChiCard");
+    local wMeChairID = self:GetMeChairID();
+    self.isChowCardStatus = false
+
+    self.msg_processing_ = true;
+
+    local wChairID = pBuffer.wActionUser;
+    local cbCardData = pBuffer.cbActionCard;
+    local cbResultCount = pBuffer.cbResultCount;
+    local cbChiCardKind = {};
+    PaoHuZi_CopyMemoryEx(cbChiCardKind , pBuffer.cbChiCardKind , cbResultCount)
+
+    --变量定义
+    local cbChiCardData = {{},{},{}};
+    local cbFirstIndex = self.m_bWeaveItemCount[wChairID+1];
+
+    --扑克数目
+    self.m_bUserCardCount[wChairID+1] = self.m_bUserCardCount[wChairID+1] - cbResultCount*3-1;
+    local data = {}
+    --设置组合
+    for k = 0 , cbResultCount - 1 do
+        --变量定义
+        local cbIndex = self.m_bWeaveItemCount[wChairID+1];
+        self.m_bWeaveItemCount[wChairID+1] = self.m_bWeaveItemCount[wChairID+1] + 1
+        self.logic:GetChiCardData(cbChiCardKind[k+1],cbCardData,cbChiCardData[k+1]);
+
+        --设置组合
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount = 3;
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbWeaveKind = ACK_CHI;
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCenterCard = cbCardData;
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[0+1] = cbChiCardData[k+1][0+1];
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[1+1] = cbChiCardData[k+1][1+1];
+        self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardList[2+1] = cbChiCardData[k+1][2+1];
+        
+        data[k+1] = cbChiCardData[k+1]
+        --把吃牌放第一张
+        self:ReplaceChowCard(data[k+1],cbCardData)
+    end
+
+    --删除定时器
+    self:KillGameTimer(-1);
+
+    --更新胡息
+    self:UpdateUserHuXiCount(wChairID);
+
+    --删除扑克
+    if ((wChairID)==wMeChairID) then
+        
+        local tempCardData = {}
+        local cbDebarCard = cbCardData;
+        for k = 0 , cbResultCount - 1 do
+            for l = 0 , 2 do
+            
+                local cbRemoveCard = cbChiCardData[k+1][l+1];
+                if (cbRemoveCard==cbDebarCard) then 
+                    cbDebarCard = 0;
+                else 
+                    self.m_cbCardIndex[self.logic:SwitchToCardIndex1(cbRemoveCard)+1] = self.m_cbCardIndex[self.logic:SwitchToCardIndex1(cbRemoveCard)+1] - 1;
+                    tempCardData[table.getn(tempCardData)+1] = cbRemoveCard
+                end
+            end
+        end
+        self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],tempCardData,table.getn(tempCardData))
+    end
+
+    local cbIndex = cbFirstIndex;
+    local wViewChairID = self:SwitchViewChairID(wChairID);
+
+    --出牌信息
+    self.m_cbOutCardData = 0;
+    self.m_wOutCardUser = INVALID_CHAIR;
+
+    --组合界面
+    local cbUserHuXi = 0;
+    for i = 0 , cbResultCount - 1 do
+        cbUserHuXi = cbUserHuXi + self.logic:GetWeaveHuXi1(self.m_WeaveItemArray[wChairID+1][cbIndex+i+1]);
+        
+        local data = {};  --[3]
+        PaoHuZi_CopyMemory(data, self.m_WeaveItemArray[wChairID+1][cbIndex + i+1].cbCardList, 3);
+        --调整扑克
+        for j = 1, 3 - 1 do
+        
+            if (data[j+1] == self.m_WeaveItemArray[wChairID+1][cbIndex + i + 1].cbCenterCard) then
+            
+                data[j+1] = data[0+1];
+                data[0+1] = self.m_WeaveItemArray[wChairID+1][cbIndex + i + 1].cbCenterCard;
+            end
+        end
+    end
+
+    --删除准备
+    local cbRemoveCount = 0;
+    local cbRemoveCard = {}  --[MAX_COUNT];
+    local cbDebarCard = cbCardData;
+    for j = 0, cbResultCount - 1 do
+        for l = 0, 3 - 1 do
+        
+            local cbCurrentCard = cbChiCardData[j+1][l+1];
+            if (cbCurrentCard==cbDebarCard) then
+                cbDebarCard = 0;
+            else 
+                cbRemoveCard[cbRemoveCount+1] = cbCurrentCard;
+                cbRemoveCount = cbRemoveCount + 1
+            end
+        end
+    end
+
+    -- 界面设置
+    self.GameView:SetOutCardTip(self.particle, false)
+
+    local weaves = {}
+    for i=1, cbResultCount do  --有几组吃牌
+        local cardCount = self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount
+        local weaveCard = self.poker:GetOperatorCard(self.GameView.Node_OperateCard[wViewChairID], 
+            data[i], cardCount, wViewChairID)
+        table.insert(weaves, weaveCard)
+    end
+    --动作
+    local outViewChairID = self:SwitchViewChairID(pBuffer.wOutCardUser)
+    self.action:SetOperateCardAction(weaves, outViewChairID, wViewChairID, function()
+        self:PlayActionFlv(ACK_CHI, wChairID) end, function() 
+            --将吃牌首张设为选中状态
+            for i,v in ipairs(weaves) do
+                SetPokerColor(v[1] , ccc3(191,191,191))
+            end
+        end)
+    --删除抓牌
+    self.poker:RemoveAllCardData(self.GameView.Node_CatchCard)
+
+    --界面处理
+    self.GameView:SetBtnBg(false)
+    self.GameView:ClearAllCardsItem(self.chowCardTableCount)
+
+    self.GameView:SetHuXiCount(wViewChairID, self.m_bUserHuXiCount[wChairID+1]);
+
+
+    return data, self.m_WeaveItemArray[wChairID+1][cbIndex+1].cbCardCount
+end
+--操作提示
+function GameLogic:OnSubOperateNotify(pBuffer)  
+    cclog("OnSubOperateNotify");
+    local wMeChairID = self:GetMeChairID();
+
+    self.m_bOutCard = false;
+    self.m_wCurrentUser = INVALID_CHAIR;
+    self.m_wResumeUser = pBuffer.wResumeUser;
+
+    local function NotifyCallBack()
+    
+        --用户界面
+        if ((self:IsLookonMode()==false) and (pBuffer.cbOperateCode~=ACK_NULL)) then
+        
+            --获取变量
+            local cbOperateCode = pBuffer.cbOperateCode;
+            local cbCurrentCard = pBuffer.cbActionCard;
+            self.m_cbOperateCurrentCard = pBuffer.cbActionCard;
+            self.operateCode = cbOperateCode              --提示操作
+            --设置界面
+            
+            
+            --设置定时器
+            self:SetGameTimer(ME_CHAIRID_PAOHUZI,IDI_OPERATE_CARD,TIME_OPERATE_CARD);
+            --操作控制
+            self.must_hu_ = (pBuffer.bMustHu and (self.cchiHuRight:And(cbOperateCode,ACK_CHIHU)~=0));
+            -- 控制了吃牌去显示内容
+            self:OperateControl(cbOperateCode, cbCurrentCard, self.must_hu_);
+    
+            --必须胡牌(修改：2016.01.16，必须胡也由玩家自己点击)
+    --        self.GameView:SetOutCardTip(false, false);
+            self.GameView:SetOutCardTip(self.particle , false)
+        else 
+    --        self.GameView:SetOutCardTip(false, true);
+            self.operateCode = ACK_NULL
+            self.GameView:SetOutCardTip(self.particle , false)
+        end
+    end
+    NotifyCallBack()
+
+    return 1;
+end
+--出牌提示
+function GameLogic:OnSubOutCardNotify(pBuffer)  
+    cclog("OnSubOutCardNotify出牌提示出牌提示出牌提示出牌提示出牌提示");
+
+    return 1;
+end
+
+--出牌提示
+function GameLogic:OnSubOutCardNotifyMobile(pBuffer)  
+    local wMeChairID = self:GetMeChairID();
+    
+    self.cbForbiddenCount               = 0                     --禁止出牌数目
+    self.cbForbiddenCards               = {}                    --禁止出牌数据
+    
+    local function OutCardNotifyCallBack()
+        self.cbForbiddenCount = pBuffer.cbForbiddenCount                     --禁止出牌数目
+        PaoHuZi_CopyMemoryEx(self.cbForbiddenCards , pBuffer.cbForbiddenCards , MAX_COUNT_PAOHUZI)
+        cclog("OutCardNotifyCallBack "..self.cbForbiddenCount)
+
+        --删除定时器
+        self:KillGameTimer(-1);
+    
+        --设置变量
+        self.m_bOutCard = false;
+        self.m_wCurrentUser = pBuffer.wCurrentUser;
+    
+        --设置界面
+        if ((pBuffer.bOutCard==TRUE) and ((self.m_wCurrentUser)==wMeChairID) and (self:IsLookonMode()==false)) then
+            self.m_bOutCard=true;
+            self.GameView:SetOutCardTip(self.particle , true)
+        else
+            self.GameView:SetOutCardTip(self.particle , false)
+        end
+        --设置时间
+        if (pBuffer.bOutCard==FALSE) then
+            if (((self.m_wCurrentUser)==wMeChairID) and (self:IsLookonMode()==false)) then
+                --发送消息 默认1副
+                --require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_CONTINUE_CARD_PAOHUZI, "", 0)
+            else
+                --cclog("核心错误！444444444")
+            end
+        else 
+            self:SetGameTimer(self:SwitchViewChairID(self.m_wCurrentUser),IDI_OUT_CARD,TIME_OUT_CARD);
+        end
+
+        self:resumeSocketConnect()
+    end
+
+    self:pauseSocketConnect()
+    if self.isStartSendCard then
+        self:performWithDelayEx(OutCardNotifyCallBack, 2 * DELAY_SPEED);
+    else
+        if self.isDelayNoticy then
+            self:performWithDelayEx(OutCardNotifyCallBack, 2 * DELAY_SPEED);
+        else
+            self:performWithDelayEx(OutCardNotifyCallBack, 0.5 * DELAY_SPEED);
+        end
+    end
+
+    return 1;
+end
+--出牌消息
+function GameLogic:OnSubOutCard(pBuffer)  
+    local wMeChairID = self:GetMeChairID()
+
+    --定时器
+    self:KillGameTimer(-1);
+    
+    --设置变量
+    self.m_bOutCard      = false;
+    self.m_wCurrentUser  = INVALID_CHAIR;
+    self.m_wOutCardUser  = pBuffer.wOutCardUser
+    self.m_cbOutCardData = pBuffer.cbOutCardData
+
+    --界面设置
+    if (wMeChairID ~= (self.m_wOutCardUser) or self:IsLookonMode()) then
+        --删除扑克
+        self.m_bUserCardCount[self.m_wOutCardUser+1] = self.m_bUserCardCount[self.m_wOutCardUser+1] - 1;
+        if (wMeChairID==(self.m_wOutCardUser)) then
+            self.logic:RemoveCard2(self.m_cbCardIndex,self.m_cbOutCardData)
+            self.poker:RemoveOutCard(self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],{self.m_cbOutCardData},1)
+        end
+
+        --设置扑克
+        local cbRemoveCard = {self.m_cbOutCardData}
+
+        --显示出牌
+        local outCardViewChairID  = self:SwitchViewChairID(self.m_wOutCardUser)
+
+        --播放出牌声音
+        self:PlayMusic(PAOHUZI_MUSIC_PLAY_OUT_CARD,0, self.m_cbOutCardData, self.m_wOutCardUser)
+
+        --打牌动画
+        that.poker:GetCatchCard(that.GameView.Node_CatchCard, self.m_cbOutCardData)
+        that.action:SetOutCardAction(that.GameView.Node_CatchCard, nil, outCardViewChairID, 
+            function() self:CardLightEffect() end)        
+    end
+
+    --延时显示手牌
+    self:performWithDelayEx(function()
+        self:resumeSocketConnect()
+    end, 1) 
+    self:pauseSocketConnect()
+
+    return 1
+end
+
+--游戏结束
+function GameLogic:OnSubGameEnd(pBuffer)  
+    --删除定时器
+    self:KillGameTimer(-1)
+
+    local wMeChairID = self:GetMeChairID()
+    
+    self.msg_processing_ = true;
+    self.isChowCardStatus = false
+    
+    --界面处理
+    self.GameView:SetBtnBg(false)
+    self.GameView:ClearAllCardsItem(self.chowCardTableCount)
+
+    --游戏定时器
+    self:KillGameTimer(-1);
+
+    --设置变量
+    self.m_bOutCard = false;
+    self.m_wBankerUser = INVALID_CHAIR;
+
+    --设置界面
+    self.GameView:SetOutCardTip(self.particle , false)
+
+    --结算框
+    local m_ScoreViewInfo = {}
+    --胜利信息
+    m_ScoreViewInfo.bZiMo  = false
+    m_ScoreViewInfo.cbHuCard = 0
+    m_ScoreViewInfo.bBestHuCard = {}
+    for i=0,3 do
+        if pBuffer.bBestHuCard[i] > 0 then
+            table.insert(m_ScoreViewInfo.bBestHuCard, pBuffer.bBestHuCard[i])
+        end
+    end
+
+    m_ScoreViewInfo.wWinUser = INVALID_CHAIR
+    m_ScoreViewInfo.wProvideUser = INVALID_CHAIR
+    m_ScoreViewInfo.bZhahu = {false,false,false}
+    m_ScoreViewInfo.lGameScore = {}
+    m_ScoreViewInfo.lPiaoScore = {}    
+    m_ScoreViewInfo.lTotoalScore = {}
+
+    m_ScoreViewInfo.szUserName = {}
+    m_ScoreViewInfo.cbFaceID = {}
+    m_ScoreViewInfo.lScore = {}
+    m_ScoreViewInfo.wMeChairID = wMeChairID
+    m_ScoreViewInfo.logoSprite = {}
+    --成绩变量
+    m_ScoreViewInfo.lGameTax = 0
+    --用户信息
+
+    m_ScoreViewInfo.nUserID = {}
+
+    for i = 1, GAME_PLAYER_PAOHUZI do
+        local pUserData=self:GetUserByChair(i-1)
+        if pBuffer.lSocre then
+            --游戏中
+            m_ScoreViewInfo.cbFaceID[i] = pBuffer.cbSex[i]
+            m_ScoreViewInfo.szUserName[i] = pBuffer.szUserName[i]
+            m_ScoreViewInfo.nUserID[i] = pBuffer.nUserID[i]
+            m_ScoreViewInfo.lScore[i] = pBuffer.lSocre[i]
+        else
+            local viewChairId = self:SwitchViewChairID(i-1)
+            local sprite = that.GameView:GetUserInfo(viewChairId)
+            m_ScoreViewInfo.logoSprite[i] = sprite
+
+            m_ScoreViewInfo.cbFaceID[i] = 1
+            m_ScoreViewInfo.szUserName[i] = pUserData._name
+            m_ScoreViewInfo.lScore[i] = pUserData._score + pBuffer.lTotalScore[i-1]
+        end      
+    end
+
+    for i = 1, GAME_PLAYER_PAOHUZI do
+        m_ScoreViewInfo.lGameScore[i] = pBuffer.lGameScore[i-1]           --积分 
+        m_ScoreViewInfo.lPiaoScore[i] = pBuffer.lPiaoScore[i-1]           --飘分
+        m_ScoreViewInfo.lTotoalScore[i] = pBuffer.lTotalScore[i-1]        --总分    
+    end
+    --胡牌信息
+    m_ScoreViewInfo.huXiCount = {}
+    m_ScoreViewInfo.HuCardInfo = {}
+    m_ScoreViewInfo.HuCardInfo.cbCardEye = pBuffer.HuCardInfo.cbCardEye
+    m_ScoreViewInfo.HuCardInfo.cbHuXiCount = pBuffer.HuCardInfo.cbHuXiCount
+    m_ScoreViewInfo.HuCardInfo.cbTunCount = pBuffer.HuCardInfo.cbTunCount
+    m_ScoreViewInfo.HuCardInfo.cbTianHu = pBuffer.HuCardInfo.cbTianHu
+
+    m_ScoreViewInfo.HuCardInfo.cbWeaveCount = pBuffer.HuCardInfo.cbWeaveCount
+    m_ScoreViewInfo.HuCardInfo.WeaveItemArray = {}
+
+    for i = 1,  pBuffer.HuCardInfo.cbWeaveCount do
+        m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i] = {}
+        m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbWeaveKind = pBuffer.HuCardInfo.WeaveItemArray[i-1].cbWeaveKind
+
+        m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardCount = pBuffer.HuCardInfo.WeaveItemArray[i-1].cbCardCount
+        m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCenterCard = pBuffer.HuCardInfo.WeaveItemArray[i-1].cbCenterCard
+        m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardList = {}
+        PaoHuZi_CopyMemory(m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardList, pBuffer.HuCardInfo.WeaveItemArray[i-1].cbCardList , 4)
+    end
+    PaoHuZi_CopyMemoryEx(m_ScoreViewInfo.bZhahu , pBuffer.bZhahu , GAME_PLAYER_PAOHUZI)
+
+    --结束信息
+    m_ScoreViewInfo.bZiMo = pBuffer.bZiMo;
+    m_ScoreViewInfo.lGameTax = pBuffer.lGameTax;
+    m_ScoreViewInfo.wWinUser = pBuffer.wWinUser;
+    m_ScoreViewInfo.wProvideUser = pBuffer.wProvideUser;
+    --剩余扑克
+    m_ScoreViewInfo.bRemainCount = pBuffer.bRemainCount
+    m_ScoreViewInfo.bRemainCards = {}
+    PaoHuZi_CopyMemoryEx(m_ScoreViewInfo.bRemainCards, pBuffer.bRemainCards, MAX_REMAINCOUNT_PAOHUZI)
+    
+    local function GameEndCallBack()  
+        --结束信息显示
+        local showscore = true;
+        local need_timer = true;
+        if pBuffer.cbReason==1 or pBuffer.cbReason==2 then  -- 1游戏解散   2用户强退
+            m_ScoreViewInfo.cbHuCard = pBuffer.cbHuCard
+        elseif pBuffer.cbReason==0 then  -- 0常规结束
+        
+            if (pBuffer.wWinUser~=INVALID_CHAIR) then
+                m_ScoreViewInfo.cbHuCard = pBuffer.cbHuCard;
+                
+                --获取胡息  最后一组为对子
+                local tempWeaveNum = 0
+                for i = 1 , m_ScoreViewInfo.HuCardInfo.cbWeaveCount do
+                    if m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardCount>0 then
+                        tempWeaveNum = tempWeaveNum + 1 
+                        local huxiCount = self.logic:GetWeaveHuXi1(m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i])
+                        m_ScoreViewInfo.huXiCount[tempWeaveNum] = huxiCount
+                    end
+                end
+
+                local function ShowEndInfoCallBack()
+                    --音乐
+                    self:PlayMusic(PAOHUZI_MUSIC_PLAY_GAME_LAYER,0,0,0)
+                    --显示成绩  打开结算框
+                    local gameEndClass = require("phz/Game/PaoHuZi_GameEndLayer")
+                    that.gameEnd = nil
+
+                    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+                    local lMeScore = m_ScoreViewInfo.lGameScore[wMeChairID + 1]
+                    if FriendGameLogic.game_type == 1 then
+                        --练习场
+                        that.gameEnd = gameEndClass.create(self.OnCloseFunc, self.CloseGameEndLayer, lMeScore>0)
+                    else
+                        that.gameEnd = gameEndClass.create(nil, self.OnStartFunc, self.OnLookFunc, lMeScore>0)
+                    end
+                    --传递参数
+                    that.gameEnd:ShowGameEndData(m_ScoreViewInfo, self.poker, GAME_PLAYER_PAOHUZI)
+
+                    if FriendGameLogic.isRulevalid(100) then
+                        --添加飘
+                        that.gameEnd:addPiaoMark(that.bIsPiao, m_ScoreViewInfo.lPiaoScore, m_ScoreViewInfo.wWinUser)
+                        that.bIsPiao = {}
+                        that.GameView:SetPiaoSprTagVisible(nil, false)                        
+                    end
+
+                    self.GameView.Button_Start:setPositionX(640)
+                    self.GameView.Button_Start:setVisible(true)
+                    self:resumeSocketConnect()
+                end
+    
+                self:performWithDelayEx(ShowEndInfoCallBack, 2 * DELAY_SPEED);
+            else 
+            
+                --设置荒庄标志
+                self:PlayChouZhuang()
+                self.GameView.Button_Start:setPositionX(640)
+                self.GameView.Button_Start:setVisible(true)
+                -- 显示分数
+                showscore = true;
+            end
+        end
+    
+        -- 开启胡牌动画
+        -- 等待设定动画
+        if(INVALID_CHAIR    ~= pBuffer.wWinUser) then
+            -- 保存赢家
+            self.m_wWinnerUser   = pBuffer.wWinUser;
+        end       
+    end
+
+    --胡牌动画
+    local function PlayActionFlvCallBack()
+        if pBuffer.wWinUser~=INVALID_CHAIR then
+            local cbTianHu = Bit:_and(m_ScoreViewInfo.HuCardInfo.cbTianHu, 0x0F)
+            if m_ScoreViewInfo.bZiMo then
+                self:PlayActionFlv(ACK_ZIMO, pBuffer.wWinUser, nil, cbTianHu)
+            else
+                self:PlayActionFlv(ACK_CHIHU, pBuffer.wWinUser, nil, 
+                    cbTianHu, INVALID_CHAIR ~= pBuffer.wProvideUser)
+            end
+        end
+    end
+
+    --显示手牌
+    local function ShowHandCardBack()
+        --音乐
+        self:PlayMusic(PAOHUZI_MUSIC_PLAY_HANDCARD,0,0,0)
+
+        for i=1, GAME_PLAYER_PAOHUZI do
+            if i ~= 2 then
+                self.GameView.Sprite_HandCardBg1[i]:setVisible(false)
+                self.GameView.Node_HandCard[i]:removeAllChildrenWithCleanup(true)
+            end
+        end      
+
+        --显示玩家手牌
+        for i = 0 , GAME_PLAYER_PAOHUZI - 1 do
+            local view_id = self:SwitchViewChairID(i);
+            if ((i) ~= self:GetMeChairID()) then
+                local handCardData = {}
+                PaoHuZi_CopyMemoryEx(handCardData , pBuffer.bCardData[i] , pBuffer.bCardCount[i])
+                local handCardList,listCount = self.logic:GetHandCardList(handCardData, pBuffer.bCardCount[i])
+                self.poker:GetOtherHandCard(self.GameView.Node_HandCard[view_id], handCardList, pBuffer.bCardCount[i])
+            end
+        end
+        self.GameView:ShowHandCard(true, GAME_PLAYER_PAOHUZI) 
+    end
+    
+    --播放胜利失败音乐
+    local function PlayEndMusicBack()
+        if m_ScoreViewInfo.lGameScore[wMeChairID + 1]>0 then
+            --音乐
+            self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_GAME_WIN,0,0,0)
+        elseif m_ScoreViewInfo.lGameScore[wMeChairID + 1]<0 then
+            --音乐
+            self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_GAME_LOST,0,0,0)
+        end
+    end
+
+    --胡牌操作
+    if pBuffer.wWinUser~=INVALID_CHAIR then
+        local winUserViewChairId = self:SwitchViewChairID(pBuffer.wWinUser)
+        self:pauseSocketConnect()
+
+        function playGameResult( )
+            PlayEndMusicBack()            
+
+            --剩余底牌
+            self.poker:GetGameBackCard(self.GameView.Node_RemainBackCard, m_ScoreViewInfo.bRemainCards, m_ScoreViewInfo.bRemainCount)
+            --动作
+            self:PlayEndCardAction(self.GameView.Node_RemainBackCard, m_ScoreViewInfo.bRemainCount, 
+                    function()
+                        ShowHandCardBack()
+                        self:performWithDelayEx(GameEndCallBack, 1.5)
+                     end)            
+        end
+
+        if not m_ScoreViewInfo.bZiMo and INVALID_CHAIR ~= pBuffer.wProvideUser then
+            self:PlayWinCardAction(winUserViewChairId, playGameResult, PlayActionFlvCallBack, 
+                function()
+                    self:PlayActionFlv(nil, pBuffer.wProvideUser, nil) --放炮动画  
+                end)
+        else
+            self:PlayWinCardAction(winUserViewChairId, playGameResult, PlayActionFlvCallBack)
+        end
+    else  
+        --黄庄
+        ShowHandCardBack()
+        GameEndCallBack()
+        --播放声音
+        self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_GAME_END,nil,nil,nil,nil)
+
+        if require("Lobby/FriendGame/FriendGameLogic").isRulevalid(100) then
+            --添加飘
+            that.bIsPiao = {}
+            that.GameView:SetPiaoSprTagVisible(nil, false)                        
+        end
+    end
+    --取消托管
+    if (not self:IsLookonMode() and self.m_bTrustee == true) then
+
+        self:OnTrustee(false);
+    end
+    
+    that.GameView:HideCurrentPanel()
+
+    return 1;
+end
+
+function GameLogic:onGameMessage(chair, cbCmdID, data, nLen)
+    if self.messageBack_funcs[cbCmdID] then
+        self.messageBack_funcs[cbCmdID](chair, data, nLen)
+    end
+end
+
+function GameLogic:SetRecMsgGameHandler()
+    self.socketBack_funcs[SOCKET_TYPE_SCENE] = function(sockData)
+        self:onSceneChanged(sockData[1], sockData[2])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_GAME] = function(sockData)
+        self:onGameMessage(sockData[1], sockData[2], sockData[3], sockData[4])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_USEREXIT] = function(sockData)
+        self:onUserExit(sockData[1], sockData[2])
+    end    
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDRULE] = function(sockData)
+        self:onFriendRuleMessage(sockData[1], sockData[2], sockData[3])
+    end 
+
+    self.socketBack_funcs[SOCKET_TYPE_LEAVETABLE] = function(sockData)
+        self:onLeaveTable()
+    end 
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDABLED] = function(sockData)
+        self:onFriendTabledAbled()
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_FRIENDEND] = function(sockData)
+        self:onFriendTableEndMessage(sockData[1])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_USERSTATUS] = function(sockData)
+        --self:onUserExit(0, true)
+        --self:onUserEnterRoom()
+        self:onUserStatus(sockData[1], sockData[2])
+    end
+
+    self.socketBack_funcs[SOCKET_TYPE_REPLACE] = function(sockData)
+        --self:onUserExit(0, true)
+        --self:onUserEnterRoom()
+        self:replaceMainScence()
+    end
+
+
+    --游戏开始
+    self.messageBack_funcs[SUB_S_GAME_START_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.wGameCount             = ba:readUShort()
+        Temp.wBankerUser            = ba:readUShort()
+        Temp.wCurrentUser           = ba:readUShort()
+        Temp.cbBankerCard           = ba:readUByte()
+        Temp.cbCardData={};
+        for i=0,MAX_COUNT_PAOHUZI-1 do
+            Temp.cbCardData[i] = ba:readUByte()
+        end
+
+        --好友桌游戏规则
+        local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+        FriendGameLogic.game_used = FriendGameLogic.game_used + 1
+        FriendGameLogic.game_abled = true
+        that:onFriendRuleMessage(0, 0, 0)
+
+        that:checkPlayersIsSameIP(true)
+
+        --cc2file("OnSubGameStart wCurrentUser:"..Temp.wCurrentUser)
+        return that:OnSubGameStart(Temp);
+    end
+
+    --用户提牌
+    self.messageBack_funcs[SUB_S_USER_TI_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={}
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.wActionUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+        Temp.cbRemoveCount          = ba:readUByte()
+        Temp.bTimes                 = ba:readUByte()
+
+        --cc2file("OnSubUserTiCard wOutCardUser:"..Temp.wOutCardUser..";wActionUser:"..Temp.wActionUser..";cbActionCard:"..Temp.cbActionCard)
+
+        return that:OnSubUserTiCard(Temp);
+    end
+
+    --用户跑牌
+    self.messageBack_funcs[SUB_S_USER_PAO_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={}
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.wActionUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+        Temp.cbRemoveCount          = ba:readUByte()
+        Temp.bTimes                 = ba:readUByte()
+
+        --cc2file("OnSubUserPaoCard wOutCardUser:"..Temp.wOutCardUser..";wActionUser:"..Temp.wActionUser..";cbActionCard:"..Temp.cbActionCard)
+        return that:OnSubUserPaoCard(Temp);
+    end
+
+    --用户偎牌
+    self.messageBack_funcs[SUB_S_USER_WEI_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.wActionUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+
+        --cc2file("OnSubUserWeiCard wOutCardUser:"..Temp.wOutCardUser..";wActionUser:"..Temp.wActionUser..";cbActionCard:"..Temp.cbActionCard)
+        return that:OnSubUserWeiCard(Temp);
+    end
+
+    --用户碰牌
+    self.messageBack_funcs[SUB_S_USER_PENG_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.wActionUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+
+        --cc2file("OnSubUserPengCard wOutCardUser:"..Temp.wOutCardUser..";wActionUser:"..Temp.wActionUser..";cbActionCard:"..Temp.cbActionCard)
+        return that:OnSubUserPengCard(Temp);
+    end      
+
+    --用户吃牌  
+    self.messageBack_funcs[SUB_S_USER_CHI_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.wActionUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+        Temp.cbResultCount          = ba:readUByte()
+        Temp.cbChiCardKind={}
+        for i=0,3-1 do
+            Temp.cbChiCardKind[i] = ba:readUByte()
+        end
+
+        --cc2file("OnSubUserChiCard wOutCardUser:"..Temp.wOutCardUser..";wActionUser:"..Temp.wActionUser..";cbActionCard:"..Temp.cbActionCard)
+        return that:OnSubUserChiCard(Temp);
+    end
+
+    --操作提示        
+    self.messageBack_funcs[SUB_S_OPERATE_NOTIFY_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.bMustHu                = ba:readUByte() ~= 0
+        Temp.wResumeUser            = ba:readUShort()
+        Temp.cbActionCard           = ba:readUByte()
+        Temp.cbOperateCode          = ba:readUByte()
+
+        --cc2file("OnSubOperateNotify wResumeUser:"..Temp.wResumeUser..";cbOperateCode:"..Temp.cbOperateCode..";cbActionCard:"..Temp.cbActionCard)
+        return that:OnSubOperateNotify(Temp);
+    end
+
+    --出牌提示
+    self.messageBack_funcs[SUB_S_OUT_CARD_NOTIFY_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.bOutCard               = ba:readUByte()
+        Temp.wCurrentUser           = ba:readUShort()
+
+        return that:OnSubOutCardNotify(Temp);
+    end
+
+    --手机出牌提示
+    self.messageBack_funcs[SUB_S_OUT_CARD_NOTIFY_MOBILE_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.bOutCard               = ba:readUByte()
+        Temp.wCurrentUser           = ba:readUShort()
+        Temp.cbForbiddenCount       = ba:readUByte()
+        Temp.cbForbiddenCards={};
+        for i=0,MAX_COUNT_PAOHUZI-1 do
+            Temp.cbForbiddenCards[i] = ba:readUByte()
+        end
+
+        return that:OnSubOutCardNotifyMobile(Temp);
+    end
+
+    --出牌消息     
+    self.messageBack_funcs[SUB_S_OUT_CARD_PAOHUZI] = function(chair, data, nLen)
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.wOutCardUser           = ba:readUShort()
+        Temp.cbOutCardData          = ba:readUByte()
+        
+        --cc2file("OnSubOutCard wOutCardUser:"..Temp.wOutCardUser..";cbOutCardData:"..Temp.cbOutCardData..";wMeChairID:"..self:GetMeChairID())
+        return that:OnSubOutCard(Temp);
+    end
+
+    --发牌消息
+    self.messageBack_funcs[SUB_S_SEND_CARD_PAOHUZI] = function(chair, data, nLen) 
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        Temp.cbCardData             = ba:readUByte()
+        Temp.wAttachUser            = ba:readUShort()
+
+        --cc2file("OnSubSendCard cbCardData:"..Temp.cbCardData..";wAttachUser:"..Temp.wAttachUser..";wMeChairID:"..self:GetMeChairID())
+        return that:OnSubSendCard(Temp);
+    end
+
+    --游戏继续消息
+    self.messageBack_funcs[SUB_S_CONTINUE_CONFIRM] = function(chair, data, nLen) 
+        local baR = require("ByteArray").new()
+        baR:writeBuf(data)
+        baR:setPos(1)
+        local msgIndex = baR:readUByte()
+
+        local ba = require("ByteArray").new()
+        ba:writeUByte(msgIndex)
+        ba:setPos(1)
+        require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_CONTINUE_CARD_PAOHUZI, ba:getBuf(), ba:getLen())
+
+        return 1;
+    end
+
+
+    --游戏结束
+    self.messageBack_funcs[SUB_S_GAME_END_PAOHUZI] = function(chair, data, nLen) 
+        local ba = require("ByteArray").new()
+        ba:writeBuf(data)
+        ba:setPos(1)
+
+        local Temp={};
+        --胜利信息
+        Temp.bZiMo                  = (ba:readUByte() ~= 0)
+        Temp.cbHuCard               = ba:readUByte()
+        Temp.cbReason               = ba:readUByte()
+        Temp.wWinUser               = ba:readUShort()
+        Temp.wBankerUser            = ba:readUShort()
+        Temp.cbDispatch             = ba:readUByte()
+        Temp.wProvideUser           = ba:readUShort()
+
+        Temp.bZhahu={};
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bZhahu[i] = ba:readUByte() ~= 0
+        end
+
+        --成绩变量
+        Temp.lGameTax               = ba:readInt()
+        Temp.lGameScore             = {};
+        for i = 0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.lGameScore[i] = ba:readInt()
+        end
+
+        Temp.lPiaoScore             = {};
+        for i = 0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.lPiaoScore[i] = ba:readInt()
+        end
+
+        Temp.lTotalScore             = {};
+        for i = 0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.lTotalScore[i] = ba:readInt()
+        end
+
+        --扑克变量
+        Temp.bCurrentCard           = ba:readUByte()
+        Temp.bCardCount={};
+        for i = 0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bCardCount[i] = ba:readUByte()
+        end
+
+        Temp.bCardData={};
+        for i=0 , GAME_PLAYER_PAOHUZI-1 do
+            Temp.bCardData[i] = {}
+            for j=0, MAX_COUNT_PAOHUZI-1 do
+                Temp.bCardData[i][j] = ba:readUByte()
+            end
+        end
+
+        Temp.bRemainCount           = ba:readUByte()
+        Temp.bRemainCards={};
+        for i=0, MAX_REMAINCOUNT_PAOHUZI-1 do            
+            Temp.bRemainCards[i] = ba:readUByte()
+        end
+
+        Temp.bBestHuCard={};
+        for i=0, 4-1 do
+            Temp.bBestHuCard[i] = ba:readUByte()
+        end
+
+        Temp.bHuHandCard            = ba:readUByte() ~= 0
+        Temp.cbHuCardIndex          = ba:readUByte()
+
+        Temp.HuCardInfo = {}
+        Temp.HuCardInfo.cbCardEye = ba:readUByte()
+        Temp.HuCardInfo.cbHuXiCount = ba:readUByte()
+        Temp.HuCardInfo.cbWeaveCount = ba:readUByte()
+
+        Temp.HuCardInfo.WeaveItemArray = {}
+        for i = 0, MAX_WEAVE_PAOHUZI-1 do
+            Temp.HuCardInfo.WeaveItemArray[i] = {}
+            Temp.HuCardInfo.WeaveItemArray[i].cbWeaveKind = ba:readUByte()
+            Temp.HuCardInfo.WeaveItemArray[i].cbCardCount = ba:readUByte()
+            Temp.HuCardInfo.WeaveItemArray[i].cbCenterCard = ba:readUByte()
+
+            Temp.HuCardInfo.WeaveItemArray[i].cbCardList = {ba:readUByte(), ba:readUByte(), ba:readUByte(), ba:readUByte()}
+        end        
+        Temp.HuCardInfo.cbTunCount = ba:readUByte()
+        if AppConfig.APPLESTATU < 2 then
+            --未更新
+            Temp.HuCardInfo.cbTianHu = ba:readUByte()
+        else
+            Temp.HuCardInfo.cbTianHu = ba:readInt()
+        end
+
+        Temp.nUserID={}
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.nUserID, ba:readInt())
+        end
+
+        Temp.cbSex={}
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.cbSex, ba:readUByte())
+        end
+
+        Temp.szUserName={}
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.szUserName, getUtf8(ba:readStringSubZero(32)))
+        end
+
+        Temp.lSocre={}
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.lSocre, ba:readInt())
+        end
+        
+
+        that.bGameEndState = 1
+        that:OnSubGameEnd(Temp)
+
+        return
+    end                    
+
+    --飘广播
+    self.messageBack_funcs[SUB_S_SEND_PIAOSTATUS] = function(chair, data, nLen)
+        that:onPiaoStatusMessage(chair, data, nLen)
+    end 
+end
+
+function GameLogic:onUserExit(chair, bself)
+    local viewChairId = self:SwitchViewChairID(chair)
+    self.user_list[chair] = 0
+
+    cclog("退出信息退出信息退出信息")
+    --清理信息
+    self.GameView:SetUserInfo(viewChairId,0,self.m_wServerType);
+    self.GameView:SetFreeSprTagVisible(self.GameView.Sprite_Ready[viewChairId],false) 
+end
+
+function GameLogic.removeCache()
+    Cache.removePlist{"emote", "phz/images/paoHuZi", "phz/images/wordCard", "phz/images/sparrowEffect"}
+
+    Cache.removeTexture{"phz/images/BG1.jpg", "phz/images/BG2.jpg"}
+
+    if that then
+        that:dispose()
+    end    
+end
+
+function GameLogic.loadingCache()
+    Cache.add{"emote", "phz/images/paoHuZi", "phz/images/wordCard", "phz/images/sparrowEffect"}
+end
+
+function GameLogic:returnToLobby()
+    require("phz/GameLibSink"):exit()
+    require("LobbyControl").backToHall()
+end
+
+function GameLogic:onLeaveTable()
+    --离开
+    self:returnToLobby()
+    --[[if not require(CommonInfo.Logic_Path):getInstance().bGameEnd then
+        self:returnToLobby()
+    end]]
+end
+
+function GameLogic:onLeaveFrendGame()
+    --离开好友桌
+    that:dispose()
+    require("LobbyControl").backToHall()
+end
+
+function GameLogic:onCreateFrendGame()
+    --离开好友桌
+    that:dispose()
+    require("LobbyControl").backToHall(true)
+end
+
+function GameLogic:onUserStatus(info, myinfo)
+    if not myinfo then
+        return
+    end
+
+    local chair = info._chairID
+    local status = info._status
+
+    self.user_list[chair] = require("HallUtils").tableDup(info)
+
+    local viewChairId = self:SwitchViewChairID(chair)
+    self.GameView:SetUserInfo(viewChairId, info, self.m_wServerType);
+
+    if status == 4 then            
+        self.GameView:SetFreeSprTagVisible(self.GameView.Sprite_Ready[viewChairId],true)
+    end
+
+    if viewChairId == 2 then
+        if status == 4 then
+            self.GameView.Button_Start:setVisible(false)
+            self.bGameEndState = 0
+
+            self:hidePiaoOperator()
+
+            local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+            self.GameView:SetInviteBtn(not require("AppConfig").ISAPPLE and not FriendGameLogic.game_abled and FriendGameLogic.game_type == 0)            
+        elseif status < 4 then
+            self.GameView.Button_Start:setVisible(not self.GameView.layerPiao)
+
+            self.GameView:SetInviteBtn(false)
+        end
+    end
+
+    --断线，等待续玩
+    self.GameView:SetOffSprTagVisible(self.GameView.Sprite_Offline[viewChairId],status == 6)
+
+    if status == 5 then
+        self:checkPlayersIsSameIP()
+    end
+end
+
+function GameLogic:onUserEnterRoom()
+    self.user_list                     = {}
+
+    local GameLibSink = require("phz/GameLibSink")
+    local info = GameLibSink.game_lib:getMyself()
+    local tableID = info:getUserTableID()
+    self.my_chair = GameLibSink.game_lib:getMyself():getUserChair()
+    
+    if tableID >= 0 then
+        --自己坐桌，初始化玩家界面
+        local user = GameLibSink:getTableUserList(tableID)
+        for i,v in ipairs(user) do
+            v._score = v:getScore()
+            self:onUserStatus(v, info)
+        end
+    end
+end
+
+function GameLogic:onFriendRuleMessage(marstID, exprireTime, validTime)
+    local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+    local GameLibSink = require("phz/GameLibSink")
+
+    local ruletext, roomtext = require("phz/LayerDeskRule").getRuleText()
+    local countStr = "第"..FriendGameLogic.game_used.."/"..FriendGameLogic.my_rule[1][2].."局"
+    self.GameView:SetRoomRule(countStr, roomtext, ""..ruletext)
+
+    --手牌张数
+    local valueIndex = FriendGameLogic.getRuleValueByIndex(12)
+    if valueIndex > 0 then 
+        self.max_hand = valueIndex 
+    end
+
+    --邀请按钮
+    self.GameView:SetInviteBtn(false)
+    self.GameView:SetInviteBtn(not require("AppConfig").ISAPPLE and not FriendGameLogic.game_abled and FriendGameLogic.game_type == 0) 
+
+    --解散按钮
+    self.GameView:SetDismissBtn(false)
+    if FriendGameLogic.game_abled then
+        --关闭好友桌倒计时
+        self.GameView:clearFriendValidTimerUI(exprireTime, validTime)
+
+        self.GameView:SetDismissBtn(true)
+    else
+        self:resetGameConfig()
+
+        --添加好友桌倒计时
+        self.GameView:addFriendTableTime(exprireTime, validTime)
+
+        if marstID == self:GetMeDBID() then
+            self.GameView:SetDismissBtn(true)
+        end
+    end
+
+    --退出按钮
+    self.GameView.Button_Exit:setVisible((not FriendGameLogic.game_abled))
+    if not FriendGameLogic.game_abled then
+        self.main_layer.panel_realtimeInfo:setPositionX(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 330)
+    else
+        self.main_layer.panel_realtimeInfo:setPositionX(AppConfig.SCREEN.CONFIG_WIDTH / 2 - 268)
+    end 
+
+    self:checkGameReturnStatus() 
+end
+
+--操作飘
+function GameLogic:sendPiao(bpiao, score)
+    local ba = require("ByteArray").new()
+    ba:writeUByte(bpiao)
+    ba:writeUByte(score)
+    
+    ba:setPos(1)
+
+    require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_PIAO_STATUS, ba:getBuf(), ba:getLen())  
+end
+
+function GameLogic:onPiaoStatusMessage(chair, data, nLen)
+    if (nLen < 4) then        
+        return 
+    end
+
+    local ba = require("ByteArray").new()
+    ba:writeBuf(data)
+    ba:setPos(1)
+
+    local pchair = ba:readUShort()
+    local bPiao = ba:readUByte()
+    local bScore = ba:readUByte()
+    local bPiaoType = ba:readUByte()
+
+    local GameLibSink = require("phz/GameLibSink")
+
+    if bScore > 0 then
+        table.insert(self.bIsPiao, {pchair, bScore})
+        self.GameView:SetPiaoSprTagVisible(self.GameView.Sprite_Piao[self:SwitchViewChairID(pchair)], true)
+    end
+
+    if self:GetMeChairID() == pchair and self.bGameEndState == 0 then
+        if bPiao == 1 then
+            self:onPiaoOperator(5)   
+        elseif self:GetMeStatus() < 4 then
+            GameLibSink.game_lib:sendReadyCmd()
+        end 
+    end    
+end
+
+function GameLogic:onFriendTabledAbled()
+
+end
+
+function GameLogic:onFriendTableEndMessage(infoList)
+    local scores, statues = {}, {}
+    for i,v in ipairs(infoList) do
+        table.insert(scores, {i, v.Score})
+        table.insert(statues, false)
+
+        infoList[i].Winner = false
+    end
+
+    local function setResultMark(datas, mark)
+        if #datas < 1 then return end
+
+        table.sort(datas, function(a, b)
+            return a[2] < b[2]
+        end)
+        local maxval = datas[#datas][2]
+        if maxval > 0 then
+            for j,w in ipairs(datas) do
+                local index = w[1]
+                if w[2] == maxval and not statues[index] then
+                    statues[index] = true
+
+                    infoList[index][mark] = true                
+                end
+            end
+        end        
+    end 
+
+    --最大赢家
+    setResultMark(scores, "Winner")
+
+    --获取玩家ip
+    local sameIpStr = CCUserDefault:sharedUserDefault():getStringForKey("same_ip15")
+    local sameIPRecorder = {}
+    if sameIpStr ~= "" then
+        sameIPRecorder = require("cjson").decode(sameIpStr)
+    end
+    for i, j in pairs(sameIPRecorder) do
+        if i ~= "count" then
+            infoList[tonumber(i) + 1].UserIP = j.ip
+        end
+    end
+
+    that.DeskResult = require("phz/LayerDeskResult").create()
+    that.DeskResult:CreateGameEndLayer(that.onLeaveFrendGame, that.onCreateFrendGame, GAME_PLAYER_PAOHUZI)
+    that.DeskResult:updataResultInfo(infoList)
+
+    that:KillGameTimer(-1)
+
+    if not that.GameView.Button_Start:isVisible() then that.DeskResult:SetLayerVisible(true) end
+
+    --离开游戏
+    require("Lobby/FriendGame/FriendGameLogic").onFriendGameOver()
+
+    local GameLibSink = require("phz/GameLibSink")
+    if require("LobbyControl").gameSink ~= nil then
+        require("LobbyControl").gameSink = nil
+        GameLibSink.game_lib:leaveGameRoom()
+        GameLibSink.game_lib:release()
+        GameLibSink.game_lib = nil
+    end
+
+    GameLogic.message_data = {}
+    self:clearSecesTimerScript()
+end
+
+function GameLogic:resetHandCard(cardCount, handCard, bStart)
+    local meCardCount = cardCount
+
+    local cbCardData = {}
+    PaoHuZi_CopyMemoryEx(cbCardData, handCard, meCardCount)        
+    if bStart and self.max_hand == meCardCount then
+        --起始发牌、去掉庄家牌
+        for i=1, cardCount do
+            if cbCardData[i] == self.banker_open_card_ then
+                table.remove(cbCardData, i)
+                cardCount = cardCount - 1
+                break
+            end
+        end
+    end
+
+    self.logic:SwitchToCardIndex3(cbCardData, cardCount, self.m_cbCardIndex)
+
+    local parentNode = self.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]
+    self.poker:RemoveAllCardData(parentNode)
+    cclog("resetHandCard "..cardCount)
+
+    local handCardList, listCount = self.logic:GetHandCardList(cbCardData, cardCount, GameLogic.isCommonCardOrder())
+    self.poker:GetMyHandCard(parentNode, handCardList, cardCount, bStart)
+
+    return handCardList, listCount
+end
+
+--初始化游戏本地配置信息
+function GameLogic:resetGameConfig()
+    --相同ip
+    CCUserDefault:sharedUserDefault():setStringForKey("same_ip15", "")
+end
+
+--检查是否相同ip
+function GameLogic:checkPlayersIsSameIP(bshow)
+    local sameIPRecorder = { count=0 }
+    local GameLibSink = require("phz/GameLibSink")
+
+    --同桌好友信息
+    local info = self:GetMyInfo()
+    if not info or info == 0 then return end
+
+    local userList = require("HallUtils").tableDup(self.user_list)
+    for i, j in pairs(userList) do
+        for k, v in pairs(userList) do
+            if v and j and v~=0 and j~=0 then
+                if k ~= i and v._userIP == j._userIP and (not sameIPRecorder[v._chairID]) then
+                    sameIPRecorder[v._chairID] = {name = v._name, ip = v._userIP}
+                    sameIPRecorder.count = sameIPRecorder.count + 1
+                end
+            end
+        end
+    end
+    
+    if sameIPRecorder.count > 0 then
+        --保存相同Ip到本地
+        local sameips = require("cjson").encode(sameIPRecorder)
+        CCUserDefault:sharedUserDefault():setStringForKey("same_ip15", sameips) 
+
+        if bshow then
+            local tips = string.format("请注意, 场内%d位玩家有相同IP地址!", sameIPRecorder.count)
+            for i, j in pairs(sameIPRecorder) do
+                if i ~= "count" then
+                    tips = string.format("%s\n%s (%s)", tips, j.name, j.ip)
+                end
+            end
+            require("HallUtils").showWebTip(tips, nil, nil, ccp(AppConfig.SCREEN.CONFIG_WIDTH / 2, 380), 6)
+        end
+    end
+
+end
+
+function GameLogic:onRecveSocketData(socketdata)
+    local data = require("HallUtils").tableDup(socketdata)
+
+    --cclog("onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxxxxxxxx "..data[1])
+    if data[1] == SOCKET_TYPE_REPLACE then
+        table.insert(GameLogic.message_data, 1, data)
+
+        --等待规则消息标识
+        GameLogic.bGetGameRule = false
+        GameLogic.temp_data                      = {}
+
+        --重回标识
+        self.startStatus = 0        
+        if self.main_layer then self.startStatus = 1 end   
+
+        return
+    end
+
+    if not GameLogic.bGetGameRule then
+        --尚未收到游戏规则、处理收到消息顺序
+        if data[1] == SOCKET_TYPE_FRIENDRULE then
+            --cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx 222")
+            self.bShowEnd = false
+            table.insert(GameLogic.message_data, 1, data)
+
+            for i,v in ipairs(GameLogic.temp_data) do
+                table.insert(GameLogic.message_data, 1, v)
+
+                --判断是否为重回显示结算界面
+                if v[1] == SOCKET_TYPE_GAME and v[2][2] == SUB_S_GAME_END_PAOHUZI then
+                    self.bShowEnd = true
+                end
+            end
+
+            GameLogic.temp_data                      = {}
+            GameLogic.bGetGameRule = true
+        else
+            --断线重回
+            if self.startStatus == 1 and self.bGameEndState > 0 then
+                --cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData  333 "..data[1])
+                --忽略场景、单局结算
+                if not (data[1] == SOCKET_TYPE_SCENE or 
+                    (data[1] == SOCKET_TYPE_GAME and data[2][2] == SUB_S_GAME_END_PAOHUZI)) then
+                    --cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx 444")
+                    table.insert(GameLogic.temp_data, data)
+                end
+            else
+                --cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData 555 "..data[1])
+                table.insert(GameLogic.temp_data, data)
+            end
+        end
+    else
+        table.insert(GameLogic.message_data, 1, data)
+        --cclog("xxxxxxxxxxxxxxxxxxxxxxx onRecveSocketData xxxxxxxxxxxxxxxxxxxxxxx "..#GameLogic.message_data)
+    end
+end
+
+function GameLogic:onGetSocketData()
+    local count = #GameLogic.message_data
+
+    if count > 0 then
+        local data = require("HallUtils").tableDup(GameLogic.message_data[count])
+        table.remove(GameLogic.message_data)
+
+        local tag = data[1]
+        if self.socketBack_funcs[tag] then
+            self.socketBack_funcs[tag](data[2])
+        end
+    end
+end
+
+function GameLogic:resumeSocketConnect()
+    --[[local GameLibSink = require("phz/GameLibSink")
+    GameLibSink.game_lib:startTimer()
+    GameLibSink.game_lib:startCheckPing()]]
+    cclog("resumeSocketConnect")
+    self:OnReadyGame()
+end
+
+function GameLogic:pauseSocketConnect()
+    --[[local GameLibSink = require("phz/GameLibSink")
+    GameLibSink.game_lib:stopReconnect()
+    GameLibSink.game_lib:releaseTimer()]]
+    cclog("pauseSocketConnect")
+    self:clearSecesTimerScript()
+end
+
+function GameLogic:onSceneChanged(pData, nLen)
+    local ba = require("ByteArray").new()
+    ba:writeBuf(pData)
+    ba:setPos(1)
+
+    local cbGameStatus = ba:readByte()
+    if  true then --cbGameStatus == 1
+        --[[解析数据
+        local Temp={};
+        Temp.lCellScore         = ba:readInt()
+        Temp.wGameCount         = ba:readUShort()
+        Temp.wBankerUser        = ba:readUShort()
+        Temp.wServerType        = ba:readUShort()
+        
+        Temp.lTurnScore={}
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.lTurnScore, ba:readInt()) 
+        end
+
+        Temp.lCollectScore={};
+        for i=1,GAME_PLAYER_PAOHUZI do
+            table.insert(Temp.lCollectScore, ba:readInt()) 
+        end
+        
+        self:OnGameSceneMessage(GS_FREE_PAOHUZI,Temp);
+    else]]
+        --解析数据
+        local Temp={};
+        --游戏变量
+        Temp.lCellScore         = ba:readInt()
+        Temp.wBankerUser        = ba:readUShort()
+        Temp.wCurrentUser       = ba:readUShort()
+        Temp.wGameCount         = ba:readUShort()
+        Temp.wServerType        = ba:readUShort()
+
+        --出牌信息
+        Temp.bOutCard           = ba:readUByte()
+        Temp.wOutCardUser       = ba:readUShort()
+        Temp.cbOutCardData      = ba:readUByte()
+
+        --扑克信息
+        Temp.bLeftCardCount     = ba:readUByte()
+        Temp.cbCardIndex        = {}
+        for i=0, MAX_INDEX_PAOHUZI-1 do
+            Temp.cbCardIndex[i] = ba:readUByte()
+        end
+
+        Temp.bUserCardCount     = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bUserCardCount[i] = ba:readUByte()
+        end
+
+        Temp.bAbandonCards      = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bAbandonCards[i] = {}
+            for j=0, MAX_ABANDON_PAOHUZI-1 do
+                Temp.bAbandonCards[i][j] = ba:readUByte()
+            end
+        end
+
+        Temp.bAbandonCardsCount      = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bAbandonCardsCount[i] = ba:readUByte()
+        end
+
+        Temp.cbForbiddenCards      = {}
+        for i=0,MAX_COUNT_PAOHUZI-1 do            
+            Temp.cbForbiddenCards[i] = ba:readUByte()
+        end
+
+        --组合扑克
+        Temp.bWeaveItemCount = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.bWeaveItemCount[i] = ba:readUByte()
+        end
+
+        Temp.WeaveItemArray = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.WeaveItemArray[i] = {}
+            for j=0, 7-1 do
+                Temp.WeaveItemArray[i][j] = {}
+                Temp.WeaveItemArray[i][j][0] = ba:readUByte()
+                Temp.WeaveItemArray[i][j][1] = ba:readUByte()
+                Temp.WeaveItemArray[i][j][2] = ba:readUByte()
+                Temp.WeaveItemArray[i][j][3] = {ba:readUByte(),ba:readUByte(),ba:readUByte(),ba:readUByte()}
+            end
+        end
+
+        --动作信息
+        Temp.bResponse=ba:readUByte()
+        Temp.bUserAction=ba:readUByte()
+
+        --历史积分
+        Temp.lTurnScore = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.lTurnScore[i] = ba:readInt()
+        end
+
+        Temp.lCollectScore = {}
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            Temp.lCollectScore[i] = ba:readInt()
+        end
+
+        for i=0, GAME_PLAYER_PAOHUZI-1 do
+            local chair, bScore = i, ba:readUByte()
+            if bScore > 0 then
+                table.insert(self.bIsPiao, {chair, bScore})
+                --添加飘
+                self.GameView:SetPiaoSprTagVisible(self.GameView.Sprite_Piao[self:SwitchViewChairID(chair)], true)
+            end
+        end
+
+        if #ba._buf >= ba._pos then
+            --兼容旧版本
+            Temp.bMustHu=ba:readUByte()~=0
+        end
+
+        self:OnGameSceneMessage(GS_PLAYING_PAOHUZI,Temp);  
+
+        if cbGameStatus == 1 then self.GameView.Button_Start:setVisible(false) end      
+    end       
+end
+
+--------------------------------------------------消息事件 end -------------------------------------------------------
+-------------------------------------------------辅助函数----------------------------------------
+--设置游戏状态
+function GameLogic:SetGameStatus(status)
+    self.gameStatus = status
+end
+--设置游戏状态
+function GameLogic:GetGameStatus()
+    return self.gameStatus
+end
+-- 是否旁观
+function GameLogic:IsLookonMode()
+    return false--FGameDC:getDC():IsLookonMode();
+end
+--获取视图位置
+function GameLogic:SwitchViewChairID(playerchair)
+    local pos = (playerchair + GAME_PLAYER_PAOHUZI - self.my_chair) % GAME_PLAYER_PAOHUZI
+    local view = self.chair_views[pos + 1]
+
+    return view
+end
+
+function GameLogic:getRelativeChair(playerchair)
+    local pos = (playerchair + GAME_PLAYER_PAOHUZI - self.my_chair) % GAME_PLAYER_PAOHUZI
+
+    return pos + 1
+end
+
+--获取在线玩家、总玩家
+function GameLogic:getPlayeCount()
+    local count = 0
+    for i=1,GAME_PLAYER_PAOHUZI do
+        if self.user_list[i - 1] and self.user_list[i - 1]~=0 then
+            count = count + 1
+        end
+    end
+
+    return count, GAME_PLAYER_PAOHUZI
+end
+
+function GameLogic:GetUserByChair(chair)
+    return self.user_list[chair]
+end
+
+function GameLogic:GetMyInfo()
+    return self.user_list[self.my_chair]
+end
+
+function GameLogic:GetMeStatus()
+    if self.user_list[self.my_chair] and self.user_list[self.my_chair] ~= 0 then
+        return self.user_list[self.my_chair]._status
+    end
+
+    return 0
+end
+
+function GameLogic:GetMeDBID()
+    if self.user_list[self.my_chair] and self.user_list[self.my_chair] ~= 0 then
+        return self.user_list[self.my_chair]._userDBID
+    end
+
+    return 0
+end
+
+--获取本身物理位置
+function GameLogic:GetMeChairID()
+    self.my_chair = self.my_chair or require("phz/GameLibSink").game_lib:getMyself():getUserChair()
+    return self.my_chair
+end
+
+-- 是否比赛
+function GameLogic:IsMatchGame(  )
+
+    return false --(GAME_GENRE_MATCH == FGameDC:getDC():GetGameGenre());
+end
+--房间模式
+function GameLogic:GetGameGenre()
+    return GAME_GENRE_SCORE
+end
+
+--播放音效
+function GameLogic:PlayMusic(playType,operateType,cardData,chairId)
+    --判断性别
+    local pUserData = self:GetUserByChair(chairId);
+    if(pUserData == 0 or pUserData==nil)then
+        return;
+    end
+--    local sexType = that:GetSexType(pUserData)
+--    local cardValue = nil
+--    if cardData~=nil then cardValue = self.logic:GetCardValue(cardData) end
+    --播放音乐
+    self.music:MusicFuc(playType, operateType, pUserData._sex, cardData, self.isDialect)
+end
+--获取性别
+function GameLogic:GetSexType(pUserData)
+    if(pUserData == 0 or pUserData==nil)then
+        return PUBLIC_MUSIC_LAND_SEX_TYPE_MAN;
+    end
+    local bBoy = (pUserData._sex ~= GENDER_FEMALE );
+    if bBoy then 
+        return PUBLIC_MUSIC_LAND_SEX_TYPE_MAN 
+    else
+        return PUBLIC_MUSIC_LAND_SEX_TYPE_WOMEN
+    end
+end
+--删除结算界面
+function GameLogic:CloseGameEndLayer()
+    --删除结算界面
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    local UILayer = scene:getChildByTag(GAME_END_LAYER);
+    if nil ~= UILayer then UILayer:removeFromParentAndCleanup(true) end
+
+    that.gameEnd = nil
+    that.bGameEndState = 2
+end
+--删除规则界面
+function GameLogic:CloseGameRuleLayer()
+    --删除规则界面
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    local UILayer = scene:getChildByTag(GAME_RULE_LAYER);
+    if nil ~= UILayer then UILayer:removeFromParentAndCleanup(true) end
+end
+
+----出牌消息
+--@param out_card_data出牌数据,moveCardIndex触摸移动牌索引 初始0
+--@return
+function GameLogic:OnOutCard(card, cardSp)
+    --可行性检测
+    if not card or (self:IsLookonMode() or not self.m_bOutCard or self.m_wCurrentUser ~= (self:GetMeChairID())) then return false; end
+
+    --出牌效验
+    local cbCardIndex = self.logic:SwitchToCardIndex1(card);
+    if (self.m_cbCardIndex[cbCardIndex+1] and self.m_cbCardIndex[cbCardIndex+1] >= 3) then
+        --滚动条
+        that.scollMessage:InsertScollLabel(SCOLL_LABEL_TYPE_HORN,"不能出这张牌哟！",25,ccc3(244,255,123),ccp(400,20))
+        return false;
+    end
+
+    --变量定义
+    local cbTempCardIndex = {};  --[MAX_INDEX]
+    PaoHuZi_CopyMemory(cbTempCardIndex, self.m_cbCardIndex, MAX_INDEX_PAOHUZI);
+    if (cbTempCardIndex[cbCardIndex+1] and cbTempCardIndex[cbCardIndex+1] > 0) then
+    
+        cbTempCardIndex[cbCardIndex+1] = cbTempCardIndex[cbCardIndex+1] - 1;
+    end
+    local wMeChairID = self:GetMeChairID();
+
+    --出牌控制
+    self.m_bOutCard = false;
+    self.m_wCurrentUser = INVALID_CHAIR;
+
+    --定时器
+    self:KillGameTimer(-1);
+    --出牌提示
+    self.GameView:SetOutCardTip(self.particle, false)
+    
+    local me_id = wMeChairID + 1;
+    --自己删除牌
+    if (self.logic:RemoveCard2(self.m_cbCardIndex, card)) then
+    
+    end
+    self.m_bUserCardCount[me_id] = self.m_bUserCardCount[me_id] - 1
+
+    --发送消息 默认1副
+    local ba = require("ByteArray").new()
+    ba:writeUByte(card)
+    ba:setPos(1)
+    require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_OUT_CARD_PAOHUZI, ba:getBuf(), ba:getLen())
+    
+    --播放出牌声音
+    self:PlayMusic(PAOHUZI_MUSIC_PLAY_OUT_CARD, 0, card, me_id-1)
+
+    local startPos  --牌起始位置
+    that.poker:GetCatchCard(that.GameView.Node_CatchCard, card)
+    if cardSp then startPos = ccp(cardSp:getPosition()) end
+
+    self:pauseSocketConnect()
+    that.action:SetOutCardAction(that.GameView.Node_CatchCard, startPos, ME_CHAIRID_PAOHUZI, 
+        function() 
+            self:CardLightEffect()
+            self:resumeSocketConnect()
+        end)
+
+    return true
+end
+
+--赋值操作
+function GameLogic:CopyMemoryZ(bTempData,cbCardData,cbCount)
+    for i=1,cbCount do
+        --转成数字
+        if(type(cbCardData[i])=="string")then
+            bTempData[i-1]=tonumber(cbCardData[i]);
+        else
+            bTempData[i-1]=cbCardData[i];
+        end
+    end
+end
+----把吃牌放第一张
+--@param
+--@return 
+function GameLogic:ReplaceChowCard(data,cbCardData)
+    for i = 1, table.getn(data) do
+        if cbCardData==data[i] then
+            if i==1 then return end
+            local tempData = data[1]
+            data[1] = cbCardData
+            data[i] = tempData
+            break;
+        end
+    end
+end
+
+----设置操作控件
+--@param
+--@return 
+function GameLogic:OperateControl(code, card, must_hu)
+
+    if (code == ACK_NULL) then return false end
+
+    --按钮设置
+    if (not must_hu) then
+        self.GameView:SetBtn(
+            self.cchiHuRight:And(code , ACK_CHI) ~= ACK_NULL, 
+            self.cchiHuRight:And(code , ACK_PENG) ~= ACK_NULL, 
+            self.cchiHuRight:And(code , ACK_CHIHU) ~= ACK_NULL , true);
+    else
+        self.GameView:SetBtn(false, false, true, false);
+    end
+
+    --吃项设置
+    if (self.cchiHuRight:And(code , ACK_CHI) ~= ACK_NULL) then
+        cclog("吃项设置 ")
+        self:ZeroAry(self.m_ChiCardInfo)
+        self:ZeroAry(self.m_TempChiCardInfo)
+        local weavecount = self.logic:GetActionChiCard(self.m_cbCardIndex, self.m_cbOutCardData, self.m_ChiCardInfo)
+        self:CopyAry(self.m_TempChiCardInfo, self.m_ChiCardInfo)
+
+        self.m_cbChooseCount = 0
+        self.m_cbChiCardKind = {0,0,0}
+        
+        self.chowCardTableCount = {}
+        --添加数据
+        self.chowCardTableData = {}
+        local tempNum = 0
+        for i = 0 , weavecount - 1 do
+            tempNum = tempNum + 1
+            self.chowCardTableData[tempNum] = {self.m_ChiCardInfo[i+1].cbCardData[1][1], self.m_ChiCardInfo[i+1].cbCardData[1][2], self.m_ChiCardInfo[i+1].cbCardData[1][3]}
+        end
+        self.chowCardTableCount[table.getn(self.chowCardTableCount)+1] = tempNum
+        self.GameView:AddCardsItem(self.chowCardTableData,self.chowCardTableCount,false)
+    end
+
+    --显示
+    self.GameView:SetBtnBg(true) 
+end
+
+----吃牌视图操作
+--@param
+--@return
+function GameLogic:OnEventOperateChi(eatitem_id, bselect)
+    local data = {}  --[3];
+    cclog("吃牌视图操作 "..eatitem_id)
+    --变量定义
+    local cbChiKind = self.m_ChiCardInfo[eatitem_id].cbChiKind
+    if not bselect then
+        --重新选择
+        cbChiKind = self.m_TempChiCardInfo[eatitem_id].cbChiKind
+
+        --初始化
+        self.m_cbChooseCount = 0
+        local nCount = table.getn(self.chowCardTableCount)
+        for i=nCount,2,-1 do
+            table.remove(self.chowCardTableCount, i)
+        end
+    else
+        --选择下火
+
+    end
+
+    local cbCurrentCard = self.m_cbOperateCurrentCard
+    local cbCurrentIndex = self.logic:SwitchToCardIndex1(cbCurrentCard)
+
+    --构造扑克OnSubSendCard
+    local cbCardIndex = {}  --[MAX_INDEX];
+    PaoHuZi_CopyMemory(cbCardIndex, self.m_cbCardIndex, MAX_INDEX_PAOHUZI)
+
+    --设置组合
+    self.m_cbChiCardKind[self.m_cbChooseCount+1] = cbChiKind;
+    self.m_cbChooseCount = self.m_cbChooseCount + 1
+
+    --构造扑克OnSubSendCard
+    local cbCardIndex = {}  --[MAX_INDEX];
+    PaoHuZi_CopyMemory(cbCardIndex , self.m_cbCardIndex, MAX_INDEX_PAOHUZI);
+
+    --删除扑克
+    local cbDebarCard = cbCurrentCard;
+    for i=0, self.m_cbChooseCount - 1 do
+        --提取扑克
+        local cbCardData = {}  --[3];
+        self.logic:GetChiCardData(self.m_cbChiCardKind[i+1], cbCurrentCard, cbCardData)
+
+        --删除扑克
+        for j = 0 , table.getn(cbCardData) - 1 do
+            local cbRemoveCard = cbCardData[j+1]
+            if (cbRemoveCard==cbDebarCard) then
+                cbDebarCard = 0
+            else 
+                cbCardIndex[self.logic:SwitchToCardIndex1(cbRemoveCard)+1] = cbCardIndex[self.logic:SwitchToCardIndex1(cbRemoveCard)+1] - 1;
+            end
+        end
+    end
+
+
+    --已经保留组合类型
+    if (cbCardIndex[cbCurrentIndex+1] > 0) then
+        --提取扑克
+        cbCardIndex[cbCurrentIndex+1] = cbCardIndex[cbCurrentIndex+1]-1
+
+        --获取数据
+        self:ZeroAry(self.m_ChiCardInfo);
+        local cbWeaveCount = self.logic:GetActionChiCard(cbCardIndex, cbCurrentCard, self.m_ChiCardInfo);
+
+        if cbWeaveCount > 0 then
+            --添加数据
+            self.chowCardTableData = {}
+            local tempNum = 0
+            for i=0, cbWeaveCount-1 do
+                tempNum = tempNum + 1
+                self.chowCardTableData[tempNum] = {self.m_ChiCardInfo[i+1].cbCardData[1][1], self.m_ChiCardInfo[i+1].cbCardData[1][2], self.m_ChiCardInfo[i+1].cbCardData[1][3]}
+            end
+            self.chowCardTableCount[table.getn(self.chowCardTableCount)+1] = tempNum
+            self.GameView:AddCardsItem(self.chowCardTableData, self.chowCardTableCount, true)
+            
+            -- 不给返回了
+            return
+        end
+    end
+
+    --环境设置
+    self.GameView:SetOutCardTip(self.particle, false)
+    
+    self:KillGameTimer(-1)
+
+    --操作
+    self:OnCardOperate(ACK_CHI)
+end
+
+----吃牌操作
+--@param
+--@return
+function GameLogic:OnCardOperate(code)
+    --界面处理
+    self.GameView:SetBtnBg(false)
+    self.GameView:ClearAllCardsItem(self.chowCardTableCount)
+    self:KillGameTimer(-1);
+
+    local ba = require("ByteArray").new()
+    ba:writeUByte(0)
+    ba:writeUByte(code)
+    ba:writeUByte(self.m_cbChooseCount or 0)
+    for i=1, 3 do
+        ba:writeUByte(self.m_cbChiCardKind[i] or 0)
+    end
+    ba:setPos(1)
+    require("phz/GameLibSink").game_lib:sendOldGameCmd(SUB_C_OPERATE_CARD_PAOHUZI, ba:getBuf(), ba:getLen()) 
+
+    self.isChowCardStatus = false
+    --播放音乐
+    self.music:MusicFuc(PAOHUZI_MUSIC_PLAY_BACKCARD, 0, 0, 0, 0)
+end
+
+--清除吃牌
+function GameLogic:ZeroAry(ChiCardInfo)
+    ChiCardInfo                  = {}                    --吃牌信息
+    for i = 1, 6 do
+        ChiCardInfo[i] = {}
+        ChiCardInfo[i].cbChiKind = 0
+        ChiCardInfo[i].cbCenterCard = 0
+        ChiCardInfo[i].cbResultCount = 0
+        ChiCardInfo[i].cbCardData = {}
+        for j = 1, 3 do
+            ChiCardInfo[i].cbCardData[j] = {0,0,0}
+        end
+    end
+end
+
+function GameLogic:CopyAry(TargetChiInfo, SrcChiInfo)
+    for i = 1, 6 do
+        TargetChiInfo[i].cbChiKind = SrcChiInfo[i].cbChiKind
+        TargetChiInfo[i].cbCenterCard = SrcChiInfo[i].cbCenterCard
+        TargetChiInfo[i].cbResultCount = SrcChiInfo[i].cbResultCount
+
+        for j = 1, 3 do
+            for z=1,3 do
+                TargetChiInfo[i].cbCardData[j][z] = SrcChiInfo[i].cbCardData[j][z]
+            end
+        end
+    end
+end
+----游戏开始手牌动画
+--@param
+--@return
+function GameLogic:StartCardAction(parentNode,handCardList,listCount)
+    local nCount = 7
+    local nWeave = table.getn(handCardList)
+    local nStart = nCount - math.floor(nWeave / 2)
+    
+    local function moveAction(cardSpr, listIndex, cellIndex, cellCount)
+        local absIndex = math.abs(listIndex - nCount)
+        local rowIndex = math.ceil(nWeave / 2) - absIndex + 1
+
+        --等待显示时间
+        local delayTime = CCDelayTime:create((cellIndex-1)*0.2 + rowIndex*0.1)
+        --显示动画
+        local fadeIn = CCFadeIn:create(0.2)
+        local scaleTo = CCScaleTo:create(0.2,1)
+
+        --等待移动时间
+        local delayTime1 = CCDelayTime:create((cellCount - cellIndex)*0.1)
+        --移动动画
+        local posY = cardSpr:getPositionY()
+        local posX = that.poker:getHandCardPosX(listIndex)
+        local moveSces = absIndex * 0.1 
+        if listIndex <= nCount then moveSces = moveSces + 0.1 end        
+        local moveTo = CCMoveTo:create(moveSces, ccp(posX, posY))
+
+        --显示
+        local spawnarray  = CCArray:create()
+        spawnarray:addObject(fadeIn)
+        spawnarray:addObject(scaleTo)
+
+        local array  = CCArray:create()
+        array:addObject(delayTime)
+        array:addObject(CCSpawn:create(spawnarray))
+        array:addObject(delayTime1)
+        array:addObject(moveTo)
+
+        local sequene = CCSequence:create(array)
+        cardSpr:runAction(sequene)
+    end
+
+    for i=nStart+nWeave,nCount+1,-1 do
+        --右边
+        local rList = i - nStart        
+        local rCount = table.getn(handCardList[rList])
+        --左边
+        local lList = nCount*2 + 1 - i - nStart
+        local lCount = 0
+        if handCardList[lList] then
+            lCount = table.getn(handCardList[lList])
+        end
+
+        --右边
+        for j=1,rCount do
+            local cardSpr = parentNode:getChildByTag(i * 10 + j)
+            if cardSpr then
+                moveAction(cardSpr, i, j, rCount)
+            end
+        end
+        --左边
+        for j=1,lCount do
+            local cardSpr = parentNode:getChildByTag((lList + nStart) * 10 + j)
+            if cardSpr then
+                moveAction(cardSpr, (lList + nStart), j, lCount)
+            end
+        end
+    end
+end
+
+--剩余底牌牌动画
+function GameLogic:PlayEndCardAction(parentNode, bRemainCount, backfunc)
+    local startSp = nil --起始牌
+    local array  = CCArray:create()
+
+    for i=1, bRemainCount do
+        local cardSp = parentNode:getChildByTag(i)
+        if cardSp ~= nil then
+            if not startSp then 
+                --太阳粒子特效
+                local particle = self.particle:CreateParticleSun(cardSp, 8, ccp(42.5,122.5) , "phz/images/paticle2.png")
+                if particle then
+                    particle:setDuration(0.5)
+                    particle:setLife(1)
+                end
+                startSp = cardSp 
+            end
+
+            --设置状态
+            cardSp:setOpacity(0)
+            cardSp:setScale(0.01)
+
+            --音乐
+            array:addObject(CCTargetedAction:create(cardSp, CCCallFunc:create(
+                function()
+                    --剩余牌数
+                    self.GameView:SetBackCards(self.bLeftCardCount - i, false)
+                    self:PlayMusic(PAOHUZI_MUSIC_PLAY_BACKCARD,0,0,0)
+                end
+            )))
+
+            --动作
+            local spawnarray  = CCArray:create()
+            spawnarray:addObject(CCScaleTo:create(0.1,1))
+            spawnarray:addObject(CCFadeIn:create(0.1))
+            array:addObject(CCTargetedAction:create(cardSp, CCSpawn:create(spawnarray)))
+        end
+    end
+
+    if not startSp then
+        backfunc()
+    else
+        array:addObject(CCCallFunc:create(backfunc))
+        startSp:runAction(CCSequence:create(array))
+    end
+end
+
+----胡牌 牌动画
+--@param
+--@return
+function GameLogic:PlayWinCardAction(winUserViewChairId, backfunc, animAction, paoAction)
+    local winCardSpr = self.GameView.Node_CatchCard:getChildByTag(1)
+    if not winCardSpr then
+        local delaySces = 0.8
+        if paoAction then
+            --点炮
+            paoAction()
+        end
+        animAction()
+        self:performWithDelayEx(backfunc, delaySces)
+        return
+    end
+
+    if winUserViewChairId ~= nil then
+        local array  = CCArray:create()
+        if paoAction then
+            --点炮
+            array:addObject(CCCallFunc:create(paoAction))
+            array:addObject(CCDelayTime:create(0.5))
+        end
+
+        local handPos = self.action.getHandPosition(winUserViewChairId)
+        local moveTo = CCMoveTo:create(1, handPos)
+        local easeIn = CCEaseExponentialOut:create(moveTo)
+        array:addObject(easeIn)
+
+        --胡牌
+        array:addObject(CCCallFunc:create(animAction))
+        array:addObject(CCDelayTime:create(0.8))
+
+        --回调
+        array:addObject(CCCallFunc:create(backfunc))
+        winCardSpr:runAction(CCSequence:create(array))
+    else
+        backfunc()
+    end
+end
+
+----牌发光
+--@param
+--@return
+function GameLogic:CardLightEffect()
+    local winCardSpr = self.GameView.Node_CatchCard:getChildByTag(1)
+    if winCardSpr==nil then return end
+
+    local bgsz = winCardSpr:getContentSize()
+    local lightSpr = loadSprite("wordCard/xuanze.png")
+    lightSpr:setPosition(bgsz.width / 2, bgsz.height / 2)
+    winCardSpr:addChild(lightSpr)
+
+    --require("Lobby/Common/AnimationUtil").runFlickerAction(lightSpr, true)    
+end
+
+----黄庄
+--@param
+--@return
+function GameLogic:PlayChouZhuang()
+    self.GameView:SetBadGameTip()
+end
+----播放操作动画
+--@param
+--@return
+function GameLogic:PlayActionFlv(operate_code, chair_id, times, hutype, bPao)
+
+    local flv_resoure_id = 0;
+    local view_chair_id = self:SwitchViewChairID(chair_id)
+    if (operate_code==ACK_TI) then
+        flv_resoure_id = (times >= 2) and PAOHUZI_OPERATE_TYPE_TWOLONG or PAOHUZI_OPERATE_TYPE_LONG;
+    elseif (operate_code==ACK_PAO) then
+        flv_resoure_id = (times >= 2) and PAOHUZI_OPERATE_TYPE_REPAO or PAOHUZI_OPERATE_TYPE_PAO;
+    elseif (operate_code==ACK_WEI) then 
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_WEI;
+    elseif (operate_code==ACK_CHI or operate_code==ACK_CHI_EX) then 
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_CHOW;
+    elseif (operate_code==ACK_PENG) then 
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_PONG;
+    elseif (operate_code==ACK_CHIHU) then
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_HU;
+    elseif (operate_code==ACK_ZIMO) then
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_ZIMO;
+    elseif operate_code==nil and times==nil then
+        flv_resoure_id = PAOHUZI_OPERATE_TYPE_FANGPAO;
+    else
+        return
+    end
+    --播放动画
+    if (flv_resoure_id ~= 0) then
+        --动画
+        if hutype and hutype > 0 then
+            --新增天胡动画
+            flv_resoure_id = PAOHUZI_OPERATE_TYPE_TIANHU + hutype
+            self.action:UserOperateAction(self.layer,view_chair_id,flv_resoure_id)
+        else
+            self.action:UserOperateAction(self.layer,view_chair_id,flv_resoure_id)
+        end 
+
+        --音乐
+        if not bPao then
+            self:PlayMusic(PAOHUZI_MUSIC_PLAY_OPERATE,flv_resoure_id,0,chair_id) 
+        end              
+    end
+end
+
+----吃牌点击
+function GameLogic:TouchChowCardInside(ptTouchBegan)
+    --cclog("吃牌点击 "..self.m_cbChooseCount..";"..table.getn(self.chowCardTableCount))
+    if self.m_cbChooseCount >= table.getn(self.chowCardTableCount) then return end
+
+    local function IsTouchItem(index)
+        local posXTable, posY, chowW, chowH = self.GameView:GetCardsItemPos(self.chowCardTableCount, index+1)
+        for i = 1, table.getn(posXTable) do
+           if ptTouchBegan.x >= (posXTable[i] - chowW / 2) and ptTouchBegan.x <= (posXTable[i] + chowW / 2) and
+                ptTouchBegan.y >= (posY - chowH / 2) and ptTouchBegan.y<=(posY + chowH/2) then
+                self:OnEventOperateChi(i, index > 0)
+                --cclog("选择区域："..index)    
+
+                if index == 0 then
+                    --增加选中标识
+                    self.GameView:addSelectedCardsItem(self.chowCardTableCount[index+1], i)
+                end            
+                return true
+           end
+        end
+
+        return false
+    end
+
+    if not IsTouchItem(0) and self.m_cbChooseCount > 0 then
+        --选择下火
+        IsTouchItem(self.m_cbChooseCount)
+    end
+    
+end
+
+--------------------------------------------------牌触摸事件 begin -------------------------------------------------------
+--重写相应的触摸函数
+local ptTouchBegan = nil
+local ptTouchMove = nil
+local ptTouchEnd = nil
+local isTouchBeganInside = false;
+local ptTouchBeganIndex = 0;
+
+local ptOutCardIndex = 0  --出牌索引
+local ptLastOutCardIndex = 0  --上一次可出牌索引
+local ptIsClickOutCard = false  --是否可点击出牌
+local ptTouchOutCardStatus = false  --滑动出牌状态
+local ptSelectOutCardIndex = 0      --选中牌索引
+local ptIsSelectOutCard = false     --是否已经选中出牌
+
+
+-- 判断点击时是否在扑克区域上
+function GameLogic:isClickCardInside(index,ptTouchBegan)
+    local touchX,touchY = ptTouchBegan.x, ptTouchBegan.y
+    local fscale = that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]:getScale()
+    local ypos = that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]:getPositionY()
+
+    local insideIndex = 0
+    if that.poker:IsClickInColumn(index, touchX / fscale) then
+        --x坐标在index列范围
+        local listCardCount = that.poker.CardCtl.m_cbCardCount[index]
+
+        if listCardCount==0 then return 0 end
+        if not that.poker.CardCtl.m_bTouchEnable[index] then return 0 end
+        for i=1,4 do
+            if that.poker:IsClickInRow(i, (touchY - ypos) / fscale) 
+                and that.poker.CardCtl.m_cbCardData[index][i] > 0 then
+                --x坐标在i行范围
+                insideIndex = index * 10 + i 
+                break
+            end
+        end
+    end
+
+    return insideIndex
+end
+
+--鼠标点击开始
+function GameLogic:onTouchBegan(x, y)
+    if ptSelectOutCardIndex ~= 0 and ptTouchOutCardStatus then
+        self:onTouchEnded(x, y)
+        return false
+    end
+
+    ptTouchBegan = ccp(x,y)
+    ptTouchBegan = that.layer:convertToWorldSpace(ptTouchBegan);  --转换坐标系
+    ptSelectOutCardIndex = 0
+    ptTouchOutCardStatus = false
+
+    that.particle:CreateParticleMeteor(that.layer, 5, ptTouchBegan,  "phz/images/paticle1.png")
+    
+    --点击选中的牌精灵  颜色变化
+    ----游戏状态
+    if that.gameStatus == GS_PLAYING_PAOHUZI then
+        --吃牌
+        if that.isChowCardStatus then
+            that:TouchChowCardInside(ptTouchBegan)
+        end
+        --点击手牌
+        for index = 1, 14 do
+            local insideIndex = that:isClickCardInside(index, ptTouchBegan)
+            if insideIndex~=0 then  
+                --cclog("选中索引:"..insideIndex)
+                ptSelectOutCardIndex = insideIndex
+                ptTouchOutCardStatus = true
+            end
+        end
+    end
+
+    --头像设置为不可操作
+    that.GameView.Button_Face[2]:setClickBntNotCallBack(not ptTouchOutCardStatus)
+    that.GameView.Button_Face[4]:setClickBntNotCallBack(not ptTouchOutCardStatus)
+
+    return true   --一定要返回true  否则事件不能往下传
+end
+
+--鼠标点击移动
+function GameLogic:onTouchMoved(x, y)
+    ptTouchMove =  ccp(x,y);
+    
+    ----游戏状态
+    if that.gameStatus == GS_PLAYING_PAOHUZI and ptTouchOutCardStatus 
+        and ptSelectOutCardIndex ~= 0 then
+        local sprCard = that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]:getChildByTag(ptSelectOutCardIndex)
+        if sprCard then
+            --将牌设置为灰
+            SetPokerColor(sprCard, ccc3(200,200,200))
+
+            --触摸移动跟住牌
+            local moveNode = that.GameView.Node_TouchMoveCard
+            local cardData = that.poker.CardCtl.m_cbCardData[(ptSelectOutCardIndex-ptSelectOutCardIndex%10)/10][ptSelectOutCardIndex%10]
+            that.poker:GetMyMoveCard(moveNode, cardData)
+            local touchMoveCard = moveNode:getChildByTag(1)
+            touchMoveCard:setPosition(ptTouchMove)
+
+            --跟随拖尾粒子特效
+            that.particle:CreateParticleTailing(that.layer, 8, ptTouchMove, "phz/images/paticle1.png")
+        end
+    end
+end
+
+--鼠标点击结束
+function GameLogic:onTouchEnded(x, y)
+    ptTouchEnd = ccp(x,y)
+
+    --更多按钮背景隐藏
+    if x > 370 and y > 630 and x < 690 and x < 720 then 
+        --在点击区域
+    else
+        that.GameView.More_Bg:setVisible(false)
+    end
+
+    if (that.gameStatus == GS_PLAYING_PAOHUZI) and ptTouchOutCardStatus then
+        local tempOutCard
+        --存在选中牌
+        if ptSelectOutCardIndex~=0 then
+            --出牌
+            if that.m_bOutCard and that.m_wCurrentUser == (that:GetMeChairID()) then
+                --Y值超过出牌值  出牌
+                if ptTouchEnd.y >= 360 then 
+                    local listNum = math.floor(ptSelectOutCardIndex/10)
+                    local cellNum = ptSelectOutCardIndex%10
+                    local cardData = that.poker.CardCtl.m_cbCardData[listNum][cellNum]
+                    
+                    --未听牌的情况下  只能不能打别家畏的牌
+                    tempOutCard = true
+                    for i = 1, self.cbForbiddenCount do
+                        if cardData == self.cbForbiddenCards[i] then
+                            --警告提示
+                            that.GameView:SetWarnSpr()
+                            tempOutCard = false
+                        end
+                    end
+
+                    if tempOutCard then
+                        local moveCard = that.GameView.Node_TouchMoveCard:getChildByTag(1)
+
+                        that:OnOutCard(cardData, moveCard)
+                        --删除牌
+                        that.poker:RemoveCard(that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI], ptSelectOutCardIndex)
+                        --整理该列
+                        that.poker:SortCardForRemove(that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI], listNum)
+                    end
+                end
+            else
+                --音乐
+                self:PlayMusic(PAOHUZI_MUSIC_PLAY_SORT_CARD,0,0,0)
+            end
+
+            --删除跟随牌
+            that.poker:RemoveAllCardData(that.GameView.Node_TouchMoveCard)
+
+            local sprCard = that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]:getChildByTag(ptSelectOutCardIndex)
+            if not tempOutCard and sprCard ~= nil then
+                SetPokerColor(sprCard, ccc3(255, 255, 255))
+
+                --移动牌
+                local fscale = that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI]:getScale()
+                local tempPos = ccp(ptTouchEnd.x, ptTouchEnd.y)
+                tempPos.x = tempPos.x / fscale
+                that.poker:MoveMyHandCard(that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI],ptSelectOutCardIndex,tempPos)
+            end 
+
+            --重新整理排列   如移动第4列牌  第4列现已经无牌   移动其他列填充
+            that.poker:MoveList(that.GameView.Node_HandCard[ME_CHAIRID_PAOHUZI], math.floor(ptSelectOutCardIndex/10))                                   
+        end
+        
+        ptSelectOutCardIndex = 0
+        ptTouchOutCardStatus = false
+    end
+
+    ptTouchBegan = nil
+    ptTouchEnd = nil
+    ptTouchMove = nil
+end
+--触摸点击事件
+local function onTouch(eventType, x, y)
+    if eventType == "began" then
+        return that:onTouchBegan(x, y)
+    elseif eventType == "moved" then
+        return that:onTouchMoved(x, y)
+    elseif eventType == "ended" then
+        return that:onTouchEnded(x, y)
+    end
+end
+--添加按钮事件绑定
+function GameLogic:RegisterButtonClick()
+    self.GameView:RegisterClickEvent(self.OnTalkFunc,self.OnExitFunc,self.OnDismissFunc,self.OnEntrustFunc,self.OnDialectFunc,
+        self.OnStartFunc,self.OnReturntFunc,self.OnInviteFunc,self.OnWinFunc,self.OnPongFunc,self.OnChowFunc,self.OnGiveUpFunc,self.OnCanelEntrustFunc,self.OnContinueMacthFunc,
+        self.OnChangeDeskFunc)
+end
+--zhy 获取玩家性别
+function GameLogic:GetSexByUserId(UserId)
+    -- 
+    local pUserData
+    local res=GENDER_FEMALE
+
+    for i=0,GAME_PLAYER_PAOHUZI do
+        pUserData=FGameDC:getDC():GetUserInfo(i);
+
+        if pUserData~=nil and  pUserData.dwUserID==UserId then
+            --
+            res=pUserData._sex;
+            break;
+        end
+    end
+
+    return res
+end
+function GameLogic:GetChairIdByUserId(UserId)
+    -- body
+     local pUserData
+    local res=0
+
+    for i=0,GAME_PLAYER_PAOHUZI do
+        pUserData=FGameDC:getDC():GetUserInfo(i);
+
+        if pUserData~=nil and  pUserData.dwUserID==UserId then
+            --
+            res=i;
+            break;
+        end
+    end
+
+    return res
+end
+
+function GameLogic:onPiaoOperator(score)
+    if not self.GameView.layerPiao then
+        self.GameView:addPiaoPanel(score, 
+            function(index) self:OnPiaoFunc(index) 
+        end)
+    end
+end
+
+function GameLogic:hidePiaoOperator()
+    if self.GameView.layerPiao then
+        self.GameView.layerPiao:removeFromParentAndCleanup(true)
+        self.GameView.layerPiao = nil
+    end
+end
+
+--是否播放牌移动相关动画
+function GameLogic.isCardMoveAnima()
+    local mode = CCUserDefault:sharedUserDefault():getIntegerForKey("PHZ_Anima")
+
+    return mode > 0
+end
+
+function GameLogic.setCardMoveAnima(check)
+    check = check or 1
+    CCUserDefault:sharedUserDefault():setIntegerForKey("PHZ_Anima", check)
+end
+
+function GameLogic.isCommonCardOrder()
+    local mode = CCUserDefault:sharedUserDefault():getIntegerForKey("PHZ_Order")
+    mode = (mode == 0) and 2 or mode
+
+    return mode == 1
+end
+
+function GameLogic:updataCardOrder(newmode)
+    local mode = CCUserDefault:sharedUserDefault():getIntegerForKey("PHZ_Order")
+    mode = (mode == 0) and 2 or mode
+
+    if newmode and newmode == mode then
+        --没有修改
+        return
+    end
+    
+    if newmode and newmode ~= mode then
+        --切换模式
+        mode = newmode
+    end
+
+    CCUserDefault:sharedUserDefault():setIntegerForKey("PHZ_Order", mode)
+    
+    if table.getn(self.m_cbCardIndex) > 0  then
+        --游戏设置切换排序
+        local cbCardData, bTempData = {}, {}
+        local cbCardCount = self.logic:SwitchToCardData3(self.m_cbCardIndex, cbCardData, MAX_COUNT_PAOHUZI)
+        self:CopyMemoryZ(bTempData, cbCardData, cbCardCount)
+
+        if cbCardCount > 0 and self.main_layer:isTouchEnabled() then
+            self:resetHandCard(cbCardCount, bTempData)
+        end        
+    end
+end
+
+function GameLogic:updataUITheme(newmode)
+    local mode = CCUserDefault:sharedUserDefault():getIntegerForKey("PHZ_GameMode")
+    mode = (mode == 0) and 2 or mode
+
+    if newmode and newmode == mode then
+        --没有修改
+        return
+    end
+
+    if newmode and newmode ~= mode then
+        --切换模式
+        mode = newmode
+    end
+    CCUserDefault:sharedUserDefault():setIntegerForKey("PHZ_GameMode", mode)
+
+    --重置背景
+    self.main_layer.Sprite_Bg:removeFromParentAndCleanup(true)
+    local Sprite_Bg = loadSprite("phz/images/BG"..mode..".jpg")
+    Sprite_Bg:setScale(1.25)
+    Sprite_Bg:setPosition(640, 360)
+    self.main_layer:addChild(Sprite_Bg, -1)
+    self.main_layer.Sprite_Bg = Sprite_Bg
+
+    local color = ccc3(0x71,0x65,0x4e) --黄色
+    if mode == 2 then
+        --绿色
+        color = ccc3(0x38,0x61,0x41)
+    end
+    self.main_layer.label_rule:setColor(color)
+
+    --版本信息
+    local versionlab = CCLabelTTF:create(""..require("GameConfig").getGameConfig("phz").version, 
+                                                AppConfig.COLOR.FONT_ARIAL, 18)      
+    versionlab:setPosition(ccp(165, 15))
+    versionlab:setAnchorPoint(0, 0.5)
+    versionlab:setColor(color) --ccc3(0x14, 0x32, 0x2f)
+    Sprite_Bg:addChild(versionlab)
+end
+
+function GameLogic:CreateMainLayer()
+    --创建主层
+    self.layer = self.GameView:CreateViewLayer()
+
+    self.main_layer = self.layer
+
+    --添加按钮事件绑定
+    self:RegisterButtonClick()
+
+    --设置成可触摸
+    self.layer:setTouchEnabled(true)
+    self.layer:setTouchMode(kCCTouchesOneByOne)
+
+    --注册触摸函数
+    self.layer:registerScriptTouchHandler(onTouch, false, kCCMenuHandlerPriority - 1, false)
+    ptTouchBegan = nil
+    ptTouchMove = nil
+    ptTouchEnd = nil
+    isTouchBeganInside = false;
+    ptTouchBeganIndex = 0;
+
+    ptOutCardIndex = 0  --出牌索引
+    ptLastOutCardIndex = 0  --上一次可出牌索引
+    ptIsClickOutCard = false  --是否可点击出牌
+    ptTouchOutCardStatus = false  --滑动出牌状态
+    ptSelectOutCardIndex = 0      --选中牌索引
+    ptIsSelectOutCard = false     --是否已经选中出牌
+
+    --UI主题
+    self:updataUITheme()
+    self:updataCardOrder()
+    self.setCardMoveAnima()
+
+    return self.layer
+end
+
+return GameLogic

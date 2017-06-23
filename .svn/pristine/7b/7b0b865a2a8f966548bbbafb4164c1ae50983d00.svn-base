@@ -1,0 +1,704 @@
+
+--动作定义
+local ACK_NULL                    = 0x00                                --空
+local ACK_TI                      = 0x01                                --提
+local ACK_PAO                     = 0x02                                --跑
+local ACK_WEI                     = 0x04                                --偎
+local ACK_CHI                     = 0x08                                --吃
+local ACK_CHI_EX                  = 0x10                                --优
+local ACK_PENG                    = 0x20                                --碰
+local ACK_CHIHU                   = 0x40                                --胡
+local ACK_KAN                     = 0x80                                -- 坎
+local ACK_ZIMO                    = 0x80                                -- 自摸
+
+local that = nil
+
+local GAME_END_LAYER       =           1211                            
+local GameEndLayer = class("GameEndLayer")
+
+local AppConfig = require("AppConfig")
+local CCButton = require("FFSelftools/CCButton")
+
+--结算layer对象创建
+function GameEndLayer.create(OnCloseFunc, OnContinueFuc, OnLookFuc, bWiner)
+    local layer = GameEndLayer.new()
+    
+    local gameEndLayer =   layer:createGameEndLayer(OnCloseFunc,OnContinueFuc, OnLookFuc, bWiner)
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ")end
+    if nil==gameEndLayer then cclog("gameEndLayer nil") end
+    gameEndLayer:setTag(GAME_END_LAYER)
+    gameEndLayer:setVisible(true)
+    scene:addChild(gameEndLayer,110)
+
+    gameEndLayer:setVisible(false) 
+    gameEndLayer:setTouchEnabled(false) 
+
+    layer:SetLayerVisible(true)
+
+    return layer
+end
+--结算layer属性   初始化值
+function GameEndLayer:ctor()
+    self.layer_zIndex = 110
+    self.btn_zIndex = 111
+
+    --主场景属性、常量定义
+    self.layer = CCLayer:create()
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self.layer:registerScriptTouchHandler(onTouch,false, kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self.layer:setTouchEnabled(true)
+
+    self.nodePanel = nil
+    self.visibleSize = CCDirector:sharedDirector():getVisibleSize()
+    self.origin = CCDirector:sharedDirector():getVisibleOrigin()
+    --音乐类对象常量实例化
+    self.musicClass = require("phz/Game/PaoHuZi_Music")
+    self.music = self.musicClass.create()
+    
+    self.Sprite_Bg              = {}                        --背景
+    self.Button_Face            = {}                        --头像框
+    self.Sprite_Face            = {}                        --头像
+    self.Text_UserName          = {}                        --名字
+    self.Text_UserGold          = {}                        --玩家金币
+    self.Text_PiaoScore          = {}                       --玩家飘
+
+    self.AtlasLabel_Score       = {}                        --输赢分
+    self.Sprite_Tip             = {}                        --输赢提示图
+    self.Node_Operate           = {}                        --胡息操作父节点
+
+    --胡息
+    self.Sprite_WinType         = nil                       --胡牌类型
+    self.Sprite_Points          = nil                       --胡息
+    self.AtlasLabel_Points      = nil                       --胡息
+    self.AtlasLabel_WinTimes    = nil                       --胡牌倍数
+
+    self.Text_GameScore         = {}                        --胡息分数
+
+    --Button按钮节点
+    self.Button_Close           = nil                       --返回按钮
+    self.Button_Continue        = nil                       --再来一局按钮
+
+    self.Button_Return        = nil                         --返回大厅
+    self.Button_Share         = nil                         --分享
+    self.Button_Look          = nil
+
+    --NODE节点
+    self.Node_BackCard          = nil                       --底牌节点
+    
+    --数字滚动
+    self.times                  = 0
+    self.sendEntry              = nil
+    self.rollNum                = 0
+    self.rollNumTable           = {}
+    self.rollNumIndex           = 1
+    self.rollTotalNum           = 0
+    self.totalNum               = 0
+    that                        = self
+    
+end
+
+--显示隐藏层设置
+function GameEndLayer:SetLayerVisible(isVisible)
+    local scene = CCDirector:sharedDirector():getRunningScene() ;
+    if nil == scene then cclog("scene nil ") return end
+    local gameEndLayer = scene:getChildByTag(GAME_END_LAYER)
+    if nil==gameEndLayer then cclog("gameEndLayer nil") return end
+
+
+    if isVisible then
+        self.layer:setVisible(true)
+        require("Lobby/Common/AnimationUtil").spriteScaleShowAction(self.layer.bg, function()
+            self.layer:setTouchEnabled(true)
+        end)        
+    else
+        require("Lobby/Common/AnimationUtil").spriteScaleHideAction(self.layer.bg, function()
+            self.layer:setVisible(false)
+            self.layer:setTouchEnabled(false)
+        end)        
+    end
+end
+
+function GameEndLayer:addPiaoMark(bIsPiao, lScore, winer)
+    --飘分
+    for i,v in ipairs(lScore) do
+        local index = i
+        if i < winer + 1 then 
+            index = index + 1
+        elseif i == winer + 1 then
+            index = 1
+        end        
+        self.Text_PiaoScore[index]:setString("飘："..lScore[i])
+        self.Text_PiaoScore[index]:setVisible(true)
+    end
+
+    --飘标识
+    for i,v in ipairs(bIsPiao) do
+        if v[2] > 0 then
+            local index = v[1] + 1
+            if v[1] < winer then 
+                index = index + 1
+            elseif v[1] == winer then
+                index = 1
+            end
+
+            local Sprite_Piao = loadSprite("paoHuZi/label_5.png")
+            self.Button_Face[index]:addChild(Sprite_Piao)
+            Sprite_Piao:setPosition(ccp(-40, -20))            
+        end        
+    end
+end
+
+
+--定时器
+function GameEndLayer:scheduleEx( callback, delay)
+    local tb  = CCArray:create()
+    tb:addObject(CCDelayTime:create(delay))
+    tb:addObject(CCCallFunc:create(callback)) 
+
+    local sequence = CCSequence:create(tb)
+    local action = CCRepeatForever:create(sequence)
+    self.Sprite_Tip[1]:runAction(action)
+    return action
+end
+----数字滚动
+--@param
+--@return
+function GameEndLayer:PlayRollNumAction()
+    that.times = that.times +1 ;
+    if that.rollNumTable[that.rollNumIndex]~=nil then
+        if that.rollNum==tonumber(that.rollNumTable[that.rollNumIndex]) then
+            if that.rollNumIndex>1 then
+                that.totalNum = that.totalNum + (math.pow(10,(that.rollNumIndex-1)))*that.rollNum
+            else
+                that.totalNum = that.totalNum + that.rollNum
+            end
+--            if that.rollNumIndex>1 then
+--                that.totalRollNum = that.totalRollNum + (math.pow(10,(that.rollNumIndex-1)))*tonumber(that.rollNumTable[that.rollNumIndex])
+--            else
+--                that.totalRollNum = tonumber(that.rollNumTable[that.rollNumIndex])
+--            end
+            that.rollNum = 0
+            that.rollNumIndex = that.rollNumIndex + 1
+        else
+            that.rollNum = that.rollNum + 1
+            if that.rollNumIndex>1 then
+                local tempNum = (math.pow(10,(that.rollNumIndex-1)))*that.rollNum + that.totalNum
+                that.AtlasLabel_Score[1]:setString("/"..tempNum)
+            else
+                that.AtlasLabel_Score[1]:setString("/"..that.rollNum)
+            end
+        end
+    end
+--    that.AtlasLabel_Score[1]:setString("/"..that.times)
+    if that.times%4==1 then
+        that.music:MusicFuc(PAOHUZI_MUSIC_PLAY_COINSROLL,nil,nil,nil)
+    end
+    if that.times>=(that.rollTotalNum+table.getn(that.rollNumTable)) then
+        that.Sprite_Tip[1]:stopAllActions()
+        that.times = 0;
+        that.sendEntry = nil;
+    end
+end;
+
+----操作、胡息
+--@param
+--@return
+function GameEndLayer:SetWeaveHuXiTip(weaveNamePath,huXiCount)
+    local totalHuXiCount = 0
+    for i=1,table.getn(weaveNamePath) do
+        --操作提示
+        local sprTip = loadSprite(weaveNamePath[i])
+        sprTip:setPosition((i-1)*70 , 0)
+        sprTip:setAnchorPoint(0.5, 0.5);
+        self.Node_Operate[1]:addChild(sprTip)
+
+        --胡息
+        local huXi = huXiCount[i] or 0
+        local Label_Score = CCLabelTTF:create(""..huXi, AppConfig.COLOR.FONT_ARIAL, 30)
+        Label_Score:setAnchorPoint(0.5, 0.5)
+        Label_Score:setPosition(ccp((i-1)*70 , 0))
+        Label_Score:setColor(ccc3(0x67, 0x53, 0x2a))
+        self.Node_Operate[3]:addChild(Label_Score)
+
+        totalHuXiCount = totalHuXiCount + huXi
+    end
+
+    return totalHuXiCount
+end
+
+----获取组合名称
+function GameEndLayer:SetWinType(scoreViewInfo, huxiCount, icount, countHuXi)
+    local bZiMo = scoreViewInfo.bZiMo
+    local wWinUser = scoreViewInfo.wWinUser
+    local wProvideUser = scoreViewInfo.wProvideUser
+    local gameScore = scoreViewInfo.lGameScore[scoreViewInfo.wWinUser+1]
+    local leaveplayer = icount - 1
+
+    --游戏数据
+    local labtips = {"", "自摸：x 2", "胡息："..huxiCount, "囤数："..tostring(scoreViewInfo.HuCardInfo.cbTunCount)}
+    --毛胡
+    if countHuXi == 0 then labtips[3] = "毛胡："..huxiCount end
+
+    if bZiMo then
+        local tempSprFrame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("gameEnd/zimo.png")
+        self.Sprite_WinType:setDisplayFrame(tempSprFrame)
+
+    elseif wProvideUser~=INVALID_CHAIR and wWinUser~=INVALID_CHAIR then
+        labtips[2] = "捉炮胡：x "..icount
+    else
+        local tempSprFrame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("gameEnd/pinghu.png")
+        self.Sprite_WinType:setDisplayFrame(tempSprFrame)
+        labtips[2] = "平胡：x 1"
+    end
+
+    --天胡
+    local cbTianHu = Bit:_and(scoreViewInfo.HuCardInfo.cbTianHu, 0x0F)
+    if cbTianHu > 0 then
+        local tempSprFrame = CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("gameEnd/tianhu.png")
+        self.Sprite_WinType:setDisplayFrame(tempSprFrame)        
+        labtips[2] = "天胡：x 2"
+
+        --设置胡牌类型
+        local bgsz = self.Sprite_WinType:getContentSize()
+        local tips = {"(胡亮张)", "(3龙)", "(5坎)"}
+        local Text_Tip = CCLabelTTF:create(tips[cbTianHu], AppConfig.COLOR.FONT_BLACK, 36)
+        Text_Tip:setAnchorPoint(0, 0.5)
+        Text_Tip:setPosition(ccp(bgsz.width, bgsz.height / 2))
+        Text_Tip:setColor(ccc3(0xff, 0, 0))
+        self.Sprite_WinType:addChild(Text_Tip)
+    end
+
+    --游戏类别    
+    local modeIndex = require("Lobby/FriendGame/FriendGameLogic").getRuleValueByIndex(50)
+    cclog("游戏类别 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "..modeIndex..";"..scoreViewInfo.HuCardInfo.cbTianHu)
+    if modeIndex == 2 then
+        --临武字牌：红黑胡
+        if Bit:_and(scoreViewInfo.HuCardInfo.cbTianHu, 0x10) ~= 0 then
+            labtips[1] = "黑胡：x 5"
+        elseif Bit:_and(scoreViewInfo.HuCardInfo.cbTianHu, 0x20) ~= 0 then
+            labtips[1] = "红胡：x 3"
+        end
+    end
+
+    for i,v in ipairs(labtips) do
+        self.Text_GameScore[i]:setString(v)
+    end
+end
+
+----获取组合名称
+--@param
+--@return
+function GameEndLayer:GetWeaveNamePath(cbWeaveKind)
+    if cbWeaveKind==ACK_TI then
+        return "gameEnd/ti.png"
+    elseif cbWeaveKind==ACK_PAO then
+        return "gameEnd/pao.png"
+    elseif cbWeaveKind==ACK_WEI then
+        return "gameEnd/wei.png"
+    elseif cbWeaveKind==ACK_PENG then
+        return "gameEnd/peng.png"
+    elseif cbWeaveKind==ACK_CHI then
+        return "gameEnd/chi.png"
+    elseif cbWeaveKind==ACK_KAN then
+        return "wordCard/kan.png"
+    else
+        return "gameEnd/dui.png"
+    end
+end
+
+function GameEndLayer:OnShareFunc(event)
+    self.Button_Continue:setVisible(false)
+    self.Button_Share:setVisible(false)
+    self.Button_Look:setVisible(false)
+
+    CJni:shareJni():shareScreenShot(1, 75, PAOHUZI_NAME_GAME, "单局游戏结算", function() end)
+
+    self.Button_Continue:setVisible(true)
+    self.Button_Share:setVisible(true)  
+    self.Button_Look:setVisible(true)  
+end
+
+--注册回调函数
+function GameEndLayer:RegisterClickEvent(OnCloseFunc, OnContinueFuc, OnLookFuc)
+    local bgsz = self.layer.bg:getContentSize()
+
+    -- 返回按钮
+    local Button_Return = CCButton.createCCButtonByFrameName("gameEnd/btn_return.png", "gameEnd/btn_return_dk.png", "gameEnd/btn_return_dk.png")
+    Button_Return:setPosition(bgsz.width / 2 - 180, -50)
+    self.layer.bg:addChild(Button_Return)
+    self.Button_Return = Button_Return
+
+    -- 查看按钮
+    local Button_Look = CCButton.createCCButtonByFrameName("gameEnd/btn_lookcard1.png", "gameEnd/btn_lookcard2.png", "gameEnd/btn_lookcard2.png")
+    Button_Look:setPosition(bgsz.width / 2 - 180, -50)
+    self.layer.bg:addChild(Button_Look)
+    self.Button_Look = Button_Look 
+    self.Button_Look:setVisible(false)
+
+    -- 分享按钮
+    local Button_Share = CCButton.createCCButtonByFrameName("gameEnd/btn_share1.png", "gameEnd/btn_share2.png", "gameEnd/btn_share2.png")
+    Button_Share:setPosition(bgsz.width - 50, bgsz.height + 50)
+    self.layer.bg:addChild(Button_Share)
+    self.Button_Share = Button_Share    
+
+    -- 继续按钮
+    local Button_Continue = CCButton.createCCButtonByFrameName("gameEnd/anniu_jixuyouxi.png", "gameEnd/anniu_jixuyouxi_dk.png", "gameEnd/anniu_jixuyouxi_dk.png")
+    Button_Continue:setPosition(bgsz.width / 2 + 180, -50)
+    self.layer.bg:addChild(Button_Continue)
+    self.Button_Continue = Button_Continue
+
+    if OnCloseFunc then
+        self.Button_Share:setVisible(false)
+        self.Button_Return:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+        self.Button_Return:setActionCallback(handler(self, OnCloseFunc))        
+    else
+        self.Button_Return:setVisible(false)
+        self.Button_Share:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+        self.Button_Share:setActionCallback(handler(self, self.OnShareFunc))
+
+        self.Button_Look:setVisible(true)
+        self.Button_Look:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+        self.Button_Look:setActionCallback(handler(self, OnLookFuc))        
+    end
+
+
+    self.Button_Continue:resetTouchPriorty(kCCMenuHandlerPriority - self.btn_zIndex, true)
+    self.Button_Continue:setActionCallback(handler(self, OnContinueFuc))
+end
+
+--结算layer创建
+function GameEndLayer:createGameEndLayer(OnCloseFunc, OnContinueFuc, OnLookFuc, bwin)
+    self.layer = CCLayerColor:create(ccc4(0, 0, 0, 200))
+    
+    --主场景属性、常量定义
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self.layer:registerScriptTouchHandler(onTouch,false, kCCMenuHandlerPriority - self.layer_zIndex,true)
+    self.layer:setTouchEnabled(true) 
+
+    -- 背景
+    local bg = loadSprite("gameEnd/bgs9.png", true)
+    local bgsz = CCSizeMake(1240,530)
+    bg:setPreferredSize(bgsz)
+    bg:setPosition(640, 355)
+    self.layer:addChild(bg)
+    self.layer.bg = bg
+    
+    --输赢标识
+    local Sprite_Title = loadSprite("gameEnd/result_lost.png")
+    if bwin then Sprite_Title = loadSprite("gameEnd/result_win.png") end
+    Sprite_Title:setPosition(bgsz.width / 2, bgsz.height + 30)
+    bg:addChild(Sprite_Title)
+    
+    local textColor = ccc3(0x67, 0x53, 0x2a)
+
+    -- 底牌
+    local Text_Tip = CCLabelTTF:create("底牌：无", AppConfig.COLOR.FONT_ARIAL, 30)
+    Text_Tip:setAnchorPoint(0, 0.5)
+    Text_Tip:setPosition(80, 173)
+    Text_Tip:setColor(textColor)
+    bg:addChild(Text_Tip)
+    local Node_BackCard = CCNode:create()
+    Node_BackCard:setScale(0.5)
+    Node_BackCard:setPosition(180, 173)
+    bg:addChild(Node_BackCard)
+    Node_BackCard:setTag(701)
+    self.Node_BackCard = Node_BackCard
+
+    
+    Text_Tip = CCLabelTTF:create("-----------------------------------------------------------------------------------------------------------------------", AppConfig.COLOR.FONT_ARIAL, 30)
+    Text_Tip:setAnchorPoint(0, 0.5)
+    Text_Tip:setPosition(22, 130)
+    Text_Tip:setColor(textColor)
+    Text_Tip:setScaleX((bgsz.width - 44) / Text_Tip:getContentSize().width)
+    bg:addChild(Text_Tip)
+
+    --胡息信息
+    local pos = {ccp(390, 465), ccp(390, 245), ccp(390, 233)}
+    for i = 1, 3 do
+        local Node_Operate = CCNode:create()
+        Node_Operate:setPosition(pos[i])
+        bg:addChild(Node_Operate)
+        self.Node_Operate[i] = Node_Operate
+    end
+    self.Node_Operate[2]:setTag(801)     
+    self.Node_Operate[2]:setScale(0.55)
+
+    --胡牌标识
+    local SpWin = loadSprite("gameEnd/zhuopaohu.png")
+    SpWin:setAnchorPoint(ccp(0, 0.5))
+    SpWin:setPosition(ccp(80, 465))
+    bg:addChild(SpWin)
+    self.Sprite_WinType = SpWin
+
+    --游戏数据
+    local labtips = {"", "自摸：x 2", "胡息：10", "囤数：6", "飘：6"}
+    for i,v in ipairs(labtips) do
+        local Text_Score = CCLabelTTF:create(v, AppConfig.COLOR.FONT_ARIAL, 30)
+        Text_Score:setAnchorPoint(0, 0.5)
+        Text_Score:setPosition(ccp(970, 515 - 55 * i))
+        Text_Score:setColor(textColor)
+        bg:addChild(Text_Score)
+
+        self.Text_GameScore[i] = Text_Score
+    end
+    self.Text_PiaoScore[1] = self.Text_GameScore[#labtips]
+    self.Text_PiaoScore[1]:setVisible(false)
+
+    --赢家头像及分数
+    local Button_Face1 = CCButton.createWithFrame("paoHuZi/wanjia1.png", false, nil)
+    Button_Face1:setPosition(ccp(170, 385))
+    bg:addChild(Button_Face1)
+    self.Button_Face[1] = Button_Face1
+
+    local Sprite_Face1 = loadSprite("paoHuZi/touxiang.png")
+    Sprite_Face1:setScale(0.8)
+    Sprite_Face1:setPosition(-54, 0)
+    Button_Face1:addChild(Sprite_Face1)
+    self.Sprite_Face[1] = Sprite_Face1
+
+    local Text_UserGold1 = CCLabelTTF:create("0", AppConfig.COLOR.FONT_ARIAL, 22)
+    Text_UserGold1:setAnchorPoint(0, 0.5)
+    Text_UserGold1:setPosition(39, -18)
+    Button_Face1:addChild(Text_UserGold1)
+    self.Text_UserGold[1] = Text_UserGold1
+    
+    local Sprite_UserGold1 = loadSprite("paoHuZi/jifen.png")
+    Sprite_UserGold1:setPosition(10, -18)
+    Button_Face1:addChild(Sprite_UserGold1)
+    
+    local Text_UserName1 = CCLabelTTF:create("玩家", AppConfig.COLOR.FONT_ARIAL, 25)
+    Text_UserName1:setAnchorPoint(0, 0.5)
+    Text_UserName1:setPosition(-12, 18)
+    Button_Face1:addChild(Text_UserName1)
+    self.Text_UserName[1] = Text_UserName1
+
+    --玩家标识，分数
+    local SpScore = loadSprite("gameEnd/winmark.png")
+    SpScore:setAnchorPoint(ccp(0, 0.5))
+    SpScore:setPosition(ccp(80, 285))
+    bg:addChild(SpScore) 
+    self.Sprite_Tip[1] = SpScore
+
+    local AtlasLabel_Score1 = CCLabelAtlas:create("/2", "phz/images/js_df_sz-ping.png",40,60,string.byte('/'))
+    AtlasLabel_Score1:setAnchorPoint(0, 0.5)
+    AtlasLabel_Score1:setPosition(160, 285)
+    bg:addChild(AtlasLabel_Score1)
+    self.AtlasLabel_Score[1] = AtlasLabel_Score1
+
+    for i=2, 4 do
+        local Button_Face = CCButton.createWithFrame("paoHuZi/wanjia1.png", false, nil)
+        Button_Face:setPosition(ccp(-620 + 395 * i, 70))
+        bg:addChild(Button_Face)
+        self.Button_Face[i] = Button_Face
+
+        local Sprite_Face = loadSprite("paoHuZi/touxiang.png")
+        Sprite_Face:setPosition(-54, 0)
+        Sprite_Face:setScale(0.8)
+        Button_Face:addChild(Sprite_Face)
+        self.Sprite_Face[i] = Sprite_Face
+        
+        local Text_UserGold = CCLabelTTF:create("0", AppConfig.COLOR.FONT_ARIAL, 22)
+        Text_UserGold:setAnchorPoint(0, 0.5)
+        Text_UserGold:setPosition(36, -18)
+        Button_Face:addChild(Text_UserGold)
+        self.Text_UserGold[i] = Text_UserGold
+        
+        local Sprite_UserGold = loadSprite("paoHuZi/jifen.png")
+        Sprite_UserGold:setPosition(10, -18)
+        Button_Face:addChild(Sprite_UserGold)
+        
+        local Text_UserName = CCLabelTTF:create("玩家"..i, AppConfig.COLOR.FONT_ARIAL, 25)
+        Text_UserName:setAnchorPoint(0, 0.5)
+        Text_UserName:setPosition(-12, 18)
+        Button_Face:addChild(Text_UserName)
+        self.Text_UserName[i] = Text_UserName
+        
+        --积分
+        local Sprite_Tip = loadSprite("gameEnd/lostmark.png")
+        Sprite_Tip:setAnchorPoint(0, 0.5)
+        Sprite_Tip:setPosition(105, -22)
+        Button_Face:addChild(Sprite_Tip)
+        Sprite_Tip:setScale(1.5)
+        self.Sprite_Tip[i] = Sprite_Tip
+
+        local AtlasLabel_Score = CCLabelTTF:create("-0", AppConfig.COLOR.FONT_ARIAL, 46)
+        AtlasLabel_Score:setAnchorPoint(0, 0.5)
+        AtlasLabel_Score:setPosition(ccp(165, -22))
+        AtlasLabel_Score:setColor(ccc3(0x14, 0x61, 0x97))
+        Button_Face:addChild(AtlasLabel_Score)
+        self.AtlasLabel_Score[i] = AtlasLabel_Score
+
+        local Text_PiaoScore = CCLabelTTF:create("飘：-0", AppConfig.COLOR.FONT_ARIAL, 30)
+        Text_PiaoScore:setAnchorPoint(0, 0.5)
+        Text_PiaoScore:setPosition(ccp(105, 22))
+        Text_PiaoScore:setColor(textColor)
+        Button_Face:addChild(Text_PiaoScore)
+        self.Text_PiaoScore[i] = Text_PiaoScore
+        Text_PiaoScore:setVisible(false) 
+
+        Button_Face:setVisible(false)
+    end
+
+    --节点回调事件注册
+    self:RegisterClickEvent(OnCloseFunc, OnContinueFuc, OnLookFuc)
+
+    return self.layer
+end
+
+----结算数据处理  节点显示
+--@param
+--@return
+function GameEndLayer:ShowGameEndData(m_ScoreViewInfo, pokerClass, icount) 
+    pokerClass:GetResultBackCard(self.Node_BackCard, m_ScoreViewInfo.bRemainCards, m_ScoreViewInfo.bRemainCount)
+
+    --添加胡牌标识
+    local function addHuMark(cardPos)
+        self.Node_Operate[2]:removeChildByTag(100, true)
+        local mark = loadSprite("wordCard/humark.png") 
+        self.Node_Operate[2]:addChild(mark, 0, 100) 
+        mark:setScale(2)
+        mark:setPosition(cardPos)
+    end
+
+    local weaveName = {}
+    local weaveNum = 0
+    for i = 1,  m_ScoreViewInfo.HuCardInfo.cbWeaveCount do
+        if m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardCount>0 then
+            weaveNum = weaveNum + 1
+            --组合牌
+            local cbCardDatas = m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardList
+            local cbCardCount = m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardCount
+            local cardSps = pokerClass:GetResultWeaveCard(self.Node_Operate[2], cbCardDatas, cbCardCount, weaveNum)            
+
+            --牌型
+            weaveName[i] = self:GetWeaveNamePath(m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbWeaveKind)
+
+            --胡牌标识
+            local bhuMark, index = true, 0
+            for j,v in ipairs(m_ScoreViewInfo.bBestHuCard) do
+                if v == m_ScoreViewInfo.HuCardInfo.WeaveItemArray[i].cbCardList[j] then
+                    if index == 0 and m_ScoreViewInfo.cbHuCard == v then
+                       index = j
+                    end
+                else
+                    bhuMark = false
+                    break
+                end
+            end
+
+            --添加胡牌标识
+            if bhuMark and index > 0 then
+                addHuMark(ccp(cardSps[index]:getPosition()))
+            end
+        end
+    end 
+
+    if m_ScoreViewInfo.HuCardInfo.cbCardEye~=0 then
+        weaveNum = weaveNum + 1
+        --组合牌
+        local cbCardDatas = {m_ScoreViewInfo.HuCardInfo.cbCardEye,m_ScoreViewInfo.HuCardInfo.cbCardEye}
+        local cbCardCount = 2
+        local cardSps = pokerClass:GetResultWeaveCard(self.Node_Operate[2], cbCardDatas, cbCardCount, weaveNum)            
+        
+        weaveName[weaveNum] = self:GetWeaveNamePath(0)
+
+        --添加胡牌标识
+        if m_ScoreViewInfo.HuCardInfo.cbCardEye == m_ScoreViewInfo.cbHuCard
+            and m_ScoreViewInfo.cbHuCard == m_ScoreViewInfo.bBestHuCard[2] then
+            addHuMark(ccp(cardSps[1]:getPosition()))
+        end        
+    end
+
+    --胡息
+    local countHuXi = self:SetWeaveHuXiTip(weaveName, m_ScoreViewInfo.huXiCount)
+    local totalHuXi = m_ScoreViewInfo.HuCardInfo.cbHuXiCount or countHuXi
+
+    --胡牌类型
+    self:SetWinType(m_ScoreViewInfo, totalHuXi, icount, countHuXi)
+
+    --设置胡息起始位置
+    local xpos = self.Node_Operate[1]:getPositionX() + (7 - weaveNum) * 35
+    for i = 1, 3 do
+        self.Node_Operate[i]:setPositionX(xpos)
+    end
+
+    --赢家信息
+    local tempStr = ""..m_ScoreViewInfo.lTotoalScore[m_ScoreViewInfo.wWinUser+1]
+    --拆分数字
+    local tempNum = string.len(tempStr)
+    for i = 1, tempNum do
+        self.rollNumTable[i] = string.sub(tempStr, (tempNum-i+1) , (tempNum-i+1))
+        self.rollTotalNum = self.rollTotalNum + tonumber(self.rollNumTable[i])
+    end
+    
+    self.Text_UserGold[1]:setString(m_ScoreViewInfo.lScore[m_ScoreViewInfo.wWinUser+1])
+
+    local strTemp = require("HallUtils").getLabText(m_ScoreViewInfo.szUserName[m_ScoreViewInfo.wWinUser+1], self.Text_UserName[1], 90)
+    self.Text_UserName[1]:setString(strTemp)                --用户名
+    self.AtlasLabel_Score[1]:setString("")        --总分 
+
+    local pos = ccp(self.Sprite_Face[1]:getPosition())
+    self.Sprite_Face[1]:removeFromParentAndCleanup(true)
+    if m_ScoreViewInfo.logoSprite[m_ScoreViewInfo.wWinUser+1] then
+        self.Sprite_Face[1] = require("FFSelftools/CCUserFace").clone(m_ScoreViewInfo.logoSprite[m_ScoreViewInfo.wWinUser+1], CCSizeMake(75,75))
+    else
+        self.Sprite_Face[1] = require("FFSelftools/CCUserFace").create(
+            m_ScoreViewInfo.nUserID[m_ScoreViewInfo.wWinUser+1], CCSizeMake(75,75), m_ScoreViewInfo.cbFaceID[m_ScoreViewInfo.wWinUser+1]
+        )      
+    end
+    self.Sprite_Face[1]:setPosition(pos)
+    self.Button_Face[1]:addChild(self.Sprite_Face[1])  
+
+    --输家信息
+    local tempNum = 2
+    for i = 1, icount do
+        if (i-1)~=m_ScoreViewInfo.wWinUser then
+            self.Text_UserGold[tempNum]:setString(m_ScoreViewInfo.lScore[i])                    --积分
+            
+            local strTemp = require("HallUtils").getLabText(m_ScoreViewInfo.szUserName[i], self.Text_UserName[tempNum], 90)
+            self.Text_UserName[tempNum]:setString(strTemp)                --用户名
+            if m_ScoreViewInfo.lTotoalScore[i]~=nil then
+                self.AtlasLabel_Score[tempNum]:setString(""..m_ScoreViewInfo.lTotoalScore[i])             --总得分    
+            end
+
+            local pos = ccp(self.Sprite_Face[tempNum]:getPosition())
+            self.Sprite_Face[tempNum]:removeFromParentAndCleanup(true)
+            if m_ScoreViewInfo.logoSprite[i] then
+                self.Sprite_Face[tempNum] = require("FFSelftools/CCUserFace").clone(m_ScoreViewInfo.logoSprite[i], CCSizeMake(75,75))        
+            else
+                self.Sprite_Face[tempNum] = require("FFSelftools/CCUserFace").create(
+                    m_ScoreViewInfo.nUserID[i], CCSizeMake(75,75), m_ScoreViewInfo.cbFaceID[i]
+                )                 
+            end            
+            self.Sprite_Face[tempNum]:setPosition(pos)
+            self.Button_Face[tempNum]:addChild(self.Sprite_Face[tempNum])
+
+            --放炮
+            if m_ScoreViewInfo.wProvideUser==(i-1) then
+                local tempSpr = loadSprite("gameEnd/fangpao.png")
+                tempSpr:setPosition(-100, 0)
+                self.Button_Face[tempNum]:addChild(tempSpr, 1)
+            end
+            self.Button_Face[tempNum]:setVisible(true)
+            tempNum = tempNum + 1
+        end
+    end
+
+    local tb  = CCArray:create()
+    tb:addObject(CCDelayTime:create(0.4))
+    tb:addObject(CCCallFunc:create(function()
+        self:scheduleEx(self.PlayRollNumAction, 0.05)
+    end)) 
+    self.layer:runAction(CCSequence:create(tb))
+end
+
+return GameEndLayer

@@ -104,7 +104,7 @@ function PlayerCards:init()
 
     --手牌
     self.cardsSpVec = {}
-    for i = 1,16 do
+    for i = 1,18 do
         local CardSp = Card:create()
         self:addChild(CardSp)
         CardSp:setScale(0.8)
@@ -130,8 +130,8 @@ function PlayerCards:init()
 end
 
 -- 发牌动画
-function PlayerCards:FapaiAction()
-    local cardCount = require("Lobby/FriendGame/FriendGameLogic").my_rule[2][2]
+function PlayerCards:FapaiAction(playerCardCount)
+    local cardCount = playerCardCount
     local function moveCallFunc()
         self.fapaiAcSp:setVisible(false)
     end
@@ -356,9 +356,11 @@ function PlayerCards:reFreshPlayerCards(playerCardsLst,refeshType)
     end
 
     for i = 1,#self._playerCardsValueLst do
-        local value = self._playerCardsValueLst[i]
-        self.cardsSpVec[i]:setCardSp(i, value)
-        self.cardsSpVec[i]:Show()
+		if self.cardsSpVec[i] and self._playerCardsValueLst[i] then
+			local value = self._playerCardsValueLst[i]
+		    self.cardsSpVec[i]:setCardSp(i, value)
+			self.cardsSpVec[i]:Show()
+		end
     end
 
     local o = 127

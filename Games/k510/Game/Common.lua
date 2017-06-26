@@ -36,8 +36,8 @@ Common.CARDTYPE_HEART	 = 2	    -- 红心
 Common.CARDTYPE_SPADE	 = 3        -- 黑桃
 Common.CARDTYPE_Joker	 = 4        -- 王
 
-Common.SUIT_Num = {"A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"}
-Common.SUIT_Flow = {"♦", "♣", "♥", "♠"}
+Common.SUIT_Num = {"A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K" ,"RedJoker"}
+Common.SUIT_Flow = {"♦", "♣", "♥", "♠","RedJoker"}
 
 -- 牌型
 Common.SUIT_TYPE =
@@ -371,12 +371,23 @@ function Common.newGameScene(buf, ownerChair)
                 logStr = logStr .. string.format("[%d] 手牌: ", i-1)
                 for j = 1, nSize do
                     gameScene.m_handCards[i][j] = ba:readByte()
-                    logStr = logStr .. string.format(
-                        "[%d/%s%s] ",
-                        gameScene.m_handCards[i][j],
-                        Common.SUIT_Flow[math.floor(gameScene.m_handCards[i][j]/13)+1],
-                        Common.SUIT_Num[gameScene.m_handCards[i][j]%13+1]
-                    )
+					if gameScene.m_handCards[i][j] and gameScene.m_handCards[i][j] <= 53 then
+						if gameScene.m_handCards[i][j] == 53 then
+							logStr = logStr .. string.format(
+							"[%d/%s%s] ",
+							gameScene.m_handCards[i][j],
+							Common.SUIT_Flow[5],
+							Common.SUIT_Num[14]
+						)
+						else
+							logStr = logStr .. string.format(
+							"[%d/%s%s] ",
+							gameScene.m_handCards[i][j],
+							Common.SUIT_Flow[math.floor(gameScene.m_handCards[i][j]/13)+1],
+							Common.SUIT_Num[gameScene.m_handCards[i][j]%13+1]
+						)
+						end
+					end
                 end
                 logStr = logStr .. "\n"
             -- 否则填充手牌为-1
@@ -394,14 +405,6 @@ function Common.newGameScene(buf, ownerChair)
                 logStr = logStr .. string.format("[%d] 出牌: %s\n", i-1, tempStr)
             end
         end
-        
-        -- 飘数据
-        logStr = logStr .. string.format("\n[%s] 更新场景内玩家飘数据: \n", os.date("%c"))
-        for i = 1, Common.PLAYER_COUNT do
-            gameScene.m_piao[i] = ba:readByte()
-            logStr = logStr .. string.format( "[%d]:%d ", i-1, gameScene.m_piao[i] )
-        end
-        logStr = logStr .. "\n"
 
         -- 如果是结束阶段更新单局结算数据
         if gameScene.cbSystemPhase == Common.GAME_PHRASE.enGame_Over then

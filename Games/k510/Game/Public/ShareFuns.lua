@@ -583,7 +583,7 @@ end
 -- 是不是飞机带翅膀(checked)
 function ShareFuns.IsPlane(cardArray)
 	if #cardArray%2 ~= 0 or ShareFuns.isHaveRedJoker(cardArray) then
-		return false
+		return false,{}
 	end
 	
 	local bRet,ArrayIn,ArrayOut = false,{},{}
@@ -631,7 +631,7 @@ function ShareFuns.IsBomb(cardArray,bombStatus)
 		   end
 		end
 	end
-	return false
+	return false,{}
 end
 
 -- 510k

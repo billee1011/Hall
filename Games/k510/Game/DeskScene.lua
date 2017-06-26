@@ -38,7 +38,8 @@ DeskScene.menuItemTag =
     setItemTag = 5,         --设置按钮
     dissolveItemTag = 6,    --解散房间按钮
     inviteItemTag = 7,      --邀请好友按钮
-    
+    yesItemTag = 8,			--是按钮
+	noItemTag = 9,			--否按钮
     qie0  = 20,             --选择不切按钮
     qie1  = 21,             --选择切牌按钮
 }
@@ -52,6 +53,8 @@ DeskScene.menuItemShowTag =
     ShowReady1 = 3,  --显示飘选择按钮1
     ShowReady2 = 4,  --显示飘选择按钮1
     ShowQie = 5,     --显示切牌选择按钮
+	ShowYes = 6,	 --显示是按钮
+	ShowNo = 7,		 --显示否按钮
 }
 
 function DeskScene.create()
@@ -450,17 +453,18 @@ function DeskScene:setRoomInfo()
     local currentRule, invite_code, game_used = f.my_rule, f.invite_code, f.game_used
     
     if #currentRule > 0 then
-        local msg = currentRule[2] and currentRule[2][2].."张玩法" or ""
-        if currentRule[3] and currentRule[3][2] == 1 then
-           msg = msg.." 首局先出黑桃3"
+        local msg = ""
+		if currentRule[2] and currentRule[2][2] == 2 then
+			msg = msg.." 炸弹为四带一"
+		end
+		
+        if currentRule[3] and currentRule[3][2] == 2 then
+           msg = msg.." 最大连对为AA22"
         end
         if currentRule[4] and currentRule[4][2] == 0 then
             msg = msg.." 不显示牌数"
         end
-        -- if currentRule[7] and currentRule[7][2] ~= 0 then
-            -- msg = msg..string.format(" 飘%d分",Common.PIAO_VALUE[currentRule[7][2]])
-        -- end
-        if currentRule[8] and currentRule[8][2] ~= 0 then
+        if currentRule[5] and currentRule[5][2] ~= 1 then
             msg = msg.." 可切牌"
         end
 
@@ -815,7 +819,6 @@ function DeskScene:updateDeskInfo(s)
             self.inviteMenuItem:setVisible(true)
         else
             self.inviteMenuItem:setVisible(false)
-            
         end   
 
         --开关离开按钮
@@ -869,9 +872,6 @@ function DeskScene:checkReconnectUI()
             cclog("非首局")
             -- 如果玩家没准备
             if GameLogic.myself.gameNewStatus ~= Common.GAME_PLAYER_STATE.USER_READY_STATUS then
-                -- 如果玩家无飘或不可飘
-                local piaoAble, piaoScore = GameLogic.myself:getPiao()
-                if (f.my_rule[7][2] == 0) or (false == piaoAble) then
                     -- 没有正在显示结算界面
                     if not self.resultLayer:isVisible() then
                         GameLogic:sendStartMsg("重回自动准备")
@@ -880,10 +880,6 @@ function DeskScene:checkReconnectUI()
                         local player = self._PlayerVec[GameLogic:ServerToClientSeat(GameLogic.myChair) + 1]
                         if player then player._PlayCards:setVisible(false) end
                     end
-                else
-                    cclog("条件不足")
-                    print(f.my_rule[7][2], piaoAble, piaoScore, self.resultLayer:isVisible())
-                end
             else
                 cclog("已准备")
             end
@@ -959,7 +955,7 @@ function DeskScene:menuUnOutCardsCallBack()
 end
 
 -- 轮到我出牌 要是要不起或者只剩下能出完的牌 自动出掉
-function DeskScene:autoOutCardsByCondition()
+function DeskScene:autoOutCardsByCondition(bombStatus)
     cclog("autoOutCardsByCondition")
     -- 自动出牌时间间隔
     self.autoTime = 0.5
@@ -981,28 +977,18 @@ function DeskScene:autoOutCardsByCondition()
                     -- 判定能否一把出完，如果可以就自动打出
                     local arrayOut = {}
                     
-                    local bRet,outArrayTemp = ShareFuns.GetBomb( arrayHold, -1)
+                    local bRet,outArrayTemp = ShareFuns.GetBomb( arrayHold, -1,bombStatus)
                     -- 如果剩余手牌不含炸弹再判定出牌，避免其它牌型带炸弹出去
                     if not bRet then
-                        if ilen == 1 and ShareFuns.IsSingle(arrayHold) then
+                        if ilen == 1 and (ShareFuns.IsSingle(arrayHold) or ShareFuns.IsRedJoker(arrayHold))then
                             arrayOut = ShareFuns.Copy(arrayHold)
                         elseif ilen == 2 and ShareFuns.IsDouble(arrayHold) then
                             arrayOut = ShareFuns.Copy(arrayHold)
-                        elseif ilen == 3 and ShareFuns.IsThree(arrayHold) then
-                            arrayOut = ShareFuns.Copy(arrayHold)
-                        elseif ilen >= 5 and ShareFuns.IsStraight(arrayHold) then
-                            arrayOut = ShareFuns.Copy(arrayHold)
-                        elseif ilen >= 4 and ShareFuns.IsDoubleStraight(arrayHold) then
-                            arrayOut = ShareFuns.Copy(arrayHold)
-                        elseif ilen == 4 and ShareFuns.IsBomb(arrayHold) then
+                        elseif ilen == 3 and (ShareFuns.IsTriple(arrayHold) or ShareFuns.IsFiveTenKing(arrayHold)
+							or ShareFuns.IsPureFiveTenKing(arrayHold)) then
                             arrayOut = ShareFuns.Copy(arrayHold)
                         else
-                            local bRet,outArrayTemp = ShareFuns.IsTriAndSingle(arrayHold)
-                            if ilen == 4 and bRet then
-                                arrayOut = ShareFuns.Copy(outArrayTemp)
-                            end
-
-                            local bRet,outArrayTemp = ShareFuns.IsTriAndTwo(arrayHold)
+                            local bRet,outArrayTemp = ShareFuns.IsTriAndDouble(arrayHold)
                             if ilen == 5 and bRet then
                                 arrayOut = ShareFuns.Copy(outArrayTemp)
                             end
@@ -1012,11 +998,26 @@ function DeskScene:autoOutCardsByCondition()
                                 arrayOut = ShareFuns.Copy(outArrayTemp)
                             end
 
-                            local bRet,outArrayTemp = ShareFuns.IsPlaneLost(arrayHold)
-                            if ilen >= 7 and bRet then
-                                arrayOut = ShareFuns.Copy(outArrayTemp)
-                            end
-                        end
+							local bRet,outArrayTemp = ShareFuns.IsStraight(arrayHold)
+							if ilen >= 5 and bRet(arrayHold) then
+								arrayOut = ShareFuns.Copy(arrayHold)
+							end
+							
+							local bRet,outArrayTemp = ShareFuns.IsDoubleStraight(arrayHold)
+							if ilen >= 4 and bRet(arrayHold) then
+								arrayOut = ShareFuns.Copy(arrayHold)
+							end
+							
+							local bRet,outArrayTemp = ShareFuns.IsTriStraight(arrayHold)
+							if ilen >= 6 and bRet(arrayHold) then
+								arrayOut = ShareFuns.Copy(arrayHold)
+							end
+							
+							local bRet,outArrayTemp = ShareFuns.IsBomb(arrayHold)
+							if ilen >= 4 and bRet(arrayHold) then
+								arrayOut = ShareFuns.Copy(arrayHold)
+							end
+						end
                     end
 
                     if #arrayOut ~= 0 then
@@ -1087,7 +1088,7 @@ function DeskScene:autoOutCardsByCondition()
                     local bRet,myOutCard = ShareFuns.DisassembleToOutCard(arrayOut)
                     -- 如果跟牌能出完则自动跟
                     if bRet and (not self.isOutCard) and #myOutCard.cards == ilen then
-                        local bRet,outArrayTemp = ShareFuns.GetBomb( arrayHold, -1)
+                        local bRet,outArrayTemp = ShareFuns.GetBomb( arrayHold, -1,bombStatus)
                         -- 如果剩余手牌不含炸弹再判定出牌，避免其它牌型带炸弹出去
                         local bBoom, ArrayOut = ShareFuns.GetBomb(arrayHold, -1, true)
                         if not bBoom then

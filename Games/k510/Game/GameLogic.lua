@@ -7,7 +7,7 @@ local Common = require("k510/Game/Common")
 local Resources = require("k510/Resources")
 local ScoreParser = require("GameLib/common/ScoreParser")
 
---规则 1钱 2局数(10，20) 3牌张(15,16) 4是不是先出黑桃三
+--规则 1钱 2局数(10，20) 3 炸弹类型 4最大连对 5切牌是否
 
 local GameLogic = 
 {
@@ -215,7 +215,7 @@ function GameLogic:showLocation()
     if self.StaySceneLayer and self.userlist then
         self.StaySceneLayer.locationBtn.m_normalSp:stopAllActions()
         self.StaySceneLayer.locationBtn.m_normalSp:setDisplayFrame(
-            CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("czwsk/loc.png")
+            CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName("czpdk/loc.png")
         )
         self.checkLocation = true
         require("Lobby/Info/LayerLocation").put(self.StaySceneLayer, 10, 3, self:getGameLib():getUserList(), self.myChair):show()
@@ -272,7 +272,7 @@ function GameLogic:onGameStart()
     self.StaySceneLayer:Clear()
     self.StaySceneLayer:setRoomInfo()
     -- 检测同IP
-    self:checkIP()
+    --self:checkIP()
 end
 
 -- 游戏结束
@@ -343,10 +343,7 @@ function GameLogic:onSceneChanged(pData,nLen)
                     if gameSceneData.m_SetScores and #gameSceneData.m_SetScores == Common.PLAYER_COUNT then
                         self.userlist[i]:setCurrentScore(gameSceneData.m_SetScores[i].nSetScore)
                         self.userlist[i]:setLeftCardNum(gameSceneData.m_SetScores[i].cbLeftCardNum)
-                    end
-                    
-                    --飘
-                    self.userlist[i]:setPiao(0, gameSceneData.m_piao[i])
+                    end              
                 end
             end
         end
@@ -653,7 +650,7 @@ end
 
 function GameLogic.removeCache()
     local path = Resources.Img_Path
-    Cache.removePlist{path.."czpdkanimate", path.."czpak", path.."czpdkpai", path.."czpdkreplay", "emote"}
+    Cache.removePlist{path.."czpdkanimate", path.."czpdk", path.."czpdkpai", path.."czpdkreplay", "emote"}
     Cache.removeTexture{path.."deskbg.jpg", "lobby_message_tip_bg"}
 end
 

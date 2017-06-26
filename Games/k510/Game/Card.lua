@@ -61,6 +61,9 @@ function Card:setCardSp(idx, cardValue)
         local cardNum = cardValue % 13 + 1
         local cardType = math.floor(cardValue / 13)
         local value = cardType % 2 * 100 + cardNum
+		if cardValue == 53 then
+			cardType = 3
+		end
 
         self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/front.png"))
         self._CardValue:setDisplayFrame(c:spriteFrameByName(string.format("pai/%d.png", value)))

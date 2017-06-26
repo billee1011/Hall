@@ -102,23 +102,6 @@ function GameUser:getCurrentScore()
 	return self.nSetScore
 end
 
-function GameUser:setCurrentPiao(scores)
-	self.cbPiaoNum = scores
-end
-
-function GameUser:getCurrentPiao()
-	return self.cbPiaoNum
-end
-
-function GameUser:setPiao(able, scores)
-    self.piaoAble = (able == 1)
-	self.piao = scores
-end
-
-function GameUser:getPiao()
-	return self.piaoAble, self.piao
-end
-
 -- OutCards整个结构
 function GameUser:setOutCardStruct(outCards)
     if outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitDouble or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitThree 
@@ -128,7 +111,7 @@ function GameUser:setOutCardStruct(outCards)
         outCards.cards = require("k510/Game/Public/ShareFuns").SortCardsByCardType(outCards.cards)
         outCards.cards = require("k510/Game/Public/ShareFuns").SortCardsByMin(outCards.cards)
 
-    elseif outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitTriAndSingle or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitTriAndTwo then
+    elseif outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitTriAndSingle or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitTriAndDouble then
         -- 飞机不能简单按从大到小排序 or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitPlane then
         
         outCards.cards = require("k510/Game/Public/ShareFuns").SortCardsByMin(outCards.cards)

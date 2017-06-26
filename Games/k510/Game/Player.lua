@@ -287,7 +287,7 @@ function Player:UpdateUserInfo(gameUserInfo, updateCardsDataOnly)
     end
 
     if GameLogic.gamePhase == Common.GAME_PHRASE.enGame_InitData and self._ChairIndex == 1 then
-        self._PlayCards:FapaiAction()
+        self._PlayCards:FapaiAction(#self._cardArray)
     else
         self._PlayCards:setCardBackHide()
     end
@@ -351,7 +351,7 @@ function Player:UpdateReplayInfo(chair, info, gamePhase)
         self._PlayCards:setVisible(true)
         
         -- 发牌动画
-        self._PlayCards:FapaiAction()
+        self._PlayCards:FapaiAction(#self._cardArray)
         
     -- 回退时更新玩家手牌
     elseif gamePhase == Common.GAME_PHRASE.enGame_Replay then

@@ -141,21 +141,30 @@ Common.GAME_PotoCoL_MessAge =
     -- 切牌
     CMD_Send_Qie = 5,                   -- 发送切牌选择
     CMD_Out_Qie = 58,                   -- 切牌广播
+	
+	CMD_Send_AskPlayer = 3,				--	发送问询玩家答复
+	CMD_S_AskPlayer = 57,				--	问询玩家信息
 }
 
 --炸弹类型
 Common.BOMB_STATUS = 
 {
-	BombStatus_Quadruple 	= 0, --四张
-	BombStatus_QuadrupleOne = 1	 --四带一
+	BombStatus_Quadruple 	= 1, --四张
+	BombStatus_QuadrupleOne = 2	 --四带一
 }
 
 Common.STRAIGHT_MAX = 
 {
-	StraightMax_KKAA = 0,
-	StraightMax_AA22 = 1
+	StraightMax_KKAA = 1,
+	StraightMax_AA22 = 2
 }
 
+Common.ASK_TYPE = 
+{
+	TypeBToA = 1, -- 问询B是否和A对战
+	TypeCToB = 2, -- 问询C是否和B对战
+	TypeCToA = 3  -- 问询C是否和A对战
+}
 --声音分类
 Common.SND_TYPE = 
 {
@@ -343,23 +352,28 @@ function Common.newGameScene(buf, ownerChair)
         )
         if debugMode then cc2file(logStr) end
     -- 其它阶段
+	elseif gameScene.cbSystemPhase == Common.GAME_PHRASE.enGame_AskPlayer then
+		
     else
         -- 当前阶段牌局通用数据
         gameScene.cbChairCurPlayer = ba:readByte()
         gameScene.cbRingCount = ba:readByte()
         gameScene.cbMingPaiCard = ba:readByte()
         gameScene.cbAutoOutCardTime = ba:readByte()
+		gameScene.cbNoJoinPlayer = ba:readByte()
+		gameScene.cbIsInFirstTurn = ba:readByte()
         
         gameScene.m_handCards = {}
         gameScene.m_outCards = {}
         
         local logStr = string.format(
-            "[%s] 收到场景数据 阶段: %d(%s)  本轮序号: %d, 庄家: %d, 出牌: %d\n", os.date("%c"),
+            "[%s] 收到场景数据 阶段: %d(%s)  本轮序号: %d, 庄家: %d, 出牌: %d, 不参对战者：%d\n", os.date("%c"),
             gameScene.cbSystemPhase,
             Common.GAME_PHRASE_NAME[gameScene.cbSystemPhase],
             gameScene.cbRingCount,
             gameScene.cbMingPaiCard,
-            gameScene.cbChairCurPlayer
+            gameScene.cbChairCurPlayer,
+			gameScene.cbNoJoinPlayer
         )
 
         for i = 1, Common.PLAYER_COUNT do

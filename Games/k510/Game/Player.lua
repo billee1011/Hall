@@ -37,7 +37,6 @@ function Player.create()
 end
 
 function Player:init()
-    
     self.gameUserInfo = nil
     self.schedulerId = -1
     self.gold = 0
@@ -184,7 +183,6 @@ function Player:init()
     self.wordChatFrame1:addChild(self.wordChatLabel1)
     self.wordChatLabel1:setColor(ccc3(51,33,9))
     self.wordChatLabel1:setPosition(ccp(10,self.wordChatFrame:getContentSize().height/2+6))
-
     
     --动画
     self.cardTypeTextAcSp = loadSprite("czpdkanimate/feiji/feijitext.png")
@@ -414,7 +412,7 @@ function Player:UpdatePos(chair, replay)
         self._PlayCards:setPos(ccp(0,56))
         self._OutCards:setPos(ccp(267,240))
         self._GameStatus:setPosition(ccp(self.winSize.width/2,260))
-        self._clock:setPosition(ccp((self.winSize.width - self._clock:getContentSize().width)/2,280))
+        self._clock:setPosition(ccp((self.winSize.width - self._clock:getContentSize().width)/2,370))
         self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width + self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
         self.wordChatFrame:setPosition(ccp(self.userInfoframe:getPositionX() + 20,self.userInfoframe:getPositionY() ))
         self.wordChatFrame1:setVisible(false)
@@ -482,7 +480,7 @@ function Player:resetOutCards(cardArray,outCardType)
         return
     end
 
-    if outCardType == Common.SUIT_TYPE.suitDouble or outCardType == Common.SUIT_TYPE.suitThree 
+    --[[ if outCardType == Common.SUIT_TYPE.suitDouble or outCardType == Common.SUIT_TYPE.suitThree 
         or outCardType == Common.SUIT_TYPE.suitStraight or outCardType == Common.SUIT_TYPE.suitDoubleStraight
         or outCardType == Common.SUIT_TYPE.suitTriStraight or outCardType == Common.SUIT_TYPE.suitBomb then
         
@@ -504,7 +502,7 @@ function Player:resetOutCards(cardArray,outCardType)
         cardArray = ShareFuns.Append(ArrayOut,ArrayIn)
     elseif outCardType == Common.SUIT_TYPE.suitInvalid then
         cardArray = ShareFuns.SortCardsByMin(cardArray)
-    end
+    end ]]
 
     --设置牌值
     self._OutCards:reFreshOutCards(cardArray,self._ChairIndex)

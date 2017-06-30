@@ -50,10 +50,6 @@ function ResultLayer:init()
             -- 如果规则下发下来了
             local f = require("Lobby/FriendGame/FriendGameLogic")
             if f.my_rule and f.my_rule[7] then
-                -- 隐藏飘分
-                for i = 1, require("k510/Game/Common").PLAYER_COUNT do
-                    layer._PlayerVec[i]:setPiaoVisible(false)
-                end
                 -- 更新GameLogic
                 GameLogic:refreshGameLogic()
                 -- 牌局不允许飘就自动准备
@@ -104,24 +100,6 @@ function ResultLayer:init()
         closeTag:setVisible(false)
         bg:addChild(closeTag)
         labelInfo.closeTag = closeTag
-
-
-        --炸弹
-        local bomb = CCLabelTTF:create("3","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
-        bomb:setAnchorPoint(0.5,0.5)
-        bg:addChild(bomb)
-        bomb:setPosition(ccp(425, 260 - (i-1)*60))
-        bomb:setColor(ccc3(235,242,226))
-        labelInfo.bombLabel = bomb
-
-
-        --飘分
-        local piao = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
-        piao:setAnchorPoint(0.5,0.5)
-        bg:addChild(piao)
-        piao:setPosition(ccp(580, 260 - (i-1)*60))
-        piao:setColor(ccc3(235,242,226))
-        labelInfo.piaoLabel = piao
 
         --积分
         local score = CCLabelTTF:create("3","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
@@ -179,24 +157,6 @@ function ResultLayer:init()
         closeTag:setVisible(true)
         bg:addChild(closeTag)
         labelInfo.closeTag = closeTag
-
-
-        --炸弹
-        local bomb = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
-        bomb:setAnchorPoint(0.5,0.5)
-        bg:addChild(bomb)
-        bomb:setPosition(ccp(425, 268 - (i-1)*60))
-        bomb:setColor(ccc3(235,242,226))
-        labelInfo.bombLabel = bomb
-
-
-        --飘分
-        local piao = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
-        piao:setAnchorPoint(0.5,0.5)
-        bg:addChild(piao)
-        piao:setPosition(ccp(580, 268 - (i-1)*60))
-        piao:setColor(ccc3(235,242,226))
-        labelInfo.piaoLabel = piao
 
         --积分
         local score = CCLabelTTF:create("","",26,CCSizeMake(215,43),kCCTextAlignmentCenter,kCCVerticalTextAlignmentCenter)
@@ -277,20 +237,6 @@ function ResultLayer:init()
         bg:addChild(highscore)
         highscore:setPosition(ccp(380, 292))
         labelInfo.highscoreLabel = highscore
-
-        --炸弹数
-        local bomb = CCLabelTTF:create("","",32)
-        bomb:setAnchorPoint(1,0.5)
-        bg:addChild(bomb)
-        bomb:setPosition(ccp(380, 232))
-        labelInfo.bombLabel = bomb
-        
-        --飘分
-        local piao = CCLabelTTF:create("","",32)
-        piao:setAnchorPoint(1,0.5)
-        bg:addChild(piao)
-        piao:setPosition(ccp(380, 172))
-        labelInfo.piaoLabel = piao
 
         --胜负局数
         local winnum = CCLabelTTF:create("","",32)
@@ -499,8 +445,6 @@ function ResultLayer:setEndGameInfo(args)
         end
         self.endResultLabel[i].totalscoreLabel:setString(string.format("%d",endResultInfo.TS))
         self.endResultLabel[i].highscoreLabel:setString(string.format("%d",endResultInfo.SS))
-        self.endResultLabel[i].bombLabel:setString(string.format("%d",endResultInfo.BB))
-        self.endResultLabel[i].piaoLabel:setString(string.format("%d",endResultInfo.PS))
         self.endResultLabel[i].winLabel:setString(string.format("%d胜%d负",endResultInfo.WN,endResultInfo.LN))
     end
     

@@ -356,8 +356,8 @@ function PlayerCards:reFreshPlayerCards(playerCardsLst,refeshType)
     end
 
     for i = 1,#self._playerCardsValueLst do
-		if self.cardsSpVec[i] and self._playerCardsValueLst[i] then
-			local value = self._playerCardsValueLst[i]
+		local value = self._playerCardsValueLst[i]
+		if value <= 53 then
 		    self.cardsSpVec[i]:setCardSp(i, value)
 			self.cardsSpVec[i]:Show()
 		end

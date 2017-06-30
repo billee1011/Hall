@@ -19,6 +19,10 @@ local AppConfig = require("AppConfig")
 local CCButton = require("FFSelftools/CCButton")
 local SetLogic = require("Lobby/Set/SetLogic")
 local EventDispatcher = require("GameLib/common/EventDispatcher")
+local AskPlayerLayer = require("k510/Game/LayerAskPlayer")
+local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+local BombStatus = {Common.BOMB_STATUS.BombStatus_Quadruple,Common.BOMB_STATUS.BombStatus_QuadrupleOne}
+local StraightMax = {Common.STRAIGHT_MAX.StraightMax_KKAA,Common.STRAIGHT_MAX.StraightMax_AA22}
 
 local DeskScene = class("DeskScene",function()
      return CCLayer:create()
@@ -38,8 +42,7 @@ DeskScene.menuItemTag =
     setItemTag = 5,         --设置按钮
     dissolveItemTag = 6,    --解散房间按钮
     inviteItemTag = 7,      --邀请好友按钮
-    yesItemTag = 8,			--是按钮
-	noItemTag = 9,			--否按钮
+	NoOutItemTag = 8,		--不要
     qie0  = 20,             --选择不切按钮
     qie1  = 21,             --选择切牌按钮
 }
@@ -53,8 +56,6 @@ DeskScene.menuItemShowTag =
     ShowReady1 = 3,  --显示飘选择按钮1
     ShowReady2 = 4,  --显示飘选择按钮1
     ShowQie = 5,     --显示切牌选择按钮
-	ShowYes = 6,	 --显示是按钮
-	ShowNo = 7,		 --显示否按钮
 }
 
 function DeskScene.create()
@@ -143,6 +144,9 @@ function DeskScene:init()
             GameLogic:sendStartMsg("ReadyItemTag")
         elseif tag == self.menuItemTag.TipItemTag then      --提示
             self:menuCardsTipsCallBack()
+		elseif tag == self.menuItemTag.NoOutItemTag then	--不要
+			self:setOutCardTip(2)
+			self:menuUnOutCardsCallBack()
         elseif tag == self.menuItemTag.OutItemTag then      --出牌
              self:menuOutCardsCallBack()
         elseif tag == self.menuItemTag.HuifuItemTag then    --恢复
@@ -315,6 +319,15 @@ function DeskScene:init()
     self.tipMenuItem:addChild(tipTextSprite)
     tipTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
 
+	-- 不要按钮
+    self.notOutMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
+    self.notOutMenuItem:setTag(self.menuItemTag.NoOutItemTag)
+    self.notOutMenuItem:setPosition(self.winSize.width/2,280)
+    
+    local noOutTextSprite = loadSprite("czpdk/piao_0.png")
+    self.notOutMenuItem:addChild(noOutTextSprite)
+    noOutTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
+	
     -- 出牌按钮
     self.outMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.outMenuItem:setTag(self.menuItemTag.OutItemTag)
@@ -322,7 +335,7 @@ function DeskScene:init()
     
     local outCardTextSprite = loadSprite("czpdk/outcardtext.png")
     self.outMenuItem:addChild(outCardTextSprite)
-    outCardTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
+     outCardTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
 
     array = CCArray:create()
   	array:addObject(self.tipMenuItem)
@@ -330,12 +343,14 @@ function DeskScene:init()
     array:addObject(self.inviteMenuItem)
     array:addObject(self.Qie0MenuItem)
     array:addObject(self.QieMenuItem)
+	array:addObject(self.notOutMenuItem)
 
     self.tipMenuItem:registerScriptTapHandler(onMenuCallback)
     self.outMenuItem:registerScriptTapHandler(onMenuCallback)
     self.inviteMenuItem:registerScriptTapHandler(onMenuCallback)
     self.Qie0MenuItem:registerScriptTapHandler(onMenuCallback)
     self.QieMenuItem:registerScriptTapHandler(onMenuCallback)
+	self.notOutMenuItem:registerScriptTapHandler(onMenuCallback)
 
 	menu = CCMenu:createWithArray(array)
 	self:addChild(menu)
@@ -516,8 +531,6 @@ function DeskScene:setReplayRoomInfo(data)
         local u, v = data.Opening.UL[i], data.Ending.GSL[i]
         infoLabel[i].nameLabel:setString(u.UN)
         infoLabel[i].offCardseLabel:setString(string.format("%d",v[2]))
-        infoLabel[i].bombLabel:setString(string.format("%d",v[3]))
-        infoLabel[i].piaoLabel:setString(string.format("%d",v[4]))
         infoLabel[i].scoreLabel:setString(string.format("%d",v[1]))
     end
     
@@ -700,10 +713,12 @@ function DeskScene:ControlBtn(ShowMenuItemTag)
     self.outMenuItem:setVisible(false)
     self.Qie0MenuItem:setVisible(false)
     self.QieMenuItem:setVisible(false)
+	self.notOutMenuItem:setVisible(false)
     -- 根据不同设置调整按钮位置及显示状态
     if ShowMenuItemTag == self.menuItemShowTag.ShowOut then
         self.tipMenuItem:setVisible(true)
         self.outMenuItem:setVisible(true)
+		self.notOutMenuItem:setVisible(true)
     elseif ShowMenuItemTag == self.menuItemShowTag.ShowReady1 then
        
     elseif ShowMenuItemTag == self.menuItemShowTag.ShowReady2 then
@@ -800,7 +815,7 @@ function DeskScene:updateDeskInfo(s)
         if GameLogic.curActor == GameLogic.myChair and GameLogic.myChair ~= -1 then
             self:resetTipCard(self.lastTipCard)
             self.isOutCard = false
-            self:autoOutCardsByCondition()
+            self:autoOutCardsByCondition(BombStatus[FriendGameLogic.my_rule[2][2]],StraightMax[FriendGameLogic.my_rule[3][2]])
         else 
             self:ControlBtn(self.menuItemShowTag.HideOut)
         end
@@ -955,14 +970,13 @@ function DeskScene:menuUnOutCardsCallBack()
 end
 
 -- 轮到我出牌 要是要不起或者只剩下能出完的牌 自动出掉
-function DeskScene:autoOutCardsByCondition(bombStatus)
+function DeskScene:autoOutCardsByCondition(bombStatus,straightMax)
     cclog("autoOutCardsByCondition")
     -- 自动出牌时间间隔
     self.autoTime = 0.5
     CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.unschedulerAutoId)
     local function updateTimer(delta)
         self.autoTime = self.autoTime - delta
-
         if (self.autoTime <= 0) then
             --停止倒计时
             CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.unschedulerAutoId)
@@ -999,29 +1013,29 @@ function DeskScene:autoOutCardsByCondition(bombStatus)
                             end
 
 							local bRet,outArrayTemp = ShareFuns.IsStraight(arrayHold)
-							if ilen >= 5 and bRet(arrayHold) then
-								arrayOut = ShareFuns.Copy(arrayHold)
+							if ilen >= 5 and bRet then
+								arrayOut = ShareFuns.Copy(outArrayTemp)
 							end
 							
 							local bRet,outArrayTemp = ShareFuns.IsDoubleStraight(arrayHold)
-							if ilen >= 4 and bRet(arrayHold) then
-								arrayOut = ShareFuns.Copy(arrayHold)
+							if ilen >= 4 and bRet then
+								arrayOut = ShareFuns.Copy(outArrayTemp)
 							end
 							
 							local bRet,outArrayTemp = ShareFuns.IsTriStraight(arrayHold)
-							if ilen >= 6 and bRet(arrayHold) then
-								arrayOut = ShareFuns.Copy(arrayHold)
+							if ilen >= 6 and bRet then
+								arrayOut = ShareFuns.Copy(outArrayTemp)
 							end
 							
-							local bRet,outArrayTemp = ShareFuns.IsBomb(arrayHold)
-							if ilen >= 4 and bRet(arrayHold) then
-								arrayOut = ShareFuns.Copy(arrayHold)
+							local bRet,outArrayTemp = ShareFuns.IsBomb(arrayHold,bombStatus)
+							if ilen >= 4 and bRet then
+								arrayOut = ShareFuns.Copy(outArrayTemp)
 							end
 						end
                     end
 
                     if #arrayOut ~= 0 then
-                        local bRet,outCards = ShareFuns.DisassembleToOutCard(arrayOut)
+                        local bRet,outCards = ShareFuns.DisassembleToOutCard(arrayOut,bombStatus)
                         if bRet and not self.isOutCard then
                             local myOutCard = Common.newMyOutCard()
                             myOutCard.suitType = outCards.suitType
@@ -1059,9 +1073,9 @@ function DeskScene:autoOutCardsByCondition(bombStatus)
                 arrayHold = ShareFuns.Copy(self:getMyCardsLst())
 
                 if self.lastTipCard.suitType == Common.SUIT_TYPE.suitInvalid then
-                    bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold)
+                    bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold,bombStatus,straightMax)
                 else
-                    bRet,arrayOut = ShareFuns.TipOutCard(self.lastTipCard,arrayHold)
+                    bRet,arrayOut = ShareFuns.TipOutCard(self.lastTipCard,arrayHold,bombStatus,straightMax)
                 end
 
                 if #arrayOut == 0 then
@@ -1085,12 +1099,12 @@ function DeskScene:autoOutCardsByCondition(bombStatus)
                     local selectedCardsIndex = {}
                     local arrayHold = ShareFuns.Copy(self:getMyCardsLst())
                     local ilen = #arrayHold
-                    local bRet,myOutCard = ShareFuns.DisassembleToOutCard(arrayOut)
+                    local bRet,myOutCard = ShareFuns.DisassembleToOutCard(arrayOut,bombStatus)
                     -- 如果跟牌能出完则自动跟
                     if bRet and (not self.isOutCard) and #myOutCard.cards == ilen then
                         local bRet,outArrayTemp = ShareFuns.GetBomb( arrayHold, -1,bombStatus)
                         -- 如果剩余手牌不含炸弹再判定出牌，避免其它牌型带炸弹出去
-                        local bBoom, ArrayOut = ShareFuns.GetBomb(arrayHold, -1, true)
+                        local bBoom, ArrayOut = ShareFuns.GetBomb(arrayHold, -1, bombStatus)
                         if not bBoom then
                             GameLogic:sendOutCardsMsg(myOutCard)
                             GameLogic:sendOutCardSound(Common.SND_TYPE.sndOutCard)
@@ -1127,66 +1141,48 @@ function DeskScene:menuCardsTipsCallBack()
             local arrayHold = ShareFuns.Copy(self:getMyCardsLst())
             local arrayOut = {}
             local ilen = #arrayHold
-
+			
             if ilen > 0 then
-                -- 下列牌型判定 单、双、三、顺子、连顺、炸弹、四带1、四带2、四带3
-                if ilen == 1 and ShareFuns.IsSingle(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 2 and ShareFuns.IsDouble(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 3 and ShareFuns.IsThree(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen >= 5 and ShareFuns.IsStraight(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen >= 4 and ShareFuns.IsDoubleStraight(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 4 and ShareFuns.IsBomb(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 5 and ShareFuns.IsFourAndSingle(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 6 and ShareFuns.IsFourAndTwo(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                elseif ilen == 7 and ShareFuns.IsFourAndThree(arrayHold) then
-                    arrayOut = ShareFuns.Copy(arrayHold)
-                else
-                    -- 下列牌型判定 三带1、三带2、飞机、
-                    local bRet,outArrayTemp = ShareFuns.IsTriAndSingle(arrayHold)
-                    if ilen == 4 and bRet then
-                        arrayOut = ShareFuns.Copy(outArrayTemp)
-                    end
+                -- 下列牌型判定 单、双、三、大王、五十K、纯五十K
+                if ilen == 1 and (ShareFuns.IsSingle(arrayHold) or ShareFuns.IsRedJoker(arrayHold))then
+					arrayOut = ShareFuns.Copy(arrayHold)
+				elseif ilen == 2 and ShareFuns.IsDouble(arrayHold) then
+					arrayOut = ShareFuns.Copy(arrayHold)
+				elseif ilen == 3 and (ShareFuns.IsTriple(arrayHold) or ShareFuns.IsFiveTenKing(arrayHold)
+					or ShareFuns.IsPureFiveTenKing(arrayHold)) then
+					arrayOut = ShareFuns.Copy(arrayHold)
+				else -- 判定三带对、飞机、顺子、双顺、三顺、炸弹
+					local bRet,outArrayTemp = ShareFuns.IsTriAndDouble(arrayHold)
+					if ilen == 5 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
 
-                    local bRet,outArrayTemp = ShareFuns.IsTriAndTwo(arrayHold)
-                    if ilen == 5 and bRet then
-                        arrayOut = ShareFuns.Copy(outArrayTemp)
-                    end
+					local bRet,outArrayTemp = ShareFuns.IsPlane(arrayHold)
+					if ilen >= 10 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
 
-                    local bRet,outArrayTemp = ShareFuns.IsPlane(arrayHold)
-                    if ilen >= 10 and bRet then
-                        arrayOut = ShareFuns.Copy(outArrayTemp)
-                    end
-
-                    -- 如果选择到预置牌型
-                    if #arrayOut == 0 then
-                        -- 黑桃3规则判定
-                        local f = require("Lobby/FriendGame/FriendGameLogic")
-                        if f.my_rule[2][2] == #self:getMyCardsLst() and f.my_rule[3][2] == 1 and f.game_used  == 1 then
-                            local heitao3Index = ShareFuns.isHasHeitao3(self:getMyCardsLst())
-                            if  heitao3Index ~= -1 then
-                                arrayOut[1] = self:getMyCardsLst()[heitao3Index]
-                            else
-                                arrayOut = ShareFuns.GetFirstCards(arrayHold)
-                                if ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, arrayOut) then
-                                    arrayOut[1] = myHandCards[1]
-                                end
-                            end
-                        else
-                            arrayOut = ShareFuns.GetFirstCards(arrayHold)
-                            if ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, arrayOut) then
-                                arrayOut[1] = myHandCards[1]
-                            end
-                        end
-                    end
-                end
+					local bRet,outArrayTemp = ShareFuns.IsStraight(arrayHold)
+					if ilen >= 5 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
+					
+					local bRet,outArrayTemp = ShareFuns.IsDoubleStraight(arrayHold)
+					if ilen >= 4 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
+					
+					local bRet,outArrayTemp = ShareFuns.IsTriStraight(arrayHold)
+					if ilen >= 6 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
+					
+					local bRet,outArrayTemp = ShareFuns.IsBomb(arrayHold,
+						BombStatus[FriendGameLogic.my_rule[2][2]])
+					if ilen >= 4 and bRet then
+						arrayOut = ShareFuns.Copy(outArrayTemp)
+					end
+				end
 
                 local myCradsLst = ShareFuns.Copy(self:getMyCardsLst())
                 for i = 1,#arrayOut do
@@ -1237,10 +1233,12 @@ function DeskScene:menuCardsTipsCallBack()
                 end
 
                 local bRet = false
-                bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold)
+                bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold,
+				BombStatus[FriendGameLogic.my_rule[2][2]],StraightMax[FriendGameLogic.my_rule[3][2]])
             else
                 local bRet = false
-                bRet,arrayOut = ShareFuns.TipOutCard(self.lastTipCard,arrayHold)
+                bRet,arrayOut = ShareFuns.TipOutCard(self.lastTipCard,arrayHold,
+				BombStatus[FriendGameLogic.my_rule[2][2]],StraightMax[FriendGameLogic.my_rule[3][2]])
             end
 
             if #arrayOut == 0 then
@@ -1253,7 +1251,8 @@ function DeskScene:menuCardsTipsCallBack()
                     self:resetTipCard(self.lastTipCard)
                     --self.lastTipCard.suitType = Common.SUIT_TYPE.suitInvalid
                     local bRet = false
-                    bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold)
+                    bRet,arrayOut = ShareFuns.TipOutCard(lastOutCard,arrayHold,
+					BombStatus[FriendGameLogic.my_rule[2][2]],StraightMax[FriendGameLogic.my_rule[3][2]])
 
                     if ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, arrayOut) then
                         arrayOut[1] = myHandCards[1]
@@ -1354,23 +1353,19 @@ function DeskScene:menuOutCardsCallBack()
             self:setOutCardTip(0)   --请选择要出的牌!
             return
         end
-
         local bRet = false
         local outCards = {}
-        bRet, outCards = ShareFuns.DisassembleToOutCard(cards)
+        bRet, outCards = ShareFuns.DisassembleToOutCard(cards,BombStatus[FriendGameLogic.my_rule[2][2]])
         if bRet == false then
             self:setOutCardTip(1)   --您选的牌,牌型不对!!
             return
         end
-
-
         print("GameLogic.nRingCount", GameLogic.nRingCount, outCards.suitType)
         if GameLogic.nRingCount == 0 then
-            if  (outCards.suitType == Common.SUIT_TYPE.suitThree or outCards.suitType == Common.SUIT_TYPE.suitTriAndSingle 
-                or outCards.suitType == Common.SUIT_TYPE.suitFourAndSingle or outCards.suitType == Common.SUIT_TYPE.suitFourAndTwo 
-                or outCards.suitType == Common.SUIT_TYPE.suitPlaneLost) 
-                and outCards.suitLen ~= #GameLogic.userlist[GameLogic.myChair + 1]:getHandCards() then
-                    self:setOutCardTip(1)   --"您选的牌,牌型不对!"
+            if outCards.suitType == Common.SUIT_TYPE.suitTriple 
+                and (outCards.suitLen ~= #GameLogic.userlist[GameLogic.myChair + 1]:getHandCards() and GameLogic.isInFirstTurn ~= 1) then
+				cclog("---------------%f---------------",GameLogic.isInFirstTurn)
+                    self:setOutCardTip(4)   --"三张只能用于先手或者收尾!"
                 return
             end
         else
@@ -1380,28 +1375,17 @@ function DeskScene:menuOutCardsCallBack()
             if bRet == false then            
                 return
             end
-
             bRet = ShareFuns.CompareTwoCardSuit(lastOutCard,outCards)
             if bRet == false then
                 self:setOutCardTip(2)
                 return
             end
         end
-
-        local f = require("Lobby/FriendGame/FriendGameLogic")
-        if GameLogic.nRingCount == 0 and f.my_rule[2][2] == #self:getMyCardsLst() and f.my_rule[3][2] == 1 and f.game_used == 1  then
-            if ShareFuns.isHasHeitao3(outCards.cards) == -1 then
-                --"首局必须先出黑桃三"
-                self:setOutCardTip(4)
-                return
-            end
-        end
         
-        if ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, outCards.cards) then
-            self:setOutCardTip(3)   --"下家报单出单张必须出最大的"
-            return
-        end
-         
+        -- if ShareFuns.NotPassBaodanJudge(myHandCards, nextHandCards, outCards.cards) then
+            -- self:setOutCardTip(3)   --"下家报单出单张必须出最大的"
+            -- return
+        -- end
         local myOutCard = Common.newMyOutCard()
         myOutCard.suitType = outCards.suitType
         myOutCard.suitLen = outCards.suitLen
@@ -1485,7 +1469,7 @@ function DeskScene:setOutCardTip(flag)
     elseif flag == 3 then
         strTip = "下家报单出单张必须出最大的!"
     elseif flag == 4 then
-        strTip = "首局出牌必须带有黑桃三!"
+        strTip = "三张只能用于先手或者收尾!"
     end
     if strTip then require("HallUtils").showWebTip(strTip) end
 end
@@ -1519,7 +1503,7 @@ function DeskScene:PlayRevSound(sndIdx)
     --当前玩家的上个玩家所出的牌，包括PASS
     local lastOutCard = {}
     --当前玩家的上上个玩家所出的牌，用来判断是否用"管上"音效
-    local lastlastOutCard = {}
+    --local lastlastOutCard = {}
 
     local userType = {}
     
@@ -1529,16 +1513,21 @@ function DeskScene:PlayRevSound(sndIdx)
 
     if GameLogic.gamePhase ~= Common.GAME_PHRASE.enGame_Over  then
        lastOutCard = GameLogic.userlist[GameLogic:getPreChair(GameLogic.curActor) + 1].outCards --就是出最后一手牌的玩家
-       lastlastOutCard = GameLogic.userlist[GameLogic:getPreChair(GameLogic.curActor + 1) + 1].outCards
+       --lastlastOutCard = GameLogic.userlist[GameLogic:getPreChair(GameLogic.curActor + 1) + 1].outCards
        userType = GameLogic.userlist[GameLogic:getPreChair(GameLogic.curActor) + 1]:getSex()
     else
-       lastOutCard = GameLogic.userlist[(GameLogic.getPreChair(GameLogic.curActor + 1)) + 1].outCards --就是出最后一手牌的玩家
-       lastlastOutCard = GameLogic.userlist[(GameLogic:getPreChair(GameLogic.curActor + 2)) + 1].outCards
+	   local chair = GameLogic.curActor + 1
+	   while(chair == GameLogic.cbNoJoin)
+	   do
+	      chair = chair +1
+	   end
+       lastOutCard = GameLogic.userlist[(GameLogic.getPreChair(chair)) + 1].outCards --就是出最后一手牌的玩家
+       --lastlastOutCard = GameLogic.userlist[(GameLogic:getPreChair(GameLogic.curActor + 2)) + 1].outCards
        userType = GameLogic.userlist[(GameLogic:getPreChair(GameLogic.curActor + 1)) + 1]:getSex()
     end
 
-    print(lastOutCard, (lastOutCard.cards and #lastOutCard.cards), lastlastOutCard, sndIdx, Common.SND_TYPE.sndPass)
-    if lastOutCard ~= nil and lastlastOutCard ~= nil then
+    print(lastOutCard, (lastOutCard.cards and #lastOutCard.cards), sndIdx, Common.SND_TYPE.sndPass)
+    if lastOutCard ~= nil then
         if sndIdx == Common.SND_TYPE.sndPass then
             SetLogic.playGameEffect(self:GetSoundByCommand(userType,Common.SUIT_TYPE.suitPass,-1))
         elseif sndIdx == Common.SND_TYPE.sndOutCard then
@@ -1662,9 +1651,9 @@ function DeskScene:DelayGameEnd(isRefresh)
 end
 
 -- 发牌动画
-function DeskScene:faPaiAction()
+--function DeskScene:faPaiAction()
 
-end
+--end
 
 function DeskScene:Clear()
     for i = 1,#self._PlayerVec do
@@ -1672,6 +1661,10 @@ function DeskScene:Clear()
     end
 
     CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.unschedulerAutoId)
+end
+
+function DeskScene:ShowAskPlayer(AskType)
+	require("k510/Game/LayerAskPlayer").create(self,AskType):show()
 end
 
 return  DeskScene

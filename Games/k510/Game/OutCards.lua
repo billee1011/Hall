@@ -22,7 +22,7 @@ function OutCards:init()
     self.winSize = CCSizeMake(require("k510/GameDefs").CommonInfo.View_Width, require("k510/GameDefs").CommonInfo.View_Height)
 
     self.cardsSpVec = {}
-    for i = 1,16 do
+    for i = 1,18 do
         local CardSp = Card:create()
         CardSp:setScale(0.5)
         self:addChild(CardSp)
@@ -52,8 +52,10 @@ function OutCards:reFreshOutCards(outCardsLst,chair)
     end
 
     for i = 1,#outCardsLst do
-        self.cardsSpVec[i]:setCardSp(i, outCardsLst[i])
-        self.cardsSpVec[i]:setVisible(true)
+		if(outCardsLst[i] <= 53) then
+		    self.cardsSpVec[i]:setCardSp(i, outCardsLst[i])
+			self.cardsSpVec[i]:setVisible(true)
+		end
     end
 
     self._offset = 0

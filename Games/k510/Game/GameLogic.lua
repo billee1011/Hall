@@ -23,6 +23,7 @@ local GameLogic =
     myChair = -1,
     gamePhase = Common.GAME_PHRASE.enGame_Invalid,
     cbMingPaiCard = -1,     --明牌
+	cbNoJoin = -1,			--不参与
     autoOutCardTime = -1,   --出牌等待时间
     openTableUserid = 0,    --开桌人的ID
     curjushu = -1,          --当前局数
@@ -32,6 +33,7 @@ local GameLogic =
     m_SetScores = nil,       --单局结算信息
     gameendlistinfo = nil,   --最终总结算信息
     checkLocation = false,   --是否查看过定位信息
+	isInFirstTurn = 1,	 --是否在第一回合
 }
 
 function GameLogic:new()
@@ -272,7 +274,7 @@ function GameLogic:onGameStart()
     self.StaySceneLayer:Clear()
     self.StaySceneLayer:setRoomInfo()
     -- 检测同IP
-    --self:checkIP()
+    self:checkIP()
 end
 
 -- 游戏结束
@@ -316,6 +318,9 @@ function GameLogic:onSceneChanged(pData,nLen)
                 cbQieValue    = gameSceneData.cbQieValue
             }
         -- 其它阶段
+		elseif self.gamePhase == Common.GAME_PHRASE.enGame_AskPlayer then
+		
+		
         else
             -- 清空切牌数据
             self.qieData = nil
@@ -327,6 +332,12 @@ function GameLogic:onSceneChanged(pData,nLen)
 
             -- 庄椅子号
             self.cbMingPaiCard = gameSceneData.cbMingPaiCard
+			
+			-- 不参与者椅子号
+			self.cbNoJoin = gameSceneData.cbNoJoinPlayer
+			
+			-- 是否是第一回合
+			self.isInFirstTurn = gameSceneData.cbIsInFirstTurn
 
             -- 出牌等待时间	
             self.autoOutCardTime = gameSceneData.cbAutoOutCardTime
@@ -408,6 +419,10 @@ end
 function GameLogic:getPreChair(chair)
     local nChair
     nChair = (chair + 1) % Common.PLAYER_COUNT
+	while(nChair == GameLogic.cbNoJoin)
+	do
+		nChair = (nChair + 1) % Common.PLAYER_COUNT
+	end
 
 	return nChair
 end
@@ -464,7 +479,7 @@ end
 
 -- 收到消息处理
 function GameLogic:OnGameMessage(chair,cbCmdID,data,nLen)
-    cclog("GameLogic:OnGameMessage cmd: %d,  chair: %d,  nLen: %d", cbCmdID, chair, nLen)
+    --cclog("GameLogic:OnGameMessage cmd: %d,  chair: %d,  nLen: %d", cbCmdID, chair, nLen)
     if cbCmdID == Common.GAME_PotoCoL_MessAge.CMD_Out_CardSound then
         if self.StaySceneName == Common.Scene_Name.Scene_Game then
             local ba = require("ByteArray").new()
@@ -476,7 +491,27 @@ function GameLogic:OnGameMessage(chair,cbCmdID,data,nLen)
         end
     elseif cbCmdID == Common.GAME_PotoCoL_MessAge.CMD_Out_Qie then
         self:onRecvQie(data)
+	elseif cbCmdID == Common.GAME_PotoCoL_MessAge.CMD_S_AskPlayer then
+		self:OnRecvAskPlayer(data)
     end
+end
+
+function GameLogic:OnRecvAskPlayer(data)
+	local ba = require("ByteArray").new()
+	ba:writeBuf(data)
+	ba:setPos(1)
+	
+	local askType = ba:readByte()
+	
+	self.StaySceneLayer:ShowAskPlayer(askType)
+end
+
+function GameLogic:sendAskPlayerReplay(replayType,replayValue)
+local ba = require("ByteArray").new()
+	ba:writeUByte(replayType)
+    ba:writeUByte(replayValue)
+    ba:setPos(1)
+	GameLogic.getGameLib():sendOldGameCmd(Common.GAME_PotoCoL_MessAge.CMD_Send_AskPlayer, ba:getBuf(), ba:getLen())
 end
 
 -- 发送切牌指令
@@ -505,8 +540,7 @@ function GameLogic:onRecvQie(data)
         
         local uData = self.userlist[nChair + 1]
         if uData then
-            -- uData:setPiao(bPiao, bScore)
-            -- local FriendGameLogic = require("Lobby/FriendGame/FriendGameLogic")
+
         end
     end
 end
@@ -553,40 +587,47 @@ function GameLogic:GetLastNoPassCardSuit()
     end
 
     local chair = GameLogic:ClockWise(self.myChair)
+	local lastUser
+    if chair ~= GameLogic.cbNoJoin then
+		lastUser = self.userlist[chair + 1]
+		if lastUser ~= nil and lastUser.outCards then
+		   if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass and 
+		   lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitInvalid then
+			  OutCard.suitType = lastUser.outCards.suitType
+			  OutCard.suitLen = lastUser.outCards.suitLen
+			  OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
+			  return true,OutCard
+		   end
+		end
+	end
     
-    local lastUser = self.userlist[chair + 1]
-    if lastUser ~= nil and lastUser.outCards then
-       if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass then
-          OutCard.suitType = lastUser.outCards.suitType
-          OutCard.suitLen = lastUser.outCards.suitLen
-          OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
-          return true,OutCard
-       end
-    end
+    chair = GameLogic:ClockWise(chair)
+	if chair ~= GameLogic.cbNoJoin then
+		lastUser = self.userlist[chair + 1]
+		if lastUser ~= nil then
+		   if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass and
+			lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitInvalid  then
+			  OutCard.suitType = lastUser.outCards.suitType
+			  OutCard.suitLen = lastUser.outCards.suitLen
+			  OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
+			  return true,OutCard
+		   end
+		end
+	end
 
     chair = GameLogic:ClockWise(chair)
-    lastUser = self.userlist[chair + 1]
-    
-    if lastUser ~= nil then
-       if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass then
-          OutCard.suitType = lastUser.outCards.suitType
-          OutCard.suitLen = lastUser.outCards.suitLen
-          OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
-          return true,OutCard
-       end
-    end
-
-    chair = GameLogic:ClockWise(chair)
-    lastUser = self.userlist[chair + 1]
-    
-    if lastUser ~= nil then
-       if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass then
-          OutCard.suitType = lastUser.outCards.suitType
-          OutCard.suitLen = lastUser.outCards.suitLen
-          OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
-          return true,OutCard
-       end
-    end
+	if chair ~= GameLogic.cbNoJoin then
+		lastUser = self.userlist[chair + 1]
+		if lastUser ~= nil then
+		   if lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitPass and
+		   lastUser.outCards.suitType ~= Common.SUIT_TYPE.suitInvalid then
+			  OutCard.suitType = lastUser.outCards.suitType
+			  OutCard.suitLen = lastUser.outCards.suitLen
+			  OutCard.cards = require("k510/Game/Public/ShareFuns").Copy(lastUser.outCards.cards)
+			  return true,OutCard
+		   end
+		end
+	end
 
     return false,OutCard
 end

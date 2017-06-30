@@ -104,7 +104,7 @@ end
 
 -- OutCards整个结构
 function GameUser:setOutCardStruct(outCards)
-    if outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitDouble or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitThree 
+    --[[ if outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitDouble or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitThree 
         or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitStraight or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitDoubleStraight
         or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitTriStraight or outCards.suitType == require("k510/Game/Common").SUIT_TYPE.suitBomb then
         
@@ -128,7 +128,7 @@ function GameUser:setOutCardStruct(outCards)
 
     if require("k510/Game/GameLogic").gamePhase == require("k510/Game/Common").GAME_PHRASE.enGame_InitData then
         outCards.suitType = require("k510/Game/Common").SUIT_TYPE.suitInvalid
-    end
+    end ]]
 
 	self.outCards = outCards
 end

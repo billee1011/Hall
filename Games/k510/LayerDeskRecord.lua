@@ -72,7 +72,7 @@ end
 function LayerDeskRecord:createMainItem(info, bgsz, idx)
     local item = CCButton.createWithFrame("lobbyDlg/recorderBorder.png", true, function(tag, target)
         FriendGameLogic.invite_code = info.InviteCode
-        FriendGameLogic.game_id = 13
+        FriendGameLogic.game_id = 24
 
         FriendGameLogic.GetUserFriendTableScoreList(info.FriendTableID, function(data)
             require("Lobby/Record/LayerRecordDetail").put(self:getParent(), self.btn_zIndex + 1, data):show()

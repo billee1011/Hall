@@ -1,0 +1,96 @@
+local CCButton = require("FFSelftools/CCButton")
+local LayerGameRule = class("LayerGameRule",function()
+     return CCLayer:create()
+end)
+
+function LayerGameRule.create()
+    local layer = LayerGameRule.new()
+    layer:init()
+	return layer
+end
+
+
+function LayerGameRule:init()
+    
+    
+    local function onTouch(eventType, x, y)
+        if eventType == "began" then
+            return true
+        end
+    end
+    self:registerScriptTouchHandler(onTouch,false,kCCMenuHandlerPriority,true)
+    self:setTouchEnabled(true)
+
+
+    self.btn_zIndex = self.layer_zIndex + 1
+    self.panel_bg = CCSprite:create(require("k510/Resources").Resources_Head_Path.."createRoomLayer/bg.png")
+    self:addChild(self.panel_bg)
+    self.panel_bg:setPosition(ccp(CCDirector:sharedDirector():getWinSize().width/2,CCDirector:sharedDirector():getWinSize().height/2))
+
+    self.bg_sz = self.panel_bg:getContentSize()
+
+     --关闭按钮 
+    CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("lobby_close_btn1.png", 
+            "lobby_close_btn2.png", "lobby_close_btn1.png", function()
+                self:hide()
+            end), ccp(self.bg_sz.width - 40, self.bg_sz.height - 70), self.btn_zIndex)
+
+     --规则
+    self.gameRuleView = CCScrollView:create()
+    self.gameRuleView:setContentSize(CCSize(1786, 842))
+    self.gameRuleView:ignoreAnchorPointForPosition(true)
+	self.gameRuleView:setAnchorPoint(ccp(0.0, 1.0))
+	self.gameRuleView:setViewSize(CCSize(1786, 842))
+	self.gameRuleView:setContentOffset(ccp(0, 0), false)
+    self.gameRuleView:setDirection(kCCScrollViewDirectionVertical)
+    self.gameRuleView:setTouchPriority(kCCMenuHandlerPriority)
+    self.gameRuleView:setBounceable(true)
+    self.panel_bg:addChild(self.gameRuleView)
+    self.gameRuleView:setPosition(ccp(50,41))
+
+    local pDict = CCString:createWithContentsOfFile(require("k510/Resources").Resources_Head_Path.."helptext.lua")
+    local helpLabel = CCLabelTTF:create(pDict:getCString(),"",40,CCSizeMake(1750,0),kCCTextAlignmentLeft,kCCVerticalTextAlignmentCenter)
+    helpLabel:setAnchorPoint(0.0,0.0)
+    self.gameRuleView:addChild(helpLabel)
+    helpLabel:setPosition(ccp(10, -10))
+    helpLabel:setColor(ccc3(84,43,9))
+
+    self.gameRuleView:setContentSize(CCSize(1786, helpLabel:getContentSize().height))
+    self.gameRuleView:setContentOffset(ccp(0, 842 - helpLabel:getContentSize().height), false)
+    self.gameRuleView:setTouchEnabled(true)
+
+end
+
+function LayerGameRule:hide() 
+    require("Lobby/Common/AnimationUtil").spriteScaleHideAction(self.panel_bg, function()
+        self:setVisible(false)
+        self.gameRuleView:setTouchEnabled(false)
+        self:setTouchEnabled(false)
+        if close_func then
+            self.close_func()
+        end
+    end)
+end
+
+function LayerGameRule:show() 
+    self:setVisible(true)
+    self:setTouchEnabled(true)
+    self.gameRuleView:setTouchEnabled(true)
+    require("Lobby/Common/AnimationUtil").spriteScaleShowAction(self.panel_bg, function()
+        self:setTouchEnabled(true)
+        if show_func then
+            self.show_func()
+        end
+    end)   
+end
+
+function LayerGameRule.put(super, zindex)
+    local layer = LayerGameRule.new()
+    super:addChild(layer, zindex)
+    layer.layer_zIndex = zindex
+    layer:init(func)
+    return layer
+end
+
+
+return LayerGameRule

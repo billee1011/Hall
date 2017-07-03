@@ -1,0 +1,61 @@
+--GamePlayLogic.lua
+require("CocosExtern")
+require("CocosAudioEngine")
+require("GameLib/gamelib/UserInfo")
+
+local GameLogic = require("k510/Game/GameLogic")
+local GameDefs = require("k510/GameDefs") 
+local Common = require("k510/Game/Common")
+local ScoreParser = require("GameLib/common/ScoreParser")
+local LobbyControl = require("LobbyControl")
+
+local GamePlayLogic = {}
+
+function GamePlayLogic:new()
+    local o =  {
+        StaySceneName   = "",                       -- Scene名字
+        StaySceneLayer  = nil,                      -- 场景实例
+    }
+    setmetatable(o, self)
+    self.__index = self
+	return self
+end
+
+-- 获取实例
+function GamePlayLogic:getInstance()
+    if not self.instance then
+        self.instance = self:new()
+    end  
+    return self.instance  
+end
+
+-- 更新游戏场景
+function GamePlayLogic:replaceMainScence(data)
+    cclog("GamePlayLogic:replaceMainScence")
+    require("LobbyControl").hall_layer:setVisible(false)
+    local scene = CCDirector:sharedDirector():getRunningScene()
+    local layer = require("k510/Game/DeskScene").create()
+    scene:addChild(layer, 99)
+    self.StaySceneLayer = layer
+    self.StaySceneLayer:setReplayRoomInfo(data)
+end
+
+
+-- 关闭游戏场景
+function GamePlayLogic:dispose()
+    cclog("GamePlayLogic:dispose")
+    require("LobbyControl").hall_layer:setVisible(true)
+    if self.StaySceneLayer then
+        if self.StaySceneLayer.unschedulerReplayId then
+            CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.StaySceneLayer.unschedulerReplayId)
+            self.StaySceneLayer.unschedulerReplayId = nil
+        end
+        self.StaySceneLayer:setVisible(false)
+        self.StaySceneLayer:removeFromParentAndCleanup(true)
+        require("CocosAudioEngine")
+        AudioEngine.stopMusic(true)
+        GameLogic.removeCache()
+    end
+end
+
+return GamePlayLogic

@@ -22,17 +22,32 @@ function LayerGameRecord:initPanel()
     self.panel_bg.gameTitle = {}
 
     for i,v in ipairs(gamesConfig.games) do
-        if v ~= gamesConfig.unopened then
-            self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..v.."Rule1.png", 
-                    "gamerule/btnGame"..v.."Rule2.png", "gamerule/btnGame"..v.."Rule2.png", function()
-                        if gamesConfig.names[v] then
-                            self:loadRecorder(v, gamesConfig.names[v][2])
-                        end
-                    end), ccp(self.bg_sz.width / 2 - 620 + 250 * i, self.bg_sz.height+30), self.btn_zIndex)
-            --if AppConfig.ISAPPLE and v ~= 12 then
-            --    self.panel_bg.gameTitle[v]:setVisible(false)
-            --end
-        end
+		if v == 24 then
+			if v ~= gamesConfig.unopened then
+				self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..(v-1).."Rule1.png", 
+						"gamerule/btnGame"..(v-1).."Rule2.png", "gamerule/btnGame"..(v-1).."Rule2.png", function()
+							if gamesConfig.names[v] then
+								self:loadRecorder(v, gamesConfig.names[v][2])
+							end
+						end), ccp(self.bg_sz.width / 2 - 620 + 250 * i, self.bg_sz.height+30), self.btn_zIndex)
+				--if AppConfig.ISAPPLE and v ~= 12 then
+				--    self.panel_bg.gameTitle[v]:setVisible(false)
+				--end
+			end
+		else
+			if v ~= gamesConfig.unopened then
+				self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..v.."Rule1.png", 
+						"gamerule/btnGame"..v.."Rule2.png", "gamerule/btnGame"..v.."Rule2.png", function()
+							if gamesConfig.names[v] then
+								self:loadRecorder(v, gamesConfig.names[v][2])
+							end
+						end), ccp(self.bg_sz.width / 2 - 620 + 250 * i, self.bg_sz.height+30), self.btn_zIndex)
+				--if AppConfig.ISAPPLE and v ~= 12 then
+				--    self.panel_bg.gameTitle[v]:setVisible(false)
+				--end
+			end
+		end
+        
         if i == 1 then defaultGame = v end
     end
 

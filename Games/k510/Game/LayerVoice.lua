@@ -39,7 +39,7 @@ function LayerVoice:init()
         local vButton = CCControlButton:create(loadSprite("czpdk/yuyinbtn.png", true))
         vButton:setPreferredSize(CCSizeMake(69,71))
         vButton:setBackgroundSpriteForState(loadSprite("czpdk/yuyinbtn2.png", true), CCControlStateHighlighted)
-        vButton:setPosition(ccp(CommonInfo.View_Width - 64, 246))
+        vButton:setPosition(ccp(CommonInfo.View_Width - 60, 80))
         self:addChild(vButton)
         c.voiceButton = vButton
         vButton:addHandleOfControlEvent(self.record,       CCControlEventTouchDown)

@@ -5,7 +5,7 @@ local PlayerCards =class("PlayerCards", function()
     return CCLayer:create()
     end)
 PlayerCards._Span = 70
-PlayerCards._MaxSpan = 50
+PlayerCards._MaxSpan = 70
 PlayerCards._ChairIndex = -1
 
 PlayerCards.FreshCardType = 
@@ -369,7 +369,7 @@ function PlayerCards:reFreshPlayerCards(playerCardsLst,refeshType)
 		end
     end
 
-    local o = 40
+    local o = 127
     self._offset = 0
     if self._ChairIndex == 0 then
         self._Span = (self.winSize.width/2 - o)/(#self._playerCardsValueLst - 1) * 1.2

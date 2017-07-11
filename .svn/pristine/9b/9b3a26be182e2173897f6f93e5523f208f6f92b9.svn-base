@@ -317,8 +317,7 @@ function GameLogic:onSceneChanged(pData,nLen)
             self.qieData = {
                 cbChairCurQie = gameSceneData.cbChairCurQie,
                 cbQieAble     = gameSceneData.cbQieAble,
-                cbQieValue    = gameSceneData.cbQieValue,
-				cbLastBankerUser = gameSceneData.cbLastBankerUser
+                cbQieValue    = gameSceneData.cbQieValue
             }
         -- 其它阶段
 		elseif self.gamePhase == Common.GAME_PHRASE.enGame_AskPlayer then
@@ -707,14 +706,14 @@ end
 
 function GameLogic.removeCache()
     local path = Resources.Img_Path
-    Cache.removePlist{path.."animation", path.."czpdk", path.."k510", path.."czpdkreplay", "emote"}
+    Cache.removePlist{path.."czpdkanimate", path.."czpdk", path.."czpdkpai", path.."czpdkreplay", "emote"}
     Cache.removeTexture{path.."deskbg.jpg", "lobby_message_tip_bg"}
 end
 
 function GameLogic.loadingCache()
     local path = Resources.Img_Path
     -- 加载游戏资源 应按从大到小顺序加载避免峰值过高
-    Cache.add{path.."animation", path.."czpdk", path.."k510", path.."czpdkreplay", "emote"}
+    Cache.add{path.."czpdkanimate", path.."czpdk", path.."czpdkpai", path.."czpdkreplay", "emote"}
 end
 
 return GameLogic

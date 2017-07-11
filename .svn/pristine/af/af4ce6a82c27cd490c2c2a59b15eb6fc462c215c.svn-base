@@ -23,20 +23,21 @@ function Card:init()
 	self._canTouch = true
     
     -- 牌背
-	self._CardSp = loadSprite("pai/cardback.png")
+	self._CardSp = loadSprite("pai/back.png")
 	self._CardSp:setAnchorPoint(0.0,0.0)
     -- 牌值
     self._CardValue = CCSprite:create()
+    self._CardValue:setPosition(ccp(36, 162))
     self._CardValue:setVisible(false)
     self._CardSp:addChild(self._CardValue)
     -- 大花
     self._CardBType = CCSprite:create()
-    self._CardBType:setPosition(ccp(86, 85))
+    self._CardBType:setPosition(ccp(105, 66))
     self._CardBType:setVisible(false)
     self._CardSp:addChild(self._CardBType)
     -- 小花
     self._CardSType = CCSprite:create()
-    self._CardSType:setPosition(ccp(25, 111))
+    self._CardSType:setPosition(ccp(36, 110))
     self._CardSType:setVisible(false)
     self._CardSp:addChild(self._CardSType)
 
@@ -63,27 +64,16 @@ function Card:setCardSp(idx, cardValue)
         local cardType = math.floor(cardValue / 13)
         local value = cardType % 2 * 100 + cardNum
 		if cardValue == 53 then
-			self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/cardfront.png"))
-			self._CardValue:setPosition(ccp(25, 93))
-			self._CardValue:setDisplayFrame(c:spriteFrameByName("pai/value_redjoker.png"))
-			self._CardBType:setDisplayFrame(c:spriteFrameByName("pai/type_redjoker.png"))
-			self._CardValue:setVisible(true)
-			self._CardBType:setVisible(true)
-			self._CardSType:setVisible(false)
-		else
-			self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/cardfront.png"))
-			self._CardValue:setPosition(ccp(25, 154))
-			self._CardValue:setDisplayFrame(c:spriteFrameByName(string.format("pai/value_%d.png", value)))
-			if cardNum > 10 then
-				self._CardBType:setDisplayFrame(c:spriteFrameByName(string.format("pai/big_type2_%d.png", cardType)))
-			else
-				self._CardBType:setDisplayFrame(c:spriteFrameByName(string.format("pai/big_type1_%d.png", cardType)))
-			end
-			self._CardSType:setDisplayFrame(c:spriteFrameByName(string.format("pai/small_type_%d.png", cardType)))
-			self._CardValue:setVisible(true)
-			self._CardBType:setVisible(true)
-			self._CardSType:setVisible(true)
+			cardType = 3
 		end
+
+        self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/front.png"))
+        self._CardValue:setDisplayFrame(c:spriteFrameByName(string.format("pai/%d.png", value)))
+        self._CardBType:setDisplayFrame(c:spriteFrameByName(string.format("pai/b%d.png", cardType)))
+        self._CardSType:setDisplayFrame(c:spriteFrameByName(string.format("pai/s%d.png", cardType)))
+        self._CardValue:setVisible(true)
+        self._CardBType:setVisible(true)
+        self._CardSType:setVisible(true)
     else
         self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/back.png"))
         self._CardValue:setVisible(false)

@@ -171,23 +171,23 @@ function DeskScene:init()
 
     --界面绘制
     --背景
-    local bg = loadSprite(Resources.Img_Path.."deskbg.jpg")
+    local bg = loadSprite(Resources.Img_Path.."deskbg.png")
     self:addChild(bg)
     bg:setScale(1.25)
     bg:setPosition(ccp(self.winSize.width/2,self.winSize.height/2))
     
     --房号文字
-    self.roomNoTextLabel = CCLabelTTF:create("房间号：","Arial",18,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self.roomNoTextLabel = CCLabelTTF:create("房间号：","Arial",24,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
     self.roomNoTextLabel:setAnchorPoint(0,0.5)
     self.roomNoTextLabel:setColor(ccc3(234,255,254))
-    self.roomNoTextLabel:setPosition(ccp(self.winSize.width/2-125, self.winSize.height - 60))
+    self.roomNoTextLabel:setPosition(ccp(self.winSize.width/2-85, self.winSize.height - 48))
     self:addChild(self.roomNoTextLabel)
 
     --局数文字
-    self.jushuLabel = CCLabelTTF:create("局 数：0/0","Arial",18,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
+    self.jushuLabel = CCLabelTTF:create("局　数：0/0","Arial",24,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
     self.jushuLabel:setAnchorPoint(0,0.5)
     self.jushuLabel:setColor(ccc3(234,255,254))
-    self.jushuLabel:setPosition(ccp(self.winSize.width/2+20, self.winSize.height - 60))
+    self.jushuLabel:setPosition(ccp(self.winSize.width/2-85, self.winSize.height - 76))
     self:addChild(self.jushuLabel)
 
     --规则文字
@@ -231,14 +231,14 @@ function DeskScene:init()
         local animate = CCAnimate:create(animation);
         self.locationBtn.m_normalSp:runAction(CCRepeatForever:create(animate))
         self:addChild(self.locationBtn)
-        self.locationBtn:setPosition(ccp(self.winSize.width - 160, self.winSize.height - 45))
+        self.locationBtn:setPosition(ccp(self.winSize.width/2 - 180, self.winSize.height - 45))
 
     --设置
     self.setBtn = CCButton.createWithFrame("czpdk/setbtn.png",false,function()
         SetLayer.create(self, 1):show()
     end)
     self:addChild(self.setBtn)
-    self.setBtn:setPosition(ccp(self.winSize.width - 100, self.winSize.height - 45))
+    self.setBtn:setPosition(ccp(self.winSize.width/2 + 180, self.winSize.height - 45))
 
     --解散房间
     local f = require("Lobby/FriendGame/FriendGameLogic")
@@ -251,7 +251,7 @@ function DeskScene:init()
         end
     end)
     self:addChild(self.dissolveroomBtn)
-    self.dissolveroomBtn:setPosition(ccp(self.winSize.width - 40, self.winSize.height - 45))
+    self.dissolveroomBtn:setPosition(ccp(self.winSize.width - 46, self.winSize.height - 45))
     
     --设置等系列操作按钮结束
 
@@ -298,19 +298,23 @@ function DeskScene:init()
     local normalSprite = loadSprite("czpdk/controlbtn1.png")
     
     -- 不切牌按钮
-    self.Qie0MenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_nocut1.png"),loadSprite("ui/btn_nocut2.png"),nil)
+    self.Qie0MenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.Qie0MenuItem:setTag(self.menuItemTag.qie0)
-    self.Qie0MenuItem:setPosition(self.winSize.width/2 - 90,180)
+    self.Qie0MenuItem:setPosition(self.winSize.width/2-260,180)
+
+    local Qie0TextSprite = loadSprite("czpdk/noqie.png")
+    self.Qie0MenuItem:addChild(Qie0TextSprite)
+    Qie0TextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
     
     -- 切牌按钮
-    self.QieMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_cut1.png"),loadSprite("ui/btn_cut2.png"),nil)
+    self.QieMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.QieMenuItem:setTag(self.menuItemTag.qie1)
-    self.QieMenuItem:setPosition(self.winSize.width/2 + 90,180)
+    self.QieMenuItem:setPosition(self.winSize.width/2+260,180)
 
-    self.cutBkg = loadSprite("ui/bkg_cut.png")
-    self:addChild(self.cutBkg)
-    self.cutBkg:setPosition(ccp(self.winSize.width/2,180))
- 
+    local QieTextSprite = loadSprite("czpdk/qie.png")
+    self.QieMenuItem:addChild(QieTextSprite)
+    QieTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
+
 	-- 询问按钮和label
 	--标题
 	self.tip_lab = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 24)
@@ -320,33 +324,41 @@ function DeskScene:init()
 	self:addChild(self.tip_lab)
 		
 	--是按钮 
-	self.YesMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_agree1.png"),loadSprite("ui/btn_agree1.png"),nil)
+	self.YesMenuItem = CCMenuItemSprite:create(loadSprite("common/btn_agree1.png"),loadSprite("common/btn_agree2.png"),loadSprite("common/btn_agree3.png"))
     self.YesMenuItem:setTag(self.menuItemTag.ReplyYesItemTag)
-    self.YesMenuItem:setPosition(self.winSize.width/2 + 90,280)
+    self.YesMenuItem:setPosition(self.winSize.width/2 + 150,280)
 			
 	--否按钮
-	self.NoMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_refuse1.png"),loadSprite("ui/btn_refuse1.png"),nil)
+	self.NoMenuItem = CCMenuItemSprite:create(loadSprite("common/btn_refuce1.png"),loadSprite("common/btn_refuce2.png"),loadSprite("common/btn_refuce3.png"))
     self.NoMenuItem:setTag(self.menuItemTag.ReplyNoItemTag)
-    self.NoMenuItem:setPosition(self.winSize.width/2 - 90,280)
-	
-	self.replyBkg = loadSprite("ui/bkg_cut.png")
-    self:addChild(self.replyBkg)
-    self.replyBkg:setPosition(ccp(self.winSize.width/2,280))
+    self.NoMenuItem:setPosition(self.winSize.width/2 - 150,280)
 	
     -- 提示按钮
-    self.tipMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_tip.png"),loadSprite("ui/btn_tip.png"),nil)
+    self.tipMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.tipMenuItem:setTag(self.menuItemTag.TipItemTag)
-    self.tipMenuItem:setPosition(self.winSize.width/2 - 260,280)
+    self.tipMenuItem:setPosition(self.winSize.width/2-260,280)
+
+    local tipTextSprite = loadSprite("czpdk/tiptext.png")
+    self.tipMenuItem:addChild(tipTextSprite)
+    tipTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
 
 	-- 不要按钮
-    self.notOutMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_noout1.png"),loadSprite("ui/btn_noout2.png"),nil)
+    self.notOutMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.notOutMenuItem:setTag(self.menuItemTag.NoOutItemTag)
-    self.notOutMenuItem:setPosition(self.winSize.width/2 + 260,280)
+    self.notOutMenuItem:setPosition(self.winSize.width/2,280)
+    
+    local noOutTextSprite = loadSprite("czpdk/piao_0.png")
+    self.notOutMenuItem:addChild(noOutTextSprite)
+    noOutTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
 	
     -- 出牌按钮
-    self.outMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_outcard1.png"),loadSprite("ui/btn_outcard2.png"),loadSprite("ui/btn_outcard3.png"))
+    self.outMenuItem = CCMenuItemSprite:create(loadSprite("czpdk/controlbtn1.png"),loadSprite("czpdk/controlbtn2.png"),nil)
     self.outMenuItem:setTag(self.menuItemTag.OutItemTag)
-    self.outMenuItem:setPosition(self.winSize.width/2,280)
+    self.outMenuItem:setPosition(self.winSize.width/2+260,280)
+    
+    local outCardTextSprite = loadSprite("czpdk/outcardtext.png")
+    self.outMenuItem:addChild(outCardTextSprite)
+     outCardTextSprite:setPosition(ccp(normalSprite:getContentSize().width/2,normalSprite:getContentSize().height/2))
 
     array = CCArray:create()
   	array:addObject(self.tipMenuItem)
@@ -389,7 +401,7 @@ function DeskScene:init()
        self.chatLayer:show()
     end)
     self:addChild(self.chatBtn)
-    self.chatBtn:setPosition(ccp(self.winSize.width - 60,160))
+    self.chatBtn:setPosition(ccp(self.winSize.width - 64,340))
     
     -- 语聊按钮
     self.voicePanel = require(CommonInfo.Code_Path.."Game/LayerVoice").create()
@@ -503,7 +515,7 @@ function DeskScene:setRoomInfo()
             self.roomNoTextLabel:setString(string.format("房间号：%d", invite_code))
         end
         if game_used then
-            self.jushuLabel:setString(string.format("局 数：%d/%d", game_used, currentRule[1][2]))
+            self.jushuLabel:setString(string.format("局　数：%d/%d", game_used, currentRule[1][2]))
         end
     end
 end
@@ -760,11 +772,9 @@ function DeskScene:ControlBtn(ShowMenuItemTag)
     self.outMenuItem:setVisible(false)
     self.Qie0MenuItem:setVisible(false)
     self.QieMenuItem:setVisible(false)
-	self.cutBkg:setVisible(false)
 	self.notOutMenuItem:setVisible(false)
 	self.YesMenuItem:setVisible(false)
 	self.NoMenuItem:setVisible(false)
-	self.replyBkg:setVisible(false)
 	self.tip_lab:setVisible(false)
     -- 根据不同设置调整按钮位置及显示状态
     if ShowMenuItemTag == self.menuItemShowTag.ShowOut then
@@ -775,11 +785,9 @@ function DeskScene:ControlBtn(ShowMenuItemTag)
         self.YesMenuItem:setVisible(true)
 		self.NoMenuItem:setVisible(true)
 		self.tip_lab:setVisible(true)
-		self.replyBkg:setVisible(true)
     elseif ShowMenuItemTag == self.menuItemShowTag.ShowQie then
         self.Qie0MenuItem:setVisible(true)
         self.QieMenuItem:setVisible(true)
-		self.cutBkg:setVisible(true)
     end
 end
 
@@ -833,18 +841,6 @@ function DeskScene:updateDeskInfo(s)
         local data = GameLogic.qieData
         local idx = GameLogic:ServerToClientSeat(data.cbChairCurQie) + 1
         cclog("切牌判定 chair: %d, able: %d, value: %d, myChair: %d   %d", data.cbChairCurQie, data.cbQieAble, data.cbQieValue, GameLogic.myChair, idx)
-		
-		for i = 1, Common.PLAYER_COUNT do
-			local userInfo = GameLogic:getUserInfo(i - 1)
-			if userInfo ~= nil then
-				if GameLogic.cbLastBankerUser == userInfo._chairID then
-					userInfo:setZhuang(true)
-				else
-					userInfo:setZhuang(false)
-				end
-			end
-		end
-		
         if data.cbQieAble == 1 then
             -- 如果切牌人是自己则显示操作菜单
             if data.cbChairCurQie == GameLogic.myChair then
@@ -861,7 +857,7 @@ function DeskScene:updateDeskInfo(s)
             local msg = data.cbQieValue == 1 and "[%s] 切了牌" or "[%s] 没有切牌"
             local userInfo = GameLogic.userlist[data.cbChairCurQie + 1]
             if userInfo then
-                require("HallUtils").showWebTip(string.format(msg, userInfo:getUserName()),self,,nil,nil,1.8)
+                require("HallUtils").showWebTip(string.format(msg, userInfo:getUserName()))
                 -- 郴州话播放切牌音效
                 if lan_set == "lan_chenzhou" then
                     local uSex = (userInfo:getSex() == 1) and "man" or "woman"

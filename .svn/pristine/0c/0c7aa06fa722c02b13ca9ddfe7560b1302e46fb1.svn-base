@@ -340,7 +340,6 @@ function Common.newGameScene(buf, ownerChair)
         gameScene.cbChairCurQie = ba:readByte()
         gameScene.cbQieAble = ba:readByte()
         gameScene.cbQieValue = ba:readByte()
-		gameScene.cbLastBankerUser = ba:readByte()
         local logStr = string.format(
             "[%s] 收到场景数据 阶段: %d(%s)  切牌人: %d, 可否切: %d, 切值: %d\n", os.date("%c"),
             gameScene.cbSystemPhase,

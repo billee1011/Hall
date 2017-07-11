@@ -45,50 +45,41 @@ function Player:init()
     self.winSize = CCSizeMake(require("k510/GameDefs").CommonInfo.View_Width, require("k510/GameDefs").CommonInfo.View_Height)
 
     --玩家信息底
-    self.userInfoframe = loadSprite("ui/bkg_avater.png", true)
-    --self.userInfoframe:setPreferredSize(CCSizeMake(109,109))
+    self.userInfoframe = loadSprite("czpdk/userinfoframebg.png", true)
+    self.userInfoframe:setPreferredSize(CCSizeMake(109,109))
   	self:addChild(self.userInfoframe, 1)
   	self.userInfoframe:setPosition(ccp(400, 400)) 
 
   	--头像
-    local faceSize = CCSizeMake(100,100)
+    local faceSize = CCSizeMake(90,90)
   	self._HeadSp = require("FFSelftools/CCUserFace").createDefault(_,faceSize)
   	self.userInfoframe:addChild(self._HeadSp)
-  	self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2-3, self.userInfoframe:getContentSize().height/2+43))
+  	self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
     self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
 
   	--名字
   	self._NameLabel = CCLabelTTF:create("按快点撒","",22,CCSizeMake(self.userInfoframe:getContentSize().width + 38,38),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter)
     self._NameLabel:setAnchorPoint(0.5,1.0)
     self.userInfoframe:addChild(self._NameLabel)
-    self._NameLabel:setPosition(ccp(self.userInfoframe:getContentSize().width/2, 95))
+    self._NameLabel:setPosition(ccp(self.userInfoframe:getContentSize().width/2, 5))
+
+    --积分框
+    self.scoreFrame = loadSprite("czpdk/jifenframe.png")
+  	self.userInfoframe:addChild(self.scoreFrame)
+  	self.scoreFrame:setPosition(ccp(self.userInfoframe:getContentSize().width/2, -50))
 
     --豆
     self._ScoreLabel = CCLabelTTF:create("0","",22,CCSizeMake(0,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentLeft)
     self._ScoreLabel:setAnchorPoint(0.0,0.5)
     -- self._ScoreLabel:setColor(ccc3(227,0,0))
-    self.userInfoframe:addChild(self._ScoreLabel)
-    self._ScoreLabel:setPosition(ccp(self.userInfoframe:getContentSize().width/2+6, 15))
+    self.scoreFrame:addChild(self._ScoreLabel)
+    self._ScoreLabel:setPosition(ccp(self.scoreFrame:getContentSize().width/2, self.scoreFrame:getContentSize().height/2))
     
     --庄
     self._IconZhuangSp = loadSprite("czpdk/zhuang.png")
     self.userInfoframe:addChild(self._IconZhuangSp,98)
     self._IconZhuangSp:setPosition(ccp(-12, self.userInfoframe:getContentSize().height))
     self._IconZhuangSp:setAnchorPoint(ccp(0.0,1.0))
-
-	--大王
-	self._redjokerCard = loadSprite("pai/cardfront.png")
-	self.userInfoframe:addChild(self._redjokerCard)
-	self._redjokerCard:setScale(0.5)
-
-	local redjokerText = loadSprite("pai/value_redjoker.png")
-	redjokerText:setPosition(ccp(18,103))
-	self._redjokerCard:addChild(redjokerText)
-
-	local redjokerImg = loadSprite("pai/type_redjoker.png")
-	redjokerImg:setPosition(ccp(78,89))
-	self._redjokerCard:addChild(redjokerImg)
-	self._redjokerCard:setVisible(false)
 
     --报单
     self.baodanSp = loadSprite("czpdk/baodan.png")
@@ -123,7 +114,7 @@ function Player:init()
     --玩家断线状态
     self._OfflineFrame = loadSprite("czpdk/offlineframe.png")
     self.userInfoframe:addChild(self._OfflineFrame,1)
-    self._OfflineFrame:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+43))
+    self._OfflineFrame:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
 
     local offlineText = loadSprite("czpdk/offlinetext.png")
     self._OfflineFrame:addChild(offlineText)
@@ -143,8 +134,9 @@ function Player:init()
     self._clockTimeLabel:setPosition(ccp(self._clock:getContentSize().width/2 + 2, self._clock:getContentSize().height/2))
     self._clockTimeLabel:setColor(ccc3(255,209,29))
 
+
     --其他玩家剩余牌的标示
-    self.m_CardBackSp = loadSprite("ui/handcard.png")
+    self.m_CardBackSp = loadSprite("czpdk/cardbackbg.png")
     self.m_CardBackSp:setAnchorPoint(ccp(0.5,0.5))
     self.userInfoframe:addChild(self.m_CardBackSp)
     self.m_CardBackSp:setVisible(false)
@@ -152,14 +144,15 @@ function Player:init()
     self._cardNumLabel = CCLabelTTF:create("0","Arial",22)
     self._cardNumLabel:setColor(ccc3(255,238,60))
     self._cardNumLabel:setAnchorPoint(ccp(0.5,0.5))
-	self._cardNumLabel:setPosition(ccp(35, -15))
+	self._cardNumLabel:setPosition(ccp(self.m_CardBackSp:getContentSize().width/2-1, self.m_CardBackSp:getContentSize().height/2+1))
     self._cardNumLabelShadow = CCLabelTTF:create("0","Arial",22)
     self._cardNumLabelShadow:setColor(ccc3(0,0,0))
     self._cardNumLabelShadow:setOpacity(200)
     self._cardNumLabelShadow:setAnchorPoint(ccp(0.5,0.5))
-	self._cardNumLabelShadow:setPosition(ccp(37, -17))
+	self._cardNumLabelShadow:setPosition(ccp(self.m_CardBackSp:getContentSize().width/2+1, self.m_CardBackSp:getContentSize().height/2-1))
     self.m_CardBackSp:addChild(self._cardNumLabelShadow);
     self.m_CardBackSp:addChild(self._cardNumLabel);
+
 
     --表情
     self.emoSp = loadSprite(string.format("emote/emote%d-%d.png",1,1))
@@ -191,12 +184,12 @@ function Player:init()
     self.wordChatLabel1:setColor(ccc3(51,33,9))
     self.wordChatLabel1:setPosition(ccp(10,self.wordChatFrame:getContentSize().height/2+6))
     
-    --牌型动画
-    self.cardTypeTextAcSp = loadSprite("animation/plane_text.png")
+    --动画
+    self.cardTypeTextAcSp = loadSprite("czpdkanimate/feiji/feijitext.png")
     self.userInfoframe:addChild(self.cardTypeTextAcSp)
     self.cardTypeTextAcSp:setVisible(false)
 
-    self.cardTypeAcSp = loadSprite("animation/double_6.png")
+    self.cardTypeAcSp = loadSprite("czpdkanimate/liandui/6.png")
     self.userInfoframe:addChild(self.cardTypeAcSp)
     self.cardTypeAcSp:setScale(1.5)
     self.cardTypeAcSp:setVisible(false)
@@ -229,11 +222,11 @@ function Player:UpdateUserInfo(gameUserInfo, updateCardsDataOnly)
                self._HeadSp:removeFromParentAndCleanup(true)
             end
 
-            local faceSize = CCSizeMake(100,100)
+            local faceSize = CCSizeMake(90,90)
             self._HeadSp = require("FFSelftools/CCUserFace").create(gameUserInfo:getUserDBID(), faceSize, gameUserInfo:getSex())
                     
             self.userInfoframe:addChild(self._HeadSp)
-            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2-3, self.userInfoframe:getContentSize().height/2+43))
+            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+1))
             self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
             self.iconUpdated = true
             
@@ -318,11 +311,11 @@ function Player:UpdateReplayInfo(chair, info, gamePhase)
             local head = self.userInfoframe:getChildByTag(Resources.Tag.USER_HEAD_TAG)
             if head ~= nil then self._HeadSp:removeFromParentAndCleanup(true) end
 
-            local faceSize = CCSizeMake(100,100)
+            local faceSize = CCSizeMake(90,90)
             self._HeadSp = require("FFSelftools/CCUserFace").create( info.DB, faceSize, info.SX)
                             
             self.userInfoframe:addChild(self._HeadSp)
-            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2-3, self.userInfoframe:getContentSize().height/2+43))
+            self._HeadSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2, self.userInfoframe:getContentSize().height/2+1))
             self._HeadSp:setTag(Resources.Tag.USER_HEAD_TAG);
             self.iconUpdated = true
         end
@@ -398,49 +391,46 @@ end
 
 function Player:UpdatePos(chair, replay)
     if chair == 0 then
-        self.userInfoframe:setPosition(self.winSize.width-self._HeadSp:getContentSize().width/2-36,510)
+        self.userInfoframe:setPosition(self.winSize.width-self._HeadSp:getContentSize().width/2-36,self.winSize.height/2 + 200)
         self._PlayCards:setPos(ccp(-666,0))
-        self._OutCards:setPos(ccp(540,150))--出牌
-        self._GameStatus:setPosition(ccp(907,530))--要不起
-		self._redjokerCard:setPosition(ccp(-52,45))
-        self._clock:setPosition(ccp(1000,445))--计时
+        self._OutCards:setPos(ccp(552,330))
+        self._GameStatus:setPosition(ccp(1018,468))
+        self._clock:setPosition(ccp(self.winSize.width- self._clock:getContentSize().width-180,468))
         self.emoSp:setPosition(ccp(- self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
         self.wordChatFrame1:setPosition(ccp(self.userInfoframe:getPositionX() - 20,self.userInfoframe:getPositionY()))
-        self.cardTypeTextAcSp:setPosition(ccp(-200,130))--动画
+        self.cardTypeTextAcSp:setPosition(ccp(-160,self.userInfoframe:getContentSize().height/2 - 106))
         if not replay then
             self._PlayCards:setVisible(false)
-            self.m_CardBackSp:setPosition(ccp(-45,190))--剩余牌数
+            self.m_CardBackSp:setPosition(ccp(-24,self.userInfoframe:getContentSize().height/2))
         else
             self._PlayCards:setScale(0.5)
             self._PlayCards:setVisible(true)
             self.m_CardBackSp:setVisible(false)
         end
     elseif chair == 1 then
-        self.userInfoframe:setPosition(120,150)
+        self.userInfoframe:setPosition(102,self.winSize.height/2-32)
         self._PlayCards:setPos(ccp(0,56))
-        self._OutCards:setPos(ccp(267,140))
-		self._redjokerCard:setVisible(false)
+        self._OutCards:setPos(ccp(267,240))
         self._GameStatus:setPosition(ccp(self.winSize.width/2,260))
         self._clock:setPosition(ccp((self.winSize.width - self._clock:getContentSize().width)/2,370))
         self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width + self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
         self.wordChatFrame:setPosition(ccp(self.userInfoframe:getPositionX() + 20,self.userInfoframe:getPositionY() ))
         self.wordChatFrame1:setVisible(false)
-        self.cardTypeTextAcSp:setPosition(ccp(self.winSize.width/2-10, 200))
+        self.cardTypeTextAcSp:setPosition(ccp(self.winSize.width/2 - 50, 0))
         self.m_CardBackSp:setVisible(false)
     elseif chair == 2 then
-        self.userInfoframe:setPosition(120,510)
+        self.userInfoframe:setPosition(102,self.winSize.height/2+200)
         self._PlayCards:setPos(ccp(-666,0))
-        self._OutCards:setPos(ccp(250,150))
-        self._GameStatus:setPosition(ccp(396,530))
-		self._redjokerCard:setPosition(ccp(188,45))
-        self._clock:setPosition(ccp(200,445))
+        self._OutCards:setPos(ccp(190,330))
+        self._GameStatus:setPosition(ccp(267,468))
+        self._clock:setPosition(ccp(180,468))
         self.emoSp:setPosition(ccp(self.userInfoframe:getContentSize().width + self.emoSp:getContentSize().width/2, self.userInfoframe:getContentSize().height/2))
         self.wordChatFrame:setPosition(ccp(self.userInfoframe:getPositionX() + 20,self.userInfoframe:getPositionY()))
         self.wordChatFrame1:setVisible(false)
-        self.cardTypeTextAcSp:setPosition(ccp(330,130))
+        self.cardTypeTextAcSp:setPosition(ccp(252,self.userInfoframe:getContentSize().height/2 - 106))
         if not replay then
             self._PlayCards:setVisible(false)
-            self.m_CardBackSp:setPosition(ccp(175,190))
+            self.m_CardBackSp:setPosition(ccp(self._HeadSp:getContentSize().width + 4,self.userInfoframe:getContentSize().height/2))
         else
             self._PlayCards:setScale(0.5)
             self._PlayCards:setVisible(true)
@@ -476,13 +466,6 @@ function Player:resetHandCards(cardArray, replay)
             self.m_CardBackSp:setVisible(true)
         end
         self._PlayCards:setVisible(false)
-		
-		if self.gameUserInfo:getZhuang() then
-			self._redjokerCard:setVisible(true)
-			self._redjokerCard:runAction(CCSequence:createWithTwoActions(CCDelayTime:create(10),CCCallFuncN:create(
-				function () self._redjokerCard:setVisible(false) end
-			)))
-		end
     end
 end
 
@@ -656,21 +639,15 @@ function Player:playCardTypeAction(cardtype)
 
     local file = ""
     if cardtype == Common.SUIT_TYPE.suitDoubleStraight then
-        file = "double"
-	elseif cardtype == Common.SUIT_TYPE.suitTriple then
-		file = "triple"
-    elseif cardtype == Common.SUIT_TYPE.suitTriAndDouble then
-        file = "trianddbl"
+        file = "liandui"
+    elseif cardtype == Common.SUIT_TYPE.suitTriAndTwo then
+        file = "sandaier"
     elseif cardtype == Common.SUIT_TYPE.suitStraight  then
-        file = "straight"
-	elseif cardtype == Common.SUIT_TYPE.suitRedJoker then
-		file = "redjoker"
-	elseif cardtype == Common.SUIT_TYPE.suitFiveTenKing or cardtype == Common.SUIT_TYPE.suitPureFiveTenKing then
-		file = "510k"
+        file = "shunzi"
     elseif cardtype == Common.SUIT_TYPE.suitBomb  then
-        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("animation/bomb_1.png"))
+        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/zhadan/1.png"))
         self.cardTypeAcSp:setVisible(true)
-        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("animation/bomb_text.png"))
+        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/zhadan/zhadantext.png"))
         self.cardTypeTextAcSp:setVisible(true)
         
         local bezier = ccBezierConfig:new()
@@ -697,7 +674,7 @@ function Player:playCardTypeAction(cardtype)
         for i=1,4 do
             pAnimation1:addSpriteFrame(
                 CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
-                string.format("animation/bomb_%d.png",i)
+                string.format("czpdkanimate/zhadan/%d.png",i)
             ))
         end
         pAnimation1:setDelayPerUnit(0.125)
@@ -709,7 +686,7 @@ function Player:playCardTypeAction(cardtype)
         for i=5,13 do
             pAnimation2:addSpriteFrame(
                 CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
-                string.format("animation/bomb_%d.png",i)
+                string.format("czpdkanimate/zhadan/%d.png",i)
             ))
         end
         pAnimation2:setDelayPerUnit(0.06)
@@ -727,11 +704,11 @@ function Player:playCardTypeAction(cardtype)
         array:addObject(callFun)
         self.cardTypeAcSp:runAction(CCSequence:create(array))
         
-    elseif cardtype == Common.SUIT_TYPE.suitPlane or cardtype == Common.SUIT_TYPE.suitTriStraight then
+    elseif cardtype == Common.SUIT_TYPE.suitPlane  then
         self.cardTypeAcSp:setPosition(ccp(self.userInfoframe:getContentSize().width/2,self.userInfoframe:getContentSize().height/2))
-        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("animation/plane_1.png"))
+        self.cardTypeAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/feiji/1.png"))
         self.cardTypeAcSp:setVisible(true)
-        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("animation/plane_text.png"))
+        self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName("czpdkanimate/feiji/feijitext.png"))
         self.cardTypeTextAcSp:setVisible(true)
         
         local endPosX, addon = 0, 0
@@ -747,7 +724,7 @@ function Player:playCardTypeAction(cardtype)
         for i=1,9 do
             pAnimation:addSpriteFrame(
                 CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
-                string.format("animation/plane_%d.png",i%3 + 1)
+                string.format("czpdkanimate/feiji/%d.png",i%3 + 1)
             ))
         end
 
@@ -771,12 +748,10 @@ function Player:playCardTypeAction(cardtype)
     end
 
 
-    if cardtype == Common.SUIT_TYPE.suitDoubleStraight or cardtype == Common.SUIT_TYPE.suitTriAndDouble 
-        or cardtype == Common.SUIT_TYPE.suitStraight or cardtype == Common.SUIT_TYPE.suitRedJoker
-		or cardtype == Common.SUIT_TYPE.Triple or cardtype == Common.SUIT_TYPE.suitFiveTenKing 
-		or cardtype == Common.SUIT_TYPE.suitPureFiveTenKing then
+    if cardtype == Common.SUIT_TYPE.suitDoubleStraight or cardtype == Common.SUIT_TYPE.suitTriAndTwo 
+        or cardtype == Common.SUIT_TYPE.suitStraight or cardtype == Common.SUIT_TYPE.suitFourAndThree then
         
-        local szName = string.format("animation/%s_%d.png",file,1)
+        local szName = string.format("czpdkanimate/%s/%d.png",file,1)
         self.cardTypeTextAcSp:setDisplayFrame(c:spriteFrameByName(szName))
         self.cardTypeTextAcSp:setVisible(true)
         
@@ -784,7 +759,7 @@ function Player:playCardTypeAction(cardtype)
         for i=1,6 do
             pAnimation:addSpriteFrame(
                 CCSpriteFrameCache:sharedSpriteFrameCache():spriteFrameByName(
-                string.format("animation/%s_%d.png",file, i)
+                string.format("czpdkanimate/%s/%d.png",file, i)
             ))
         end
 

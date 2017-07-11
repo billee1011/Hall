@@ -169,8 +169,6 @@ end
 function FriendGameLogic.getFriendTableRule(mode, backfunc, gameId)  
     FriendGameLogic.game_mode = mode
     FriendGameLogic.game_id = gameId
-		cclog("-------*---------%s--------------*-------",FriendGameLogic.game_id)
-
     local szData = string.format("PartnerID=%d&GameID=%d&UseMode=%d", AppConfig.CONFINFO.PartnerID, FriendGameLogic.game_id, mode)   
     local function httpCallback(isSucceed,tag,data)
         --解析数据

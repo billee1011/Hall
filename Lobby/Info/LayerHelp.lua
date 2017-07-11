@@ -34,10 +34,17 @@ function LayerHelp:init()
     self.panel_bg.gameTitle = {}
 
     for i,v in ipairs(gamesConfig.games) do
-        self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..v.."Rule1.png", 
+		if v == 24 then
+		        self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..(v-1).."Rule1.png", 
+                "gamerule/btnGame"..(v-1).."Rule2.png", "gamerule/btnGame"..(v-1).."Rule2.png", function()
+                    self:initPage(v, 1)
+                end), ccp(self.bg_sz.width / 2 - 620 + 250 * i, self.bg_sz.height+33), self.btn_zIndex)
+		else
+		        self.panel_bg.gameTitle[v] = CCButton.put(self.panel_bg, CCButton.createCCButtonByFrameName("gamerule/btnGame"..v.."Rule1.png", 
                 "gamerule/btnGame"..v.."Rule2.png", "gamerule/btnGame"..v.."Rule2.png", function()
                     self:initPage(v, 1)
                 end), ccp(self.bg_sz.width / 2 - 620 + 250 * i, self.bg_sz.height+33), self.btn_zIndex)
+		end
 
         if v == gamesConfig.unopened then
             local s = loadSprite("gamerule/createRuleMark.png")

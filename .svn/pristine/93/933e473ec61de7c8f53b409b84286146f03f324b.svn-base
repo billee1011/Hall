@@ -342,13 +342,12 @@ function Common.newGameScene(buf, ownerChair)
         gameScene.cbQieValue = ba:readByte()
 		gameScene.cbLastBankerUser = ba:readByte()
         local logStr = string.format(
-            "[%s] 收到场景数据 阶段: %d(%s)  切牌人: %d, 可否切: %d, 切值: %d, 上一次庄家: %d\n", os.date("%c"),
+            "[%s] 收到场景数据 阶段: %d(%s)  切牌人: %d, 可否切: %d, 切值: %d\n", os.date("%c"),
             gameScene.cbSystemPhase,
             Common.GAME_PHRASE_NAME[gameScene.cbSystemPhase],
             gameScene.cbChairCurQie,
             gameScene.cbQieAble,
-            gameScene.cbQieValue,
-			gameScene.cbLastBankerUser
+            gameScene.cbQieValue
         )
         if debugMode then cc2file(logStr) end
     -- 其它阶段

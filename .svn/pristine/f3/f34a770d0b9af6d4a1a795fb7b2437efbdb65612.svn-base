@@ -194,7 +194,7 @@ function DeskScene:init()
     self.ruleLabel = CCLabelTTF:create("","Arial",24,CCSizeMake(480,0),kCCVerticalTextAlignmentCenter,kCCTextAlignmentCenter);
     self.ruleLabel:setAnchorPoint(0.5,1)
     self.ruleLabel:setPosition(ccp(self.winSize.width/2, self.winSize.height - 110))
-    self.ruleLabel:setColor(ccc3(255,255,255))
+    self.ruleLabel:setColor(ccc3(5,43,65))
     self:addChild(self.ruleLabel)
 
     -- 实时信息
@@ -310,9 +310,9 @@ function DeskScene:init()
  
 	-- 询问按钮和label
 	--标题
-	self.tip_lab = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 35)
-	self.tip_lab:setColor(ccc3(255, 255, 255))
-	self.tip_lab:setPosition(ccp(self.winSize.width / 2, 400))
+	self.tip_lab = CCLabelTTF:create("", AppConfig.COLOR.FONT_ARIAL, 24)
+	self.tip_lab:setColor(ccc3(74, 25, 8))
+	self.tip_lab:setPosition(ccp(self.winSize.width / 2, 360))
 	self.tip_lab:setHorizontalAlignment(kCCTextAlignmentCenter)
 	self:addChild(self.tip_lab)
 		
@@ -331,19 +331,19 @@ function DeskScene:init()
     self.replyBkg:setPosition(ccp(self.winSize.width/2,277))
 	
     -- 提示按钮
-    self.tipMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_tip.png"),nil,nil)
+    self.tipMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_tip.png"),loadSprite("ui/btn_tip.png"),nil)
     self.tipMenuItem:setTag(self.menuItemTag.TipItemTag)
-    self.tipMenuItem:setPosition(self.winSize.width/2,280)
+    self.tipMenuItem:setPosition(self.winSize.width/2 - 260,280)
 
 	-- 不要按钮
-    self.notOutMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_noout1.png"),loadSprite("ui/btn_noout2.png"),loadSprite("ui/btn_noout3.png"))
+    self.notOutMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_noout1.png"),loadSprite("ui/btn_noout2.png"),nil)
     self.notOutMenuItem:setTag(self.menuItemTag.NoOutItemTag)
-    self.notOutMenuItem:setPosition(self.winSize.width/2 - 260,280)
+    self.notOutMenuItem:setPosition(self.winSize.width/2 + 260,280)
 	
     -- 出牌按钮
     self.outMenuItem = CCMenuItemSprite:create(loadSprite("ui/btn_outcard1.png"),loadSprite("ui/btn_outcard2.png"),loadSprite("ui/btn_outcard3.png"))
     self.outMenuItem:setTag(self.menuItemTag.OutItemTag)
-    self.outMenuItem:setPosition(self.winSize.width/2 + 260,280)
+    self.outMenuItem:setPosition(self.winSize.width/2,280)
 
     array = CCArray:create()
   	array:addObject(self.tipMenuItem)
@@ -401,21 +401,6 @@ function DeskScene:init()
     self.resultLayer = ResultLayer.create()
     self:addChild(self.resultLayer)
     self.resultLayer:hide()
-	
-	--问询框
-	self.askPlayerLabel = CCLabelTTF:create("", "Arial", 30)
-    self.askPlayerLabel:setAnchorPoint(ccp(0.5,0.5))
-	
-	local winsize=CCDirector:sharedDirector():getWinSize()
-    self.askPlayerBg = CCLayerColor:create(ccc4(0,0,0,100),200,40)
-    pos = ccp(winsize.width / 2, winsize.height / 2)
-    self.askPlayerBg:setPosition(pos)
-    self.askPlayerBg:setAnchorPoint(ccp(0.5,0.5))
-    self.askPlayerLabel:setPosition(ccp(self.askPlayerBg:getContentSize().width*0.5,self.askPlayerBg:getContentSize().height*0.5))
-    
-    self.askPlayerBg:addChild(self.askPlayerLabel)
-    self:addChild(self.askPlayerBg)
-	self.askPlayerBg:setVisible(false)
   
     self:setKeypadEnabled(true)
 
@@ -506,7 +491,7 @@ function DeskScene:setRoomInfo()
         if currentRule[4] and currentRule[4][2] == 0 then
             msg = msg.." 不显示牌数"
         end
-        if currentRule[5] and currentRule[5][2] == 1 then
+        if currentRule[5] and currentRule[5][2] ~= 1 then
             msg = msg.." 可切牌"
         end
 
@@ -866,17 +851,11 @@ function DeskScene:updateDeskInfo(s)
 		for i = 1, Common.PLAYER_COUNT do
 			local userInfo = GameLogic:getUserInfo(i - 1)
 			if userInfo ~= nil then
-				if data.cbLastBankerUser == userInfo._chairID then
+				if GameLogic.cbLastBankerUser == userInfo._chairID then
 					userInfo:setZhuang(true)
 				else
 					userInfo:setZhuang(false)
 				end
-				
-				            -- 更新用户信息
-            self._PlayerVec[i]:UpdateUserInfo(userInfo,
-                (userInfo._chairID == GameLogic.myChair) 
-                and (#self:getMyCardsLst() > 0)
-            )
 			end
 		end
 		
@@ -918,7 +897,7 @@ function DeskScene:updateDeskInfo(s)
 		if data.cbIsAsking == 1 then
 			if data.cbAskPlayerID == GameLogic.myChair then
 				local text = "是否要与[%s] 对战?"
-				local userInfo = GameLogic.userlist[data.cbToFightID + 1]
+				local userInfo = require("k510/Game/GameLogic").userlist[data.cbToFightID + 1]
 				if userInfo then
 					text = string.format(text, userInfo:getUserName())
 				else
@@ -931,14 +910,7 @@ function DeskScene:updateDeskInfo(s)
 				local userInfo1 = GameLogic.userlist[data.cbAskPlayerID + 1]
 				local userInfo2 = GameLogic.userlist[data.cbToFightID + 1]
 				if userInfo1 and userInfo2 then
-					self.askPlayerLabel:setString(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()))
-					self.askPlayerBg:changeWidthAndHeight(self.askPlayerLabel:getContentSize().width*1.1,self.askPlayerLabel:getContentSize().height*1.3)
-					local winsize=CCDirector:sharedDirector():getWinSize()
-					pos = ccp(winsize.width / 2 - self.askPlayerBg:getContentSize().width*0.5, winsize.height / 2 + 60)
-					self.askPlayerBg:setPosition(pos)
-					self.askPlayerLabel:setPosition(ccp(self.askPlayerBg:getContentSize().width*0.5,self.askPlayerBg:getContentSize().height*0.5))
-					if not self.askPlayerBg:isVisible() then self.askPlayerBg:setVisible(true) end
-					--require("HallUtils").showWebTip(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()),self,nil,nil,1.8)
+					require("HallUtils").showWebTip(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()),self,nil,nil,1.8)
 				end
 			end
 		else
@@ -946,49 +918,22 @@ function DeskScene:updateDeskInfo(s)
 			local userInfo1 = GameLogic.userlist[data.cbAskPlayerID + 1]
 			local userInfo2 = GameLogic.userlist[data.cbToFightID + 1]
 			if userInfo1 and userInfo2 then
-				self.askPlayerLabel:setString(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()))
-				self.askPlayerBg:changeWidthAndHeight(self.askPlayerLabel:getContentSize().width*1.1,self.askPlayerLabel:getContentSize().height*1.3)
-				local winsize=CCDirector:sharedDirector():getWinSize()
-				pos = ccp(winsize.width / 2 - self.askPlayerBg:getContentSize().width*0.5, winsize.height / 2 + 60)
-				self.askPlayerBg:setPosition(pos)
-				self.askPlayerLabel:setPosition(ccp(self.askPlayerBg:getContentSize().width*0.5,self.askPlayerBg:getContentSize().height*0.5))
-				if not self.askPlayerBg:isVisible() then self.askPlayerBg:setVisible(true) end
-				--require("HallUtils").showWebTip(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()),self,nil,nil,1.8)
+				require("HallUtils").showWebTip(string.format(msg, userInfo1:getUserName(), userInfo2:getUserName()),self,nil,nil,1.8)
 			end 
 		end
     -- 打牌阶段
     elseif GameLogic.gamePhase == Common.GAME_PHRASE.enGame_OutCard then
-		if self.askPlayerBg:isVisible() then
-			self.askPlayerBg:runAction(CCSequence:createWithTwoActions(CCDelayTime:create(2),CCCallFuncN:create(function()
-				self.askPlayerBg:setVisible(false) 
-			end)))
-		end
         if GameLogic.curActor == GameLogic.myChair and GameLogic.myChair ~= -1 then
+			self:getMyPlayer():ShowEffect()
             self:resetTipCard(self.lastTipCard)
             self.isOutCard = false
             self:autoOutCardsByCondition(BombStatus[FriendGameLogic.my_rule[2][2]],StraightMax[FriendGameLogic.my_rule[3][2]])
-			if GameLogic.nRingCount == 0 then
-				if self.notOutMenuItem:isEnabled() then self.notOutMenuItem:setEnabled(false) end
-			else
-				if not self.notOutMenuItem:isEnabled() then self.notOutMenuItem:setEnabled(true) end
-			end
         else 
 			self:getMyPlayer():HideEffect()
             self:ControlBtn(self.menuItemShowTag.HideOut)
         end
 		if GameLogic.cbNoJoin == GameLogic.myChair then
 			self:getMyPlayer():SetCardUnTouch()
-		end
-		
-		for i = 1, Common.PLAYER_COUNT do
-			local userInfo = GameLogic:getUserInfo(i - 1)
-			if userInfo ~= nil then
-				if GameLogic.curActor == userInfo._chairID then
-					self._PlayerVec[i]:ShowEffect()
-				else
-					self._PlayerVec[i]:HideEffect()
-				end
-			end
 		end
     -- 结束阶段
     elseif GameLogic.gamePhase == Common.GAME_PHRASE.enGame_Over then
@@ -1128,9 +1073,6 @@ function DeskScene:menuUnOutCardsCallBack()
        return
     end
 
-	local player = self._PlayerVec[GameLogic:ServerToClientSeat(GameLogic.myChair) + 1]
-    player._PlayCards:reset()
-	
     local OutCard = Common.newMyOutCard()
     OutCard.suitType = Common.SUIT_TYPE.suitPass
     OutCard.suitLen = 0
@@ -1500,7 +1442,7 @@ end
 function DeskScene:setOutCardTip(flag)
     local strTip
     if flag == 0 then
-        strTip = "请选择要出的牌!"
+        -- strTip = "请选择要出的牌!"
     elseif flag == 1 then
         strTip = "所选的牌型不对!"
     elseif flag == 2 then
@@ -1654,8 +1596,6 @@ end
 function DeskScene:DelayGameEnd(isRefresh)
     cclog("DeskScene:DelayGameEnd")
     local myDBID = require("k510/GameLibSink").game_lib:getMyDBID()
-	
-	self:ControlBtn(self.menuItemShowTag.HideALL)
     -- 如果未显示结算界面
     if not self.resultLayer:isVisible() then
         --先显示手牌
@@ -1667,7 +1607,6 @@ function DeskScene:DelayGameEnd(isRefresh)
                 local userInfo = GameLogic:getUserInfo(i - 1)
                 if userInfo ~= nil then
                     local outCards = ShareFuns.Copy(userInfo:getHandCards())
-					self._PlayerVec[i]._PlayCards:resetCardsTouch()
                     self._PlayerVec[i]:resetOutCards(outCards, Common.SUIT_TYPE.suitInvalid) -- 亮牌
                     self._PlayerVec[i]._PlayCards:setVisible(false)
                 end
@@ -1687,7 +1626,7 @@ function DeskScene:DelayGameEnd(isRefresh)
             CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.unschedulerDelayGameEndId)
             self:onGameEnd()
         end
-        self.unschedulerDelayGameEndId =CCDirector:sharedDirector():getScheduler():scheduleScriptFunc(updateTimer, 3, false)
+        self.unschedulerDelayGameEndId =CCDirector:sharedDirector():getScheduler():scheduleScriptFunc(updateTimer, 1.5, false)
         CCDirector:sharedDirector():getScheduler():unscheduleScriptEntry(self.unschedulerAutoId)
     end
 end

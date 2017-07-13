@@ -356,7 +356,7 @@ function PlayerCards:reFreshPlayerCards(playerCardsLst,refeshType)
         self._playerCardsValueLst = {}
         self._playerCardsValueLst = playerCardsLst
     end
-	
+
     for i = 1,#self.cardsSpVec do
         self.cardsSpVec[i]:Hide()
     end
@@ -464,12 +464,6 @@ end
 -- 得到我当前的牌值
 function PlayerCards:getMyCardsLst()
    return self._playerCardsValueLst
-end
-
-function PlayerCards:resetCardsTouch()
-	for i = 1,#self.cardsSpVec do
-        self.cardsSpVec[i]:resetTouch()
-    end
 end
 
 return PlayerCards

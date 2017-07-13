@@ -57,13 +57,14 @@ function Card:setCardSp(idx, cardValue)
     local c = CCSpriteFrameCache:sharedSpriteFrameCache()
 	self._value = cardValue
     if cardValue >= 0 then
+        local cardTypeStr
+
         local cardNum = cardValue % 13 + 1
         local cardType = math.floor(cardValue / 13)
         local value = cardType % 2 * 100 + cardNum
 		if cardValue == 53 then
 			self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/cardfront.png"))
-			self._CardValue:setPosition(ccp(19, 103))
-			self._CardBType:setPosition(ccp(77, 88))
+			self._CardValue:setPosition(ccp(25, 93))
 			self._CardValue:setDisplayFrame(c:spriteFrameByName("pai/value_redjoker.png"))
 			self._CardBType:setDisplayFrame(c:spriteFrameByName("pai/type_redjoker.png"))
 			self._CardValue:setVisible(true)
@@ -71,16 +72,11 @@ function Card:setCardSp(idx, cardValue)
 			self._CardSType:setVisible(false)
 		else
 			self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/cardfront.png"))
+			self._CardValue:setPosition(ccp(25, 154))
 			self._CardValue:setDisplayFrame(c:spriteFrameByName(string.format("pai/value_%d.png", value)))
 			if cardNum > 10 then
-				self._CardValue:setPosition(ccp(21, 154))
-				self._CardSType:setPosition(ccp(21, 110))
-				self._CardBType:setPosition(ccp(81, 91))
 				self._CardBType:setDisplayFrame(c:spriteFrameByName(string.format("pai/big_type2_%d.png", cardType)))
 			else
-				self._CardValue:setPosition(ccp(30, 154))
-				self._CardSType:setPosition(ccp(30, 110))
-				self._CardBType:setPosition(ccp(86, 58))
 				self._CardBType:setDisplayFrame(c:spriteFrameByName(string.format("pai/big_type1_%d.png", cardType)))
 			end
 			self._CardSType:setDisplayFrame(c:spriteFrameByName(string.format("pai/small_type_%d.png", cardType)))
@@ -89,7 +85,7 @@ function Card:setCardSp(idx, cardValue)
 			self._CardSType:setVisible(true)
 		end
     else
-        self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/cardback.png"))
+        self._CardSp:setDisplayFrame(c:spriteFrameByName("pai/back.png"))
         self._CardValue:setVisible(false)
         self._CardBType:setVisible(false)
         self._CardSType:setVisible(false)
@@ -124,15 +120,14 @@ end
 
 -- 牌隐藏
 function Card:Hide()
-	if self._canTouch == true then 
-		self:setVisible(false)
-		self._isSelete = false
-		self._isMark = false
-		self._CardSp:setColor(ccc3(255, 255, 255))
-		self._CardValue:setColor(ccc3(255, 255, 255))
-		self._CardBType:setColor(ccc3(255, 255, 255))
-		self._CardSType:setColor(ccc3(255, 255, 255))
-	end
+    self:setVisible(false)
+    self._isSelete = false
+    self._isMark = false
+	self._canTouch = true
+    self._CardSp:setColor(ccc3(255, 255, 255))
+    self._CardValue:setColor(ccc3(255, 255, 255))
+    self._CardBType:setColor(ccc3(255, 255, 255))
+    self._CardSType:setColor(ccc3(255, 255, 255))
 end
 
 -- 标记为选中
@@ -178,14 +173,12 @@ end
 
 -- 牌重置
 function Card:reset()
-	if self._canTouch == true then 
-		self:setMark(false)
-		self.offset = 20
-		if self._isSelete == true then
-			self._CardSp:setPositionY(self._CardSp:getPositionY() - self.offset )
-		end 
-		self._isSelete = false
-	end
+    self:setMark(false)
+	self.offset = 20
+	if self._isSelete == true then
+		self._CardSp:setPositionY(self._CardSp:getPositionY() - self.offset )
+	end 
+    self._isSelete = false
 end
 
 function Card:getCardValue()
@@ -206,10 +199,6 @@ function Card:setUnTouch()
     self._CardBType:setColor(ccc3(100, 100, 100))
     self._CardSType:setColor(ccc3(100, 100, 100))
 	self._canTouch = false
-end
-
-function Card:resetTouch()
-	self._canTouch = true
 end
 
 return Card

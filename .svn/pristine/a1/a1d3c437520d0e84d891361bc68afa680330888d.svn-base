@@ -330,16 +330,19 @@ function ResultLayer:setOneGameInfo(myDBID)
                 else
 					self.singlePlayerInfo[k].Mark:setDisplayFrame(c:spriteFrameByName("ui/title_lose.png"))
             end 
-			
+        end
+		for i = 1,3 do
+			local userinfo = userList[i]
 			local headSp
 			local faceSize = CCSizeMake(105,105)
-			headSp = require("FFSelftools/CCUserFace").create(v.nUserDBID, faceSize, v.cbSex)
-			if headSp == nil then
+			if userinfo then
+				headSp = require("FFSelftools/CCUserFace").create(id, faceSize, userinfo:getSex())
+			else
 				headSp = require("FFSelftools/CCUserFace").createDefault(_,faceSize)
 			end
 			headSp:setPosition(ccp(83,210))
-			self.singlePlayerInfo[k].bg:addChild(headSp)
-        end
+			self.singlePlayerInfo[i].bg:addChild(headSp)
+		end
 	
         self:show()
     elseif GameLogic.gameEnded then

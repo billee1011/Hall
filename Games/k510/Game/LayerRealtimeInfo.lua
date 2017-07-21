@@ -36,7 +36,7 @@ function LayerRealtimeInfo.refresh(self)
         self.signal:setVisible(false)
     end
     local infoString = CJni:shareJni():getRealTimeInfo()
-    if infoString ~= "" then
+    if infoString and infoString ~= "" then
         local info = json.decode(infoString)
         if info.BatteryLev then
             local t = math.abs(info.BatteryLev)
